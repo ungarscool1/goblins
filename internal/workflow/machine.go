@@ -263,9 +263,16 @@ func (m *machine) interrupt(to core.State, reason string, until time.Time) {
 	m.moveTo(to, reason)
 }
 
-func (m *machine) block(reason string) {
+func (m *machine) block(reason string) { m.blockWithDetail(reason, "") }
+
+// blockWithDetail adds detail to the ticket comment only: the reason is also stored on
+// the task and sent in notifications, which stay short.
+func (m *machine) blockWithDetail(reason, detail string) {
 	m.interrupt(core.StateBlocked, reason, time.Time{})
-	m.comment("Goblins is blocked: " + reason + "\n\nFix the cause, then a maintainer can comment `/goblins resume`.")
+	if detail != "" {
+		detail += "\n\n"
+	}
+	m.comment("Goblins is blocked: " + reason + "\n\n" + detail + "Fix the cause, then a maintainer can comment `/goblins resume`.")
 	m.notify(core.SeverityAction, "Task blocked", reason)
 }
 
@@ -767,14 +774,14 @@ func (m *machine) onValidateDone(o *core.JobOutcome) {
 
 func (m *machine) onValidationFailed(p ValidatePayload, rep core.ValidationReport) {
 	if p.Stage != StagePrePR {
-		m.block("validation failed on the pull request: " + rep.Summary)
+		m.blockWithDetail("validation failed on the pull request: "+rep.Summary, RenderFailedChecks(rep))
 		return
 	}
 	retry := ImplementPayload{Revision: m.t.DesignRevision, Hash: m.t.DesignHash, Feedback: RenderFailure(rep)}
 	if m.t.Loops["implement"] >= m.p.MaxImplementLoops {
 		// Not enqueued, but recorded: if a person resumes, this is the work to do.
 		m.t.CurrentJob = &core.JobDraft{Kind: JobImplement, IdempotencyKey: m.nextKey(JobImplement), Payload: mustJSON(retry), LimitKey: m.p.ImplementerLimitKey, MaxAttempts: 3}
-		m.block(fmt.Sprintf("validation still fails after %d implementation rounds: %s", m.p.MaxImplementLoops, rep.Summary))
+		m.blockWithDetail(fmt.Sprintf("validation still fails after %d implementation rounds: %s", m.p.MaxImplementLoops, rep.Summary), RenderFailedChecks(rep))
 		return
 	}
 	m.t.Loops["implement"]++
