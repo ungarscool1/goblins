@@ -33,3 +33,7 @@ image:
 
 mock: build
 	./bin/goblins serve --mock
+
+.PHONY: docker-test
+docker-test:
+	go test -tags docker -count=1 ./test/integration/...

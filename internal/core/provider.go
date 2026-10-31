@@ -51,6 +51,7 @@ const (
 	CapRuntimeNetworkNone    Capability = "runtime.network.none"
 	CapRuntimeNetworkEgress  Capability = "runtime.network.egress"
 	CapRuntimeResourceLimits Capability = "runtime.resources.limits"
+	CapRuntimeDiskLimits     Capability = "runtime.resources.disk"
 	CapRuntimeReadOnlyRoot   Capability = "runtime.security.read_only_root"
 	CapRuntimePrivileged     Capability = "runtime.security.privileged"
 	CapRuntimeGPU            Capability = "runtime.devices.gpu"

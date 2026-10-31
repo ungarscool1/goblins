@@ -157,44 +157,11 @@ func (r *Runtime) Info() core.ProviderInfo {
 	return i
 }
 
-// CheckSpec rejects specs that need capabilities rt does not advertise. It is
-// shared with real runtimes so they all refuse the same way.
-func CheckSpec(rt core.ExecutionRuntime, spec core.WorkloadSpec) error {
-	var req []core.Capability
-	if spec.Security.Privileged {
-		req = append(req, core.CapRuntimePrivileged)
-	}
-	if spec.Security.ReadOnlyRoot {
-		req = append(req, core.CapRuntimeReadOnlyRoot)
-	}
-	if spec.Security.GPU {
-		req = append(req, core.CapRuntimeGPU)
-	}
-	if spec.Security.KVM {
-		req = append(req, core.CapRuntimeKVM)
-	}
-	switch spec.Network {
-	case core.NetworkNone:
-		req = append(req, core.CapRuntimeNetworkNone)
-	case core.NetworkEgress:
-		req = append(req, core.CapRuntimeNetworkEgress)
-	default:
-		return core.Errorf(core.KindInvalid, "runtime.create", "workload %s has no network policy", spec.Name)
-	}
-	if len(spec.Mounts) > 0 {
-		req = append(req, core.CapRuntimeVolumes)
-	}
-	if spec.Resources != (core.Resources{}) {
-		req = append(req, core.CapRuntimeResourceLimits)
-	}
-	return core.Negotiate(rt, req...)
-}
-
 func (r *Runtime) Create(_ context.Context, spec core.WorkloadSpec) (core.WorkloadStatus, error) {
 	if spec.Name == "" {
 		return core.WorkloadStatus{}, core.Errorf(core.KindInvalid, "fake.runtime", "workload name required")
 	}
-	if err := CheckSpec(r, spec); err != nil {
+	if err := core.CheckWorkloadSpec(r, spec); err != nil {
 		return core.WorkloadStatus{}, err
 	}
 	r.mu.Lock()
