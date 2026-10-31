@@ -89,6 +89,7 @@ result() { printf '` + resultPrefix + `%s\n' "$1"; }
 
 // The askpass helper hands credentials to Git without placing them in a URL, an
 // argument or a file on a volume. /tmp is memory-backed and dies with the workload.
+//
 //nolint:gosec // a helper script that reads the credential from the environment
 const askpass = `tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
