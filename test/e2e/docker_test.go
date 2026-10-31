@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -176,7 +177,7 @@ projects:
 	deliver := func(event string, payload map[string]any) {
 		t.Helper()
 		payload["repository"] = map[string]any{"full_name": repo}
-		body, _ := jsonMarshal(payload)
+		body, _ := json.Marshal(payload)
 		req := httptest.NewRequest(http.MethodPost, "/webhooks/forge", strings.NewReader(string(body)))
 		req.Header.Set("X-GitHub-Event", event)
 		req.Header.Set("X-Hub-Signature-256", fakegithub.Sign(webhookSecret, body))

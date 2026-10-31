@@ -307,8 +307,6 @@ func (e *env) botComments() string {
 
 const implementerTools = "Edit,Write"
 
-var jsonMarshal = json.Marshal
-
 func (e *env) toDesign() {
 	e.t.Helper()
 	e.openIssue()
