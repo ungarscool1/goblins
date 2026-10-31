@@ -537,6 +537,9 @@ func (s *Store) ClaimJob(ctx context.Context, c core.JobClaim) (*core.Job, error
 			return err
 		}
 		for _, j := range candidates {
+			if j.Priority < c.MinPriority {
+				continue
+			}
 			if j.LimitKey != "" && !running.allows(j, c) {
 				continue
 			}
@@ -654,6 +657,12 @@ func (s *Store) SaveCheckpoint(ctx context.Context, jobID, owner string, attempt
 // RetryJob implements core.StateStore.
 func (s *Store) RetryJob(ctx context.Context, jobID, owner string, attempt int, notBefore time.Time, lastError string) error {
 	return s.leaseUpdate(ctx, "storage.retry", `UPDATE jobs SET state = ?, lease_owner = '', lease_until = 0, not_before = ?, last_error = ? WHERE id = ? AND lease_owner = ? AND attempt = ? AND state = ?`,
+		string(core.JobPending), nanos(notBefore), lastError, jobID, owner, attempt, string(core.JobRunning))
+}
+
+// RequeueInterruptedJob implements core.StateStore.
+func (s *Store) RequeueInterruptedJob(ctx context.Context, jobID, owner string, attempt int, notBefore time.Time, lastError string) error {
+	return s.leaseUpdate(ctx, "storage.requeue", `UPDATE jobs SET state = ?, lease_owner = '', lease_until = 0, not_before = ?, last_error = ?, max_attempts = max_attempts + 1 WHERE id = ? AND lease_owner = ? AND attempt = ? AND state = ?`,
 		string(core.JobPending), nanos(notBefore), lastError, jobID, owner, attempt, string(core.JobRunning))
 }
 
