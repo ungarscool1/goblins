@@ -66,8 +66,10 @@ Access to the Docker API is root-equivalent on that host. The orchestrator needs
 workers never get it. The Compose distribution puts a filtering proxy in between, on an
 internal network, which refuses unrelated API areas such as image builds, swarm, secrets and
 starting an exec. It filters by path and not by request body, so it reduces what a compromised
-orchestrator can do but does not contain it: it could still create a privileged container. For a
-stronger boundary, point the runtime at a remote engine dedicated to workers.
+orchestrator can do but does not contain it: it could still create a privileged container or
+mount host paths. So **do not share this engine with anything important**: run on a dedicated,
+disposable host or VM, or point the runtime at a remote engine dedicated to workers. Enforcing
+this rather than documenting it is tracked in #16.
 
 ## Known limitations
 

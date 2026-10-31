@@ -66,6 +66,9 @@ projects:
     base_branch: main
     validation: checks
     poll_interval: 10m
+    policy:
+      # Goblins ships no independent reviewer yet, so you are the review: it only opens drafts.
+      allow_skipped_review: true
     workspace:
       git_image: goblins-git:dev
       commit_name: Goblins

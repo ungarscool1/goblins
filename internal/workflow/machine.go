@@ -740,14 +740,20 @@ func (m *machine) onValidateDone(o *core.JobOutcome) {
 	}
 	var p ValidatePayload
 	_ = json.Unmarshal(m.t.CurrentJob.Payload, &p)
-	if rep.Status != core.ValidationPassed {
+	skipped := res.Skipped && rep.Status == core.ValidationSkipped
+	if rep.Status != core.ValidationPassed && !skipped {
 		m.onValidationFailed(p, rep)
 		return
 	}
-	m.t.ValidatedSHA = p.SHA
+	if !skipped {
+		m.t.ValidatedSHA = p.SHA // only a pass records this
+	}
 	if p.Stage == StagePrePR {
 		m.enqueueMain(JobPublish, PublishPayload{SHA: p.SHA, Revision: m.t.DesignRevision}, "", 5)
 		m.reason = "validation passed before publishing"
+		if skipped {
+			m.reason = "no validation configured, publishing an untested commit as allowed"
+		}
 		return
 	}
 	m.t.CurrentJob = nil

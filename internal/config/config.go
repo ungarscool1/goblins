@@ -124,6 +124,11 @@ type Policy struct {
 	QuotaPause           time.Duration `yaml:"quota_pause,omitempty"`
 	AuthPause            time.Duration `yaml:"auth_pause,omitempty"`
 	WebResearch          bool          `yaml:"web_research,omitempty"`
+	// AllowUnvalidatedDraftPR lets a project without validation open draft pull requests
+	// from commits nothing has tested. Without it, such a project is refused.
+	AllowUnvalidatedDraftPR bool `yaml:"allow_unvalidated_draft_pr,omitempty"`
+	// AllowSkippedReview lets a project without a reviewer go on without independent review.
+	AllowSkippedReview bool `yaml:"allow_skipped_review,omitempty"`
 }
 
 // WorkspaceConfig configures Git workspaces.
@@ -320,6 +325,12 @@ func (c *Config) Validate(known TypeChecker) error {
 		ref("validation", p.Validation, c.Validations, false)
 		ref("review", p.Review, c.Reviews, false)
 		ref("notification", p.Notification, c.Notifications, false)
+		if p.Validation == "" && !p.Policy.AllowUnvalidatedDraftPR {
+			add("projects[%d].validation: required, unless policy.allow_unvalidated_draft_pr accepts pull requests from untested commits", i)
+		}
+		if p.Review == "" && !p.Policy.AllowSkippedReview {
+			add("projects[%d].review: required, unless policy.allow_skipped_review accepts going without independent review", i)
+		}
 		for j, es := range p.EventSource {
 			ref(fmt.Sprintf("event_sources[%d]", j), es, c.EventSources, true)
 		}
