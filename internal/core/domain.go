@@ -2,6 +2,7 @@ package core
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"strings"
 	"time"
@@ -98,8 +99,8 @@ func (i Issue) RequirementsHash() string {
 func Digest(parts ...string) string {
 	h := sha256.New()
 	for _, p := range parts {
+		_ = binary.Write(h, binary.BigEndian, uint64(len(p)))
 		h.Write([]byte(p))
-		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
