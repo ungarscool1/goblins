@@ -200,6 +200,36 @@ func (s *Server) AddLabel(repo string, n int64, label string, actor User) {
 	r.events = append(r.events, issueEvent{Event: "labeled", Actor: actor, Label: Label{Name: label}, Issue: &cp, CreatedAt: now})
 }
 
+// AddPullRequest opens a pull request, for tests of events about it.
+func (s *Server) AddPullRequest(repo, title string, author User) PullRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := s.repo(repo)
+	r.nextNum++
+	p := &PullRequest{Number: r.nextNum, ID: s.nextID(), Title: title, State: "open", User: author, UpdatedAt: s.Now().UTC().Truncate(time.Second)}
+	r.pulls[p.Number] = p
+	return *p
+}
+
+// SetPullRequestUpdated sets when a pull request last changed.
+func (s *Server) SetPullRequestUpdated(repo string, n int64, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.repo(repo).pulls[n].UpdatedAt = at
+}
+
+// EditComment changes a comment's text.
+func (s *Server) EditComment(repo string, n, id int64, body string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, c := range s.repo(repo).comments[n] {
+		if c.ID == id {
+			c.Body = body
+			c.UpdatedAt = s.Now().UTC().Truncate(time.Second)
+		}
+	}
+}
+
 // AddComment posts a comment as an actor.
 func (s *Server) AddComment(repo string, n int64, author User, body string) Comment {
 	s.mu.Lock()
@@ -231,6 +261,24 @@ func (s *Server) GetIssue(repo string, n int64) Issue {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return *s.repo(repo).issues[n]
+}
+
+// writePage serves one page of a listing, with the Link header GitHub would send.
+func writePage[T any](w http.ResponseWriter, r *http.Request, all []T) {
+	perPage, page := 30, 1
+	if v, err := strconv.Atoi(r.URL.Query().Get("per_page")); err == nil && v > 0 {
+		perPage = min(v, 100)
+	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && v > 0 {
+		page = v
+	}
+	from, to := min((page-1)*perPage, len(all)), min(page*perPage, len(all))
+	if to < len(all) {
+		q := r.URL.Query()
+		q.Set("page", strconv.Itoa(page+1))
+		w.Header().Set("Link", fmt.Sprintf(`<http://%s%s?%s>; rel="next"`, r.Host, r.URL.Path, q.Encode()))
+	}
+	writeJSON(w, 200, all[from:to])
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -389,7 +437,7 @@ func (s *Server) routeIssues(w http.ResponseWriter, r *http.Request, repo string
 				out = append(out, map[string]any{"number": p.Number, "title": p.Title, "state": p.State, "user": p.User, "pull_request": map[string]string{"url": "x"}, "updated_at": p.UpdatedAt, "created_at": p.UpdatedAt})
 			}
 		}
-		writeJSON(w, 200, out)
+		writePage(w, r, out)
 	case len(seg) == 2 && seg[1] == "comments" && r.Method == http.MethodGet:
 		out := []*Comment{}
 		for _, n := range sortedKeys(st.comments) {
@@ -399,9 +447,12 @@ func (s *Server) routeIssues(w http.ResponseWriter, r *http.Request, repo string
 				}
 			}
 		}
-		writeJSON(w, 200, out)
+		slices.SortStableFunc(out, func(a, b *Comment) int { return a.UpdatedAt.Compare(b.UpdatedAt) })
+		writePage(w, r, out)
 	case len(seg) == 2 && seg[1] == "events" && r.Method == http.MethodGet:
-		writeJSON(w, 200, st.events)
+		out := slices.Clone(st.events)
+		slices.Reverse(out) // newest first, as the real endpoint does
+		writePage(w, r, out)
 	case len(seg) >= 2:
 		n, err := strconv.ParseInt(seg[1], 10, 64)
 		if err != nil {
@@ -410,7 +461,12 @@ func (s *Server) routeIssues(w http.ResponseWriter, r *http.Request, repo string
 		}
 		i, ok := st.issues[n]
 		if !ok {
-			if _, isPR := st.pulls[n]; !isPR || len(seg) != 3 || seg[2] != "comments" {
+			p, isPR := st.pulls[n]
+			if isPR && len(seg) == 2 && r.Method == http.MethodGet {
+				writeJSON(w, 200, map[string]any{"number": p.Number, "title": p.Title, "state": p.State, "user": p.User, "pull_request": map[string]string{"url": "x"}})
+				return
+			}
+			if !isPR || len(seg) != 3 || seg[2] != "comments" {
 				fail(w, 404, "no issue")
 				return
 			}
@@ -439,7 +495,7 @@ func (s *Server) routeIssue(w http.ResponseWriter, r *http.Request, repo string,
 				out = append(out, c)
 			}
 		}
-		writeJSON(w, 200, out)
+		writePage(w, r, out)
 	case seg[0] == "comments" && r.Method == http.MethodPost:
 		var body struct {
 			Body string `json:"body"`

@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -170,6 +171,13 @@ func (c *Client) do(ctx context.Context, bearer, method, path string, in, out an
 
 var linkNext = regexp.MustCompile(`<([^>]+)>;\s*rel="next"`)
 
+// errListTruncated reports a listing longer than the page bound. Treating what was
+// read as complete could lose events and repeat comments, so callers must handle it.
+var errListTruncated = core.Errorf(core.KindTransient, "github.list", "the listing has more than %d pages", maxPages)
+
+// errStopList lets a visitor end a listing early, once the rest cannot matter.
+var errStopList = errors.New("stop listing")
+
 // list follows pagination up to a bound, appending decoded pages through add.
 func (c *Client) list(ctx context.Context, repo, path string, add func(json.RawMessage) error) error {
 	tok, _, err := c.Token(ctx, repo)
@@ -185,6 +193,9 @@ func (c *Client) list(ctx context.Context, repo, path string, add func(json.RawM
 		}
 		for _, item := range page {
 			if err := add(item); err != nil {
+				if errors.Is(err, errStopList) {
+					return nil
+				}
 				return err
 			}
 		}
@@ -198,7 +209,7 @@ func (c *Client) list(ctx context.Context, repo, path string, add func(json.RawM
 		}
 		next = m[1]
 	}
-	return nil
+	return errListTruncated
 }
 
 func (c *Client) request(ctx context.Context, bearer, method, target string, in, out any) (http.Header, error) {
