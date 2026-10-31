@@ -305,6 +305,13 @@ func Register(r *providers.Registry) {
 		}
 		return NewTracker(name, c), nil
 	})
+	r.Register(providers.KindSCM, typeName, func(name string, deps providers.Deps, opts providers.Options) (any, error) {
+		c, err := clientFromOptions(deps, opts)
+		if err != nil {
+			return nil, err
+		}
+		return NewSCM(name, c, opts.String("git_url")), nil
+	})
 	r.Register(providers.KindEventSource, typeName, func(name string, deps providers.Deps, opts providers.Options) (any, error) {
 		return sourceFromOptions(name, deps, opts)
 	})

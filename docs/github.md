@@ -85,3 +85,17 @@ polling can run together, since one fact has one identity and is processed once.
 - Comments by Bot accounts never trigger work, which is what prevents loops.
 - Comment idempotency markers only count on comments by Bot accounts, so a person
   cannot suppress a comment by pasting a marker.
+
+## Pull requests
+
+- Work is pushed to `goblins/<task-id>`, never to a default or protected branch and never
+  with force. A diverged branch blocks the task rather than overwriting anything.
+- One head has one open pull request. Later iterations update it.
+- Pull requests are opened as drafts. On a private repository whose plan lacks draft pull
+  requests, GitHub refuses them, and the task becomes `blocked` with that reason.
+- A missing permission blocks the task and names the cause. Work stays on its branch.
+- Goblins never merges in P0. It also never submits an approving review, which could
+  otherwise satisfy branch protection by itself: an approval verdict is posted as a comment.
+- Asking another service's bot for a review by comment, such as `@codex review`, is not
+  implemented. It has not been verified that a bot comment triggers one, so review goes
+  through the provider-independent review stage (#13, #19).
