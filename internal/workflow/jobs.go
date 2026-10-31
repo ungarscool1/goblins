@@ -6,6 +6,7 @@ package workflow
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/ungarscool1/goblins/internal/core"
 )
@@ -98,6 +99,14 @@ type ReviewResult struct {
 // CommentPayload is a message for the ticket conversation.
 type CommentPayload struct {
 	Body string `json:"body"`
+}
+
+// CommentResult reports where a message went. PostedAt is the tracker's own timestamp,
+// comparable to the timestamps on people's replies regardless of clock skew. It is unset
+// when the message went through another channel.
+type CommentResult struct {
+	Via      string    `json:"via"`
+	PostedAt time.Time `json:"posted_at,omitzero"`
 }
 
 // NotifyPayload is a message for operators.

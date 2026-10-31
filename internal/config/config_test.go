@@ -69,6 +69,8 @@ func TestRejections(t *testing.T) {
 		{"missing type", "version: 1\nagents: {a: {}}", "agents.a.type: required"},
 		{"inline secret", "version: 1\ntrackers: {t: {type: fake, options: {api_token: abc}}}", "inline secrets"},
 		{"nested inline secret", "version: 1\ntrackers: {t: {type: fake, options: {auth: {password: abc}}}}", "inline secrets"},
+		{"reserved source name", "version: 1\nevent_sources: {operator: {type: fake}}", "reserved"},
+		{"weak approval permission", strings.Replace(valid, "repository: acme/demo", "repository: acme/demo\n    policy: {min_approve_permission: triage}", 1), "approval needs at least write"},
 		{"bad storage", "version: 1\nstorage: {driver: mongo}", "unknown driver"},
 		{"postgres dsn", "version: 1\nstorage: {driver: postgres}", "dsn_env"},
 		{"bad level", "version: 1\nlog: {level: loud}", "invalid log level"},

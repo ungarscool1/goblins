@@ -63,10 +63,18 @@ func (s *Server) SetCheckRun(repo, sha, name, status, conclusion string) {
 	st.checks[sha] = append(st.checks[sha], map[string]any{"name": name, "status": status, "conclusion": conclusion, "html_url": "https://ci.example/" + name})
 }
 
+func (s *Server) branch(repo string, st *repoState, name string) (string, bool) {
+	if s.BranchLookup != nil {
+		return s.BranchLookup(repo, name)
+	}
+	sha, ok := st.branches[name]
+	return sha, ok
+}
+
 func (s *Server) routeSCM(w http.ResponseWriter, r *http.Request, repo string, st *repoState, seg []string) bool {
 	switch {
 	case seg[0] == "branches" && len(seg) == 2 && r.Method == http.MethodGet:
-		sha, ok := st.branches[seg[1]]
+		sha, ok := s.branch(repo, st, seg[1])
 		if !ok {
 			fail(w, 404, "Branch not found")
 			return true
@@ -119,12 +127,13 @@ func (s *Server) routePulls(w http.ResponseWriter, r *http.Request, repo string,
 			Draft bool   `json:"draft"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&b)
-		sha, ok := st.branches[b.Head]
+		sha, ok := s.branch(repo, st, b.Head)
 		if !ok {
 			fail(w, 422, "Validation Failed: head does not exist")
 			return
 		}
-		if _, ok := st.branches[b.Base]; !ok {
+		baseSHA, ok := s.branch(repo, st, b.Base)
+		if !ok {
 			fail(w, 422, "Validation Failed: base does not exist")
 			return
 		}
@@ -135,7 +144,7 @@ func (s *Server) routePulls(w http.ResponseWriter, r *http.Request, repo string,
 			}
 		}
 		st.nextNum++
-		p := &PullRequest{Number: st.nextNum, ID: s.nextID(), Title: b.Title, Body: b.Body, State: "open", Draft: b.Draft, User: BotUser, Head: gitRef{Ref: b.Head, SHA: sha}, Base: gitRef{Ref: b.Base, SHA: st.branches[b.Base]},
+		p := &PullRequest{Number: st.nextNum, ID: s.nextID(), Title: b.Title, Body: b.Body, State: "open", Draft: b.Draft, User: BotUser, Head: gitRef{Ref: b.Head, SHA: sha}, Base: gitRef{Ref: b.Base, SHA: baseSHA},
 			HTMLURL: fmt.Sprintf("https://github.example/%s/pull/%d", repo, st.nextNum), UpdatedAt: now}
 		st.pulls[p.Number] = p
 		writeJSON(w, 201, p)
@@ -146,7 +155,7 @@ func (s *Server) routePulls(w http.ResponseWriter, r *http.Request, repo string,
 			fail(w, 404, "no pull request")
 			return
 		}
-		p.Head.SHA = st.branches[p.Head.Ref]
+		p.Head.SHA, _ = s.branch(repo, st, p.Head.Ref)
 		switch {
 		case len(seg) == 2 && r.Method == http.MethodGet:
 			writeJSON(w, 200, p)

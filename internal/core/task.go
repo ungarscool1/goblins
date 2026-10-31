@@ -65,6 +65,8 @@ type Task struct {
 	Title            string `json:"title,omitempty"`
 	RequirementsHash string `json:"requirements_hash,omitempty"`
 
+	// DesignCommentKey identifies the comment that published the current revision.
+	DesignCommentKey string    `json:"design_comment_key,omitempty"`
 	DesignRevision   int       `json:"design_revision,omitempty"`
 	DesignHash       string    `json:"design_hash,omitempty"`
 	DesignProposedAt time.Time `json:"design_proposed_at,omitzero"`

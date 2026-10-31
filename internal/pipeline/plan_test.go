@@ -1,10 +1,12 @@
 package pipeline
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/ungarscool1/goblins/internal/core"
+	"github.com/ungarscool1/goblins/internal/workflow"
 )
 
 func block(s string) string { return "reasoning\n```goblins-plan\n" + s + "\n```\n" }
@@ -90,5 +92,40 @@ func TestImplementerPromptFeedbackForbidsWeakeningTests(t *testing.T) {
 	p := ImplementerPrompt(core.Issue{}, core.Design{}, "FAIL: x")
 	if !strings.Contains(p, "FAIL: x") || !strings.Contains(p, "Do not weaken") {
 		t.Fatal(p)
+	}
+}
+
+// Prompts must always survive the trip through one environment variable, and a design must
+// always fit in one tracker comment, whatever people and models produce.
+func TestSizeLimitsHold(t *testing.T) {
+	huge := strings.Repeat("x", 1<<20)
+	var comments []core.Comment
+	for i := range 200 {
+		comments = append(comments, core.Comment{Author: core.Actor{Login: "a", Type: core.ActorHuman}, Body: huge[:4000] + "comment-" + strings.Repeat("y", i%3)})
+	}
+	comments = append(comments, core.Comment{Author: core.Actor{Login: "a", Type: core.ActorHuman}, Body: "the newest comment"})
+	p := PlannerPrompt(core.Issue{Title: "t", Body: huge}, comments, 0, "x")
+	if len(p) > maxPromptBytes {
+		t.Fatalf("planner prompt = %d bytes", len(p))
+	}
+	if !strings.Contains(p, "the newest comment") || !strings.Contains(p, "older comments are not repeated") {
+		t.Fatal("the newest comment must survive truncation, and truncation must be stated")
+	}
+	if len(p) >= 128<<10 {
+		t.Fatal("exceeds the kernel limit")
+	}
+
+	field := strings.Repeat("d", maxDesignField)
+	doc := fmt.Sprintf(`{"design":{"scope":%[1]q,"architecture":%[1]q,"alternatives":%[1]q,"constraints":%[1]q,"implementation_plan":%[1]q,"tests":%[1]q,"security":%[1]q,"out_of_scope":%[1]q}}`, field)
+	_, design, err := ParsePlan(block(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rendered := workflow.RenderDesign(1, strings.Repeat("a", 64), design, "/approve-design"); len(rendered) > 65536 {
+		t.Fatalf("design comment = %d bytes, trackers allow 65536", len(rendered))
+	}
+	impl := ImplementerPrompt(core.Issue{Title: "t", Body: huge}, core.Design{Body: design}, "")
+	if len(impl) > maxPromptBytes {
+		t.Fatalf("implementer prompt = %d bytes", len(impl))
 	}
 }
