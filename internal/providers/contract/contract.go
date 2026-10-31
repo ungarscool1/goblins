@@ -230,9 +230,10 @@ func SourceControl(t *testing.T, build func(t *testing.T) SCMHarness) {
 
 // EventSourceHarness supplies an event source and valid/invalid deliveries.
 type EventSourceHarness struct {
-	Source core.EventSource
-	Valid  core.WebhookRequest
-	Forged core.WebhookRequest
+	Container string
+	Source    core.EventSource
+	Valid     core.WebhookRequest
+	Forged    core.WebhookRequest
 	// Emit makes a signal available for the next Poll, when polling is supported.
 	Emit func(t *testing.T)
 }
@@ -269,18 +270,18 @@ func EventSource(t *testing.T, build func(t *testing.T) EventSourceHarness) {
 	t.Run("poll cursor advances", func(t *testing.T) {
 		h := build(t)
 		if !h.Source.Info().Has(core.CapEventsPoll) {
-			_, err := h.Source.Poll(ctx, core.PollRequest{})
+			_, err := h.Source.Poll(ctx, core.PollRequest{Container: h.Container})
 			wantKind(t, err, core.KindUnsupported)
 			return
 		}
 		h.Emit(t)
-		first, err := h.Source.Poll(ctx, core.PollRequest{})
+		first, err := h.Source.Poll(ctx, core.PollRequest{Container: h.Container, Since: time.Now().Add(-time.Hour)})
 		if err != nil || len(first.Events) == 0 || first.NextCursor == "" {
 			t.Fatalf("poll = %+v, %v", first, err)
 		}
 		// A source may re-report events after the cursor: the dedup key keeps
 		// that harmless, so only the call's success is part of the contract.
-		if _, err := h.Source.Poll(ctx, core.PollRequest{Cursor: first.NextCursor}); err != nil {
+		if _, err := h.Source.Poll(ctx, core.PollRequest{Container: h.Container, Cursor: first.NextCursor}); err != nil {
 			t.Fatal(err)
 		}
 	})
