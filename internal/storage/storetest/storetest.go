@@ -325,6 +325,40 @@ func Run(t *testing.T, build func(t *testing.T) core.StateStore) {
 		}
 	})
 
+	t.Run("a minimum priority leaves other jobs alone", func(t *testing.T) {
+		s := build(t)
+		addTask(t, s, "t", core.JobDraft{Kind: "w", IdempotencyKey: "low"}, core.JobDraft{Kind: "w", IdempotencyKey: "high", Priority: 10})
+		c := core.JobClaim{Owner: "w", LeaseFor: time.Minute, Now: t0, MinPriority: 1}
+		j, err := s.ClaimJob(ctx, c)
+		if err != nil || j == nil || j.IdempotencyKey != "high" {
+			t.Fatalf("claim = %+v, %v", j, err)
+		}
+		if j, err := s.ClaimJob(ctx, c); err != nil || j != nil {
+			t.Fatalf("second claim = %+v, %v", j, err)
+		}
+	})
+
+	t.Run("an interruption does not use up the job's budget", func(t *testing.T) {
+		s := build(t)
+		addTask(t, s, "t", core.JobDraft{Kind: "w", IdempotencyKey: "k", MaxAttempts: 2})
+		c := core.JobClaim{Owner: "w", LeaseFor: time.Minute, Now: t0}
+		for attempt := 1; attempt <= 3; attempt++ {
+			j, err := s.ClaimJob(ctx, c)
+			if err != nil || j == nil {
+				t.Fatalf("claim %d = %+v, %v", attempt, j, err)
+			}
+			if j.Attempt != attempt || j.MaxAttempts != attempt+1 {
+				t.Fatalf("attempt %d of %d, want %d of %d", j.Attempt, j.MaxAttempts, attempt, attempt+1)
+			}
+			if err := s.RequeueInterruptedJob(ctx, j.ID, "w", j.Attempt, t0, "shutdown"); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.RequeueInterruptedJob(ctx, j.ID, "w", j.Attempt, t0, "shutdown"); !core.IsKind(err, core.KindConflict) {
+				t.Fatalf("stale requeue = %v, want a conflict", err)
+			}
+		}
+	})
+
 	t.Run("priority wins", func(t *testing.T) {
 		s := build(t)
 		addTask(t, s, "t", core.JobDraft{Kind: "w", IdempotencyKey: "low"}, core.JobDraft{Kind: "w", IdempotencyKey: "high", Priority: 10})
