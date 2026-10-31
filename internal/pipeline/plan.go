@@ -11,12 +11,24 @@ import (
 	"github.com/ungarscool1/goblins/internal/core"
 )
 
-// Output limits keep a misbehaving model from flooding the conversation.
+// Size limits. Prompts travel in one environment variable, and Linux caps a single one at
+// 128 KiB. A rendered design must also fit one tracker comment, commonly limited to 65536
+// characters, with its header and footer. Eight sections at the field limit fit in both.
 const (
 	maxQuestions    = 10
 	maxQuestionSize = 2000
-	maxDesignField  = 20000
+	maxDesignField  = 7000
+	maxTicketBytes  = 24 << 10
+	maxCommentBytes = 8 << 10
+	maxPromptBytes  = 110 << 10
 )
+
+func capText(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "\n[... truncated ...]"
+}
 
 const plannerSystem = `You are the planning stage of an automated software engineering workflow.
 You investigate and propose; you never implement anything in this stage.
@@ -75,17 +87,34 @@ func PlannerPrompt(issue core.Issue, comments []core.Comment, withheld int, trig
 	nonce := newNonce()
 	var b strings.Builder
 	fmt.Fprintf(&b, "Investigate this work item. Reason this round started: %s.\n\n", trigger)
-	b.WriteString(dataBlock("ticket", nonce, "Title: "+issue.Title+"\n\n"+issue.Body))
+	b.WriteString(dataBlock("ticket", nonce, capText("Title: "+issue.Title+"\n\n"+issue.Body, maxTicketBytes)))
 	b.WriteString("\n\n")
-	if len(comments) > 0 {
+	// When the conversation exceeds the budget the oldest entries go first: the newest
+	// are what the planner must respond to, and a resumed session remembers the rest.
+	budget := maxPromptBytes - b.Len() - 2048
+	var kept []string
+	dropped := 0
+	for i := len(comments) - 1; i >= 0; i-- {
+		c := comments[i]
+		role := "participant"
+		if c.Own {
+			role = "this workflow"
+		}
+		entry := dataBlock(role+" "+c.Author.Login, nonce, capText(c.Body, maxCommentBytes)) + "\n\n"
+		if len(entry) > budget {
+			dropped = i + 1
+			break
+		}
+		budget -= len(entry)
+		kept = append(kept, entry)
+	}
+	if len(kept) > 0 {
 		b.WriteString("Conversation so far, oldest first:\n\n")
-		for _, c := range comments {
-			role := "participant"
-			if c.Own {
-				role = "this workflow"
-			}
-			b.WriteString(dataBlock(role+" "+c.Author.Login, nonce, c.Body))
-			b.WriteString("\n\n")
+		if dropped > 0 {
+			fmt.Fprintf(&b, "(%d older comments are not repeated here.)\n\n", dropped)
+		}
+		for i := len(kept) - 1; i >= 0; i-- {
+			b.WriteString(kept[i])
 		}
 	}
 	if withheld > 0 {
@@ -102,7 +131,7 @@ func ImplementerPrompt(issue core.Issue, design core.Design, feedback string) st
 	nonce := newNonce()
 	var b strings.Builder
 	fmt.Fprintf(&b, "Implement design revision %d.\n\n", design.Revision)
-	b.WriteString(dataBlock("ticket", nonce, "Title: "+issue.Title+"\n\n"+issue.Body))
+	b.WriteString(dataBlock("ticket", nonce, capText("Title: "+issue.Title+"\n\n"+issue.Body, maxTicketBytes)))
 	b.WriteString("\n\n")
 	b.WriteString(dataBlock("approved design", nonce, design.Body))
 	b.WriteString("\n\nThe repository is in the working directory, and your changes are committed for you. Include tests.")

@@ -70,6 +70,8 @@ func TestRejections(t *testing.T) {
 		{"missing type", "version: 1\nagents: {a: {}}", "agents.a.type: required"},
 		{"inline secret", "version: 1\ntrackers: {t: {type: fake, options: {api_token: abc}}}", "inline secrets"},
 		{"nested inline secret", "version: 1\ntrackers: {t: {type: fake, options: {auth: {password: abc}}}}", "inline secrets"},
+		{"reserved source name", "version: 1\nevent_sources: {operator: {type: fake}}", "reserved"},
+		{"weak approval permission", strings.Replace(valid, "allow_skipped_review: true", "allow_skipped_review: true, min_approve_permission: triage", 1), "approval needs at least write"},
 		{"inline secret in a sequence", "version: 1\ntrackers: {t: {type: fake, options: {accounts: [{password: abc}]}}}", "inline secrets"},
 		{"inline secrets as a sequence", "version: 1\ntrackers: {t: {type: fake, options: {tokens: [abc]}}}", "inline secrets"},
 		{"inline secret in nested sequences", "version: 1\ntrackers: {t: {type: fake, options: {a: [[{api_key: abc}]]}}}", "inline secrets"},

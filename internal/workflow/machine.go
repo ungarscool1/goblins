@@ -239,9 +239,12 @@ func (m *machine) enqueuePlan(trigger string) {
 	m.enqueueMain(JobPlan, PlanPayload{Trigger: trigger}, m.p.PlannerLimitKey, 3)
 }
 
-func (m *machine) comment(body string) {
-	m.jobs = append(m.jobs, core.JobDraft{Kind: JobComment, IdempotencyKey: m.nextKey(JobComment), Payload: mustJSON(CommentPayload{Body: body}), Priority: 10, MaxAttempts: 10})
+// comment enqueues a message and returns its job key.
+func (m *machine) comment(body string) string {
+	key := m.nextKey(JobComment)
+	m.jobs = append(m.jobs, core.JobDraft{Kind: JobComment, IdempotencyKey: key, Payload: mustJSON(CommentPayload{Body: body}), Priority: 10, MaxAttempts: 10})
 	m.changed = true
+	return key
 }
 
 func (m *machine) notify(sev core.Severity, title, body string) {
@@ -611,6 +614,15 @@ func (m *machine) onJobFinished() {
 }
 
 func (m *machine) onSideJob(o *core.JobOutcome) {
+	if o.OK && o.Kind == JobComment && o.Key == m.t.DesignCommentKey {
+		if res, ok := decode[CommentResult](o); ok && !res.PostedAt.IsZero() {
+			m.t.DesignProposedAt = res.PostedAt
+			m.t.DesignCommentKey = ""
+			m.changed = true
+			m.reason = "design comment posted"
+			return
+		}
+	}
 	if o.OK || o.Kind != JobComment {
 		m.ignore("side job finished")
 		return
@@ -686,9 +698,10 @@ func (m *machine) onPlanDone(o *core.JobOutcome) {
 		m.t.Approval = nil
 		m.design = &core.Design{TaskID: m.t.ID, Revision: m.t.DesignRevision, Hash: hash, Body: res.Design, CreatedAt: m.f.Now}
 	}
-	// Approvals must come after this moment, which is when the revision became visible.
+	// Approvals must come after this moment. Once the comment is posted, this is replaced
+	// by the tracker's own timestamp for it, the same clock replies are stamped with.
 	m.t.DesignProposedAt = m.f.Now
-	m.comment(RenderDesign(m.t.DesignRevision, hash, res.Design, m.p.ApproveCommand))
+	m.t.DesignCommentKey = m.comment(RenderDesign(m.t.DesignRevision, hash, res.Design, m.p.ApproveCommand))
 	m.moveTo(core.StateDesignProposed, fmt.Sprintf("design revision %d proposed", m.t.DesignRevision))
 }
 

@@ -1,0 +1,55 @@
+#!/bin/sh
+# Fake Claude CLI for the acceptance test: same flags and stream format, no network, no
+# tokens. It behaves like the planner or implementer depending on the tools it was granted.
+# A file named `scenario` in the config directory can make it misbehave.
+mkdir -p "$CLAUDE_CONFIG_DIR"
+scenario=$(cat "$CLAUDE_CONFIG_DIR/scenario" 2>/dev/null || true)
+printf 'ARGS %s\nENV API_KEY=[%s] AUTH_TOKEN=[%s] GITPW=[%s]\n' "$*" "${ANTHROPIC_API_KEY:-}" "${ANTHROPIC_AUTH_TOKEN:-}" "${GIT_PASSWORD:-}" >> "$CLAUDE_CONFIG_DIR/invocations"
+socket=no
+[ -e /var/run/docker.sock ] && socket=yes
+printf 'WHO uid=%s socket=%s\n' "$(id -u)" "$socket" >> "$CLAUDE_CONFIG_DIR/invocations"
+
+case "$1" in
+  --help) echo "--restricted --strict-mcp-config --tools --allowedTools --permission-mode --output-format --resume"; exit 0 ;;
+  auth)
+    if [ "$scenario" = login_expired ]; then echo '{"loggedIn":false}'; exit 1; fi
+    echo '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}'; exit 0 ;;
+esac
+
+prompt=$(cat)
+printf '=== %s\n' "$prompt" >> "$CLAUDE_CONFIG_DIR/prompts"
+session="session-$$"
+prev=""
+for a in "$@"; do
+  [ "$prev" = "--resume" ] && session="$a"
+  prev="$a"
+done
+printf '{"type":"system","subtype":"init","session_id":"%s","apiKeySource":"none"}\n' "$session"
+
+if [ "$scenario" = login_expired ]; then
+  printf '{"type":"result","subtype":"success","is_error":true,"result":"Please run /login","session_id":"%s"}\n' "$session"
+  exit 1
+fi
+if [ "$scenario" = quota ]; then
+  printf '{"type":"result","subtype":"success","is_error":true,"result":"Claude usage limit reached","session_id":"%s"}\n' "$session"
+  exit 1
+fi
+
+case "$*" in
+  *Edit,Write*)
+    if [ "$scenario" = never_fixes ] || ! printf '%s' "$prompt" | grep -q 'checks failed'; then
+      echo buggy > feature.txt
+    else
+      echo fixed > feature.txt
+    fi
+    printf '{"type":"assistant","session_id":"%s","message":{"content":[{"type":"tool_use","name":"Write"}]}}\n' "$session"
+    printf '{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"%s"}\n' "$session"
+    ;;
+  *)
+    if printf '%s' "$prompt" | grep -q 'Postgres'; then
+      printf '{"type":"result","subtype":"success","is_error":false,"session_id":"%s","result":"Here is the plan.\\n```goblins-plan\\n{\\"design\\":{\\"scope\\":\\"Add the feature\\",\\"architecture\\":\\"Simple\\",\\"alternatives\\":\\"None\\",\\"constraints\\":\\"Postgres\\",\\"implementation_plan\\":\\"Write feature.txt\\",\\"tests\\":\\"Check it\\",\\"security\\":\\"None\\",\\"out_of_scope\\":\\"Everything else\\"}}\\n```"}\n' "$session"
+    else
+      printf '{"type":"result","subtype":"success","is_error":false,"session_id":"%s","result":"```goblins-plan\\n{\\"questions\\":[\\"Which database should it use?\\"]}\\n```"}\n' "$session"
+    fi
+    ;;
+esac
