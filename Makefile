@@ -36,7 +36,7 @@ mock: build
 
 .PHONY: docker-test
 docker-test:
-	go test -tags docker -count=1 ./test/integration/...
+	go test -tags docker -count=1 ./test/integration/... ./test/e2e/...
 
 .PHONY: compose-smoke
 compose-smoke:

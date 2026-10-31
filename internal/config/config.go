@@ -283,7 +283,8 @@ func (c *Config) Validate(known TypeChecker) error {
 			if !nameRE.MatchString(name) {
 				add("%s: invalid instance name", path)
 			}
-			if name == "operator" || name == "engine" {
+			// These mark events as coming from the operator or the engine itself.
+			if s.kind == providers.KindEventSource && (name == "operator" || name == "engine") {
 				add("%s: this instance name is reserved", path)
 			}
 			if p.Type == "" {

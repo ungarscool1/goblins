@@ -89,8 +89,10 @@ type Server struct {
 	TokenRepos [][]string
 	// FailNext makes the next matching request return this status once.
 	failNext map[string]int
-	// DenyWrites makes mutating calls to pull requests return 403.
+	// DenyPullRequests makes mutating calls to pull requests return 403.
 	DenyPullRequests bool
+	// BranchLookup, when set, answers branch heads, so a real Git remote can back them.
+	BranchLookup func(repo, branch string) (string, bool)
 }
 
 type tokenInfo struct {

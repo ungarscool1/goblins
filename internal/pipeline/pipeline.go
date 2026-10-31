@@ -526,10 +526,11 @@ func (p *Pipeline) comment(ctx context.Context, jc scheduler.JobContext) (any, e
 		return nil, err
 	}
 	draft := core.CommentDraft{IdempotencyKey: jc.Job.IdempotencyKey, Body: payload.Body}
+	var posted core.Comment
 	if jc.Task.Subject.Kind == core.SubjectPullRequest {
 		err = pr.SCM.PostPullRequestComment(ctx, pr.Repo, jc.Task.Subject.ExternalID, draft)
 	} else {
-		_, err = pr.Tracker.PostComment(ctx, issueRef(jc.Task), draft)
+		posted, err = pr.Tracker.PostComment(ctx, issueRef(jc.Task), draft)
 	}
 	if core.IsKind(err, core.KindUnsupported) && pr.Notification != nil {
 		note := core.Notification{IdempotencyKey: jc.Job.IdempotencyKey, Project: pr.ID, Subject: jc.Task.Subject, Severity: core.SeverityAction,
@@ -537,12 +538,12 @@ func (p *Pipeline) comment(ctx context.Context, jc scheduler.JobContext) (any, e
 		if nerr := pr.Notification.Notify(ctx, note); nerr != nil {
 			return nil, nerr
 		}
-		return map[string]string{"via": "notification"}, nil
+		return workflow.CommentResult{Via: "notification"}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return map[string]string{"via": "tracker"}, nil
+	return workflow.CommentResult{Via: "tracker", PostedAt: posted.CreatedAt}, nil
 }
 
 func (p *Pipeline) notify(ctx context.Context, jc scheduler.JobContext) (any, error) {

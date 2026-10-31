@@ -545,6 +545,42 @@ func TestEveryBlockCanBeResumed(t *testing.T) {
 	}
 }
 
+// Tracker timestamps are often whole seconds, and the tracker's clock may disagree with
+// ours. A legitimate approval must not be refused for either reason, and an approval
+// written before the design appeared must still be.
+func TestApprovalTimingUsesTheTrackersClock(t *testing.T) {
+	p := DefaultPolicy()
+	tk := at(core.StateInvestigating, JobPlan)
+	// Our clock runs a minute ahead of the tracker's.
+	ours := t0.Add(time.Minute)
+	d := Decide(tk, finished(tk, true, "", "", PlanResult{Design: "D"}), Facts{Now: ours}, p)
+	mustState(t, d, core.StateDesignProposed)
+	if !d.Task.DesignProposedAt.Equal(ours) || d.Task.DesignCommentKey == "" {
+		t.Fatalf("task = %+v", d.Task)
+	}
+
+	posted := core.Event{Project: "p", Type: core.EventJobFinished, Subject: subj, Job: &core.JobOutcome{
+		Kind: JobComment, Key: d.Task.DesignCommentKey, OK: true, Result: mustJSON(CommentResult{Via: "tracker", PostedAt: t0})}}
+	d = Decide(d.Task, posted, Facts{Now: ours}, p)
+	if d.Task == nil || !d.Task.DesignProposedAt.Equal(t0) || d.Task.State != core.StateDesignProposed {
+		t.Fatalf("posted = %+v", d)
+	}
+	proposed := d.Task
+
+	// Same second as the post on the tracker's clock, long before ours: accepted.
+	ok := Decide(proposed, comment(maintainer, "/approve-design 3", t0), Facts{ActorPermission: core.PermissionWrite, Now: ours}, p)
+	mustState(t, ok, core.StateAgentReady)
+	// A moment before the post on the tracker's clock: refused.
+	early := Decide(proposed, comment(maintainer, "/approve-design 3", t0.Add(-time.Second)), Facts{ActorPermission: core.PermissionWrite, Now: ours}, p)
+	if early.Task == nil || early.Task.State != core.StateDesignProposed || early.Task.Approval != nil {
+		t.Fatalf("early approval: %+v", early.Task)
+	}
+	// Another comment's result changes nothing.
+	other := posted
+	other.Job = &core.JobOutcome{Kind: JobComment, Key: "other", OK: true, Result: mustJSON(CommentResult{PostedAt: t0.Add(time.Hour)})}
+	mustIgnore(t, Decide(proposed, other, Facts{Now: ours}, p))
+}
+
 func TestEditWhilePausedTakesEffect(t *testing.T) {
 	p := DefaultPolicy()
 	edit := core.Event{Project: "p", Type: core.EventIssueEdited, Subject: subj, Actor: maintainer, Issue: &core.Issue{Title: "new", Body: "changed", Open: true}}
