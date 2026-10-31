@@ -1,0 +1,40 @@
+version: "2"
+linters:
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+    - misspell
+    - nilerr
+    - revive
+    - sqlclosecheck
+    - unconvert
+  settings:
+    gosec:
+      excludes:
+        - G104 # covered by errcheck
+        - G115 # integer conversions are bounded by the domain
+        - G204 # subprocess arguments come from typed configuration
+        - G304 # paths come from operator configuration
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+          disabled: true
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unreachable-code
+        - name: var-naming
+          disabled: true
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec, bodyclose, errcheck]
+formatters:
+  enable: [gofmt]

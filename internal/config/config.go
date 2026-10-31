@@ -1,0 +1,382 @@
+// Package config loads, validates and renders versioned Goblins configuration.
+//
+// Provider adapters are declared as named instances per kind. Secrets are never
+// stored in the file: options whose name designates a secret must use a *_env
+// or *_file indirection, so configuration can be rendered and logged safely.
+package config
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"maps"
+	"os"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"go.yaml.in/yaml/v3"
+
+	"github.com/ungarscool1/goblins/internal/core"
+	"github.com/ungarscool1/goblins/internal/observability"
+	"github.com/ungarscool1/goblins/internal/providers"
+)
+
+// CurrentVersion is the only configuration schema version this build accepts.
+const CurrentVersion = 1
+
+// Config is the root configuration of one installation. An installation owns
+// its credentials and data; separate installations share neither.
+type Config struct {
+	Version       int          `yaml:"version"`
+	Installation  Installation `yaml:"installation"`
+	Server        Server       `yaml:"server"`
+	Log           Log          `yaml:"log"`
+	Storage       Storage      `yaml:"storage"`
+	Trackers      ProviderSet  `yaml:"trackers,omitempty"`
+	SCMs          ProviderSet  `yaml:"scms,omitempty"`
+	EventSources  ProviderSet  `yaml:"event_sources,omitempty"`
+	Agents        ProviderSet  `yaml:"agents,omitempty"`
+	Runtimes      ProviderSet  `yaml:"runtimes,omitempty"`
+	Reviews       ProviderSet  `yaml:"reviews,omitempty"`
+	Validations   ProviderSet  `yaml:"validations,omitempty"`
+	Notifications ProviderSet  `yaml:"notifications,omitempty"`
+	Projects      []Project    `yaml:"projects,omitempty"`
+}
+
+// Installation identifies this deployment.
+type Installation struct {
+	Name    string `yaml:"name"`
+	DataDir string `yaml:"data_dir"`
+}
+
+// Server configures the HTTP listener.
+type Server struct {
+	Listen          string        `yaml:"listen"`
+	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
+}
+
+// Log configures structured logging.
+type Log struct {
+	Level  string `yaml:"level"`
+	Format string `yaml:"format"`
+}
+
+// Storage selects the persistence backend. The DSN is a secret and must be
+// passed by reference through DSNEnv; the sqlite driver defaults to a file in
+// the data directory.
+type Storage struct {
+	Driver string `yaml:"driver"`
+	Path   string `yaml:"path,omitempty"`
+	DSNEnv string `yaml:"dsn_env,omitempty"`
+}
+
+// Provider is one named adapter instance.
+type Provider struct {
+	Type    string         `yaml:"type"`
+	Options map[string]any `yaml:"options,omitempty"`
+}
+
+// ProviderSet maps instance names to provider definitions.
+type ProviderSet map[string]Provider
+
+// Project binds one unit of work to its provider instances.
+type Project struct {
+	ID           string   `yaml:"id"`
+	Tracker      string   `yaml:"tracker"`
+	SCM          string   `yaml:"scm"`
+	EventSource  []string `yaml:"event_sources,omitempty"`
+	Repository   string   `yaml:"repository"`
+	BaseBranch   string   `yaml:"base_branch,omitempty"`
+	Validation   string   `yaml:"validation,omitempty"`
+	Review       string   `yaml:"review,omitempty"`
+	Notification string   `yaml:"notification,omitempty"`
+	Stages       Stages   `yaml:"stages"`
+}
+
+// Stages chooses the agent and runtime per workflow stage.
+type Stages struct {
+	Planner     Stage `yaml:"planner"`
+	Implementer Stage `yaml:"implementer"`
+}
+
+// Stage configures one agent role.
+type Stage struct {
+	Agent   string `yaml:"agent"`
+	Runtime string `yaml:"runtime"`
+	Model   string `yaml:"model,omitempty"`
+	Effort  string `yaml:"effort,omitempty"`
+}
+
+// Default returns a configuration with defaults filled in.
+func Default() Config {
+	return Config{
+		Version:      CurrentVersion,
+		Installation: Installation{Name: "default", DataDir: "./data"},
+		Server:       Server{Listen: "127.0.0.1:8080", ShutdownTimeout: 20 * time.Second},
+		Log:          Log{Level: "info", Format: "json"},
+		Storage:      Storage{Driver: "sqlite"},
+	}
+}
+
+// Parse decodes YAML strictly on top of the defaults: unknown fields, multiple
+// documents and missing versions are errors.
+func Parse(data []byte) (Config, error) {
+	cfg := Default()
+	cfg.Version = 0
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil {
+		return Config{}, core.Wrap(core.KindInvalid, "config.parse", err)
+	}
+	var extra yaml.Node
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		return Config{}, core.Errorf(core.KindInvalid, "config.parse", "configuration must be a single YAML document")
+	}
+	return cfg, nil
+}
+
+// Load reads path, applies environment overrides from env and validates the
+// result against known provider types.
+func Load(path string, env func(string) (string, bool), known TypeChecker) (Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, core.Wrap(core.KindInvalid, "config.load", err)
+	}
+	return LoadBytes(data, env, known)
+}
+
+// LoadBytes is Load for in-memory configuration.
+func LoadBytes(data []byte, env func(string) (string, bool), known TypeChecker) (Config, error) {
+	cfg, err := Parse(data)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := cfg.applyEnv(env); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.Validate(known); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// applyEnv applies the documented GOBLINS_* overrides.
+func (c *Config) applyEnv(env func(string) (string, bool)) error {
+	if env == nil {
+		return nil
+	}
+	set := func(name string, dst *string) {
+		if v, ok := env(name); ok {
+			*dst = v
+		}
+	}
+	set("GOBLINS_INSTALLATION_NAME", &c.Installation.Name)
+	set("GOBLINS_DATA_DIR", &c.Installation.DataDir)
+	set("GOBLINS_LISTEN", &c.Server.Listen)
+	set("GOBLINS_LOG_LEVEL", &c.Log.Level)
+	set("GOBLINS_LOG_FORMAT", &c.Log.Format)
+	set("GOBLINS_STORAGE_DRIVER", &c.Storage.Driver)
+	set("GOBLINS_STORAGE_PATH", &c.Storage.Path)
+	if v, ok := env("GOBLINS_SHUTDOWN_TIMEOUT"); ok {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return core.Errorf(core.KindInvalid, "config.env", "GOBLINS_SHUTDOWN_TIMEOUT: invalid duration %s", strconv.Quote(v))
+		}
+		c.Server.ShutdownTimeout = d
+	}
+	return nil
+}
+
+// TypeChecker reports whether an adapter type is available for a kind.
+type TypeChecker func(kind providers.Kind, typ string) bool
+
+var (
+	nameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9_-]{0,62}[a-z0-9])?$`)
+	// Option names that may hold a secret reference rather than a secret.
+	secretRefRE = regexp.MustCompile(`_(env|file)$`)
+)
+
+// Validate returns all configuration problems at once.
+func (c *Config) Validate(known TypeChecker) error {
+	var errs []string
+	add := func(format string, args ...any) { errs = append(errs, fmt.Sprintf(format, args...)) }
+
+	if c.Version != CurrentVersion {
+		add("version: unsupported value %d (this build supports %d)", c.Version, CurrentVersion)
+	}
+	if !nameRE.MatchString(c.Installation.Name) {
+		add("installation.name: invalid name %q", c.Installation.Name)
+	}
+	if c.Installation.DataDir == "" {
+		add("installation.data_dir: required")
+	}
+	if c.Server.Listen == "" {
+		add("server.listen: required")
+	}
+	if c.Server.ShutdownTimeout <= 0 {
+		add("server.shutdown_timeout: must be positive")
+	}
+	if _, err := observability.NewLogger(io.Discard, observability.LogOptions{Level: c.Log.Level, Format: c.Log.Format}); err != nil {
+		add("log: %v", err)
+	}
+	switch c.Storage.Driver {
+	case "sqlite":
+	case "postgres":
+		if c.Storage.DSNEnv == "" {
+			add("storage.dsn_env: required for the postgres driver")
+		}
+	default:
+		add("storage.driver: unknown driver %q (want sqlite or postgres)", c.Storage.Driver)
+	}
+
+	for _, s := range c.sets() {
+		for _, name := range slices.Sorted(maps.Keys(s.set)) {
+			p := s.set[name]
+			path := fmt.Sprintf("%s.%s", s.field, name)
+			if !nameRE.MatchString(name) {
+				add("%s: invalid instance name", path)
+			}
+			if p.Type == "" {
+				add("%s.type: required", path)
+			} else if known != nil && !known(s.kind, p.Type) {
+				add("%s.type: unknown %s provider %q", path, s.kind, p.Type)
+			}
+			validateOptions(path+".options", p.Options, add)
+		}
+	}
+
+	seen := map[string]bool{}
+	for i, p := range c.Projects {
+		path := fmt.Sprintf("projects[%d]", i)
+		if !nameRE.MatchString(p.ID) {
+			add("%s.id: invalid id %q", path, p.ID)
+		}
+		if seen[p.ID] {
+			add("%s.id: duplicate id %q", path, p.ID)
+		}
+		seen[p.ID] = true
+		if p.Repository == "" {
+			add("%s.repository: required", path)
+		}
+		ref := func(field, name string, set ProviderSet, required bool) {
+			if name == "" {
+				if required {
+					add("%s.%s: required", path, field)
+				}
+				return
+			}
+			if _, ok := set[name]; !ok {
+				add("%s.%s: references undefined instance %q", path, field, name)
+			}
+		}
+		ref("tracker", p.Tracker, c.Trackers, true)
+		ref("scm", p.SCM, c.SCMs, true)
+		ref("validation", p.Validation, c.Validations, false)
+		ref("review", p.Review, c.Reviews, false)
+		ref("notification", p.Notification, c.Notifications, false)
+		for j, es := range p.EventSource {
+			ref(fmt.Sprintf("event_sources[%d]", j), es, c.EventSources, true)
+		}
+		ref("stages.planner.agent", p.Stages.Planner.Agent, c.Agents, true)
+		ref("stages.planner.runtime", p.Stages.Planner.Runtime, c.Runtimes, true)
+		ref("stages.implementer.agent", p.Stages.Implementer.Agent, c.Agents, true)
+		ref("stages.implementer.runtime", p.Stages.Implementer.Runtime, c.Runtimes, true)
+	}
+	if len(errs) > 0 {
+		return core.Errorf(core.KindInvalid, "config.validate", "%s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+type namedSet struct {
+	field string
+	kind  providers.Kind
+	set   ProviderSet
+}
+
+func (c *Config) sets() []namedSet {
+	return []namedSet{
+		{"trackers", providers.KindTracker, c.Trackers},
+		{"scms", providers.KindSCM, c.SCMs},
+		{"event_sources", providers.KindEventSource, c.EventSources},
+		{"agents", providers.KindAgent, c.Agents},
+		{"runtimes", providers.KindRuntime, c.Runtimes},
+		{"reviews", providers.KindReview, c.Reviews},
+		{"validations", providers.KindValidation, c.Validations},
+		{"notifications", providers.KindNotification, c.Notifications},
+	}
+}
+
+// validateOptions rejects inline secrets so a file is always safe to render.
+func validateOptions(path string, opts map[string]any, add func(string, ...any)) {
+	for _, k := range slices.Sorted(maps.Keys(opts)) {
+		switch v := opts[k].(type) {
+		case map[string]any:
+			validateOptions(path+"."+k, v, add)
+		case string:
+			if observability.IsSensitiveKey(k) && !secretRefRE.MatchString(k) && v != "" {
+				add("%s.%s: inline secrets are not allowed, use %s_env or %s_file", path, k, k, k)
+			}
+		}
+	}
+}
+
+// Render returns the effective configuration as YAML with anything that could
+// be sensitive masked, safe for logs and support bundles.
+func (c *Config) Render() ([]byte, error) {
+	clone := *c
+	clone.Trackers = redactSet(c.Trackers)
+	clone.SCMs = redactSet(c.SCMs)
+	clone.EventSources = redactSet(c.EventSources)
+	clone.Agents = redactSet(c.Agents)
+	clone.Runtimes = redactSet(c.Runtimes)
+	clone.Reviews = redactSet(c.Reviews)
+	clone.Validations = redactSet(c.Validations)
+	clone.Notifications = redactSet(c.Notifications)
+	return yaml.Marshal(&clone)
+}
+
+func redactSet(s ProviderSet) ProviderSet {
+	if s == nil {
+		return nil
+	}
+	out := make(ProviderSet, len(s))
+	for name, p := range s {
+		p.Options = redactMap(p.Options)
+		out[name] = p
+	}
+	return out
+}
+
+func redactMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		switch tv := v.(type) {
+		case map[string]any:
+			out[k] = redactMap(tv)
+		case string:
+			switch {
+			case secretRefRE.MatchString(k):
+				out[k] = tv // a reference, not the secret itself
+			case observability.IsSensitiveKey(k):
+				out[k] = "[REDACTED]"
+			default:
+				out[k] = observability.RedactText(tv)
+			}
+		default:
+			if observability.IsSensitiveKey(k) {
+				out[k] = "[REDACTED]"
+			} else {
+				out[k] = v
+			}
+		}
+	}
+	return out
+}

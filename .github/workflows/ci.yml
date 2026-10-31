@@ -1,0 +1,44 @@
+# CI needs no repository secrets and consumes no LLM tokens: it never logs in
+# to, or calls, any agent or model service.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: test -z "$(gofmt -l .)"
+      - run: go mod tidy -diff
+      - run: go test -race ./...
+      - run: go test -tags integration ./test/integration/...
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make lint
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t goblins:ci .
+      - name: Container reports healthy
+        run: |
+          docker run -d --name goblins-ci goblins:ci
+          for i in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' goblins-ci)
+            [ "$status" = healthy ] && exit 0
+            sleep 2
+          done
+          docker logs goblins-ci
+          exit 1

@@ -1,0 +1,33 @@
+# Example configuration using fake providers. Copy and adapt it.
+version: 1
+installation:
+  name: personal          # separate installations share no credentials or data
+  data_dir: ./data/personal
+server:
+  listen: 127.0.0.1:8080
+  shutdown_timeout: 20s
+log:
+  level: info
+  format: json
+storage:
+  driver: sqlite
+trackers:
+  main: {type: fake}
+scms:
+  main: {type: fake}
+event_sources:
+  main: {type: fake}
+agents:
+  main: {type: fake}
+runtimes:
+  main: {type: fake}
+projects:
+  - id: demo
+    tracker: main
+    scm: main
+    event_sources: [main]
+    repository: example/demo
+    base_branch: main
+    stages:
+      planner: {agent: main, runtime: main}
+      implementer: {agent: main, runtime: main, effort: high}

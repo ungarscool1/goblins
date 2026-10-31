@@ -1,0 +1,26 @@
+# Mock development configuration, used by `goblins serve --mock`.
+# It needs no tracker credentials and no agent subscription login.
+version: 1
+installation:
+  name: mock
+  data_dir: ./data/mock
+trackers:
+  mock: {type: fake}
+scms:
+  mock: {type: fake}
+event_sources:
+  mock: {type: fake}
+agents:
+  mock: {type: fake}
+runtimes:
+  mock: {type: fake}
+projects:
+  - id: demo
+    tracker: mock
+    scm: mock
+    event_sources: [mock]
+    repository: example/demo
+    base_branch: main
+    stages:
+      planner: {agent: mock, runtime: mock}
+      implementer: {agent: mock, runtime: mock}
