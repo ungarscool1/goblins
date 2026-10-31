@@ -315,6 +315,8 @@ const (
 	ValidationFailed ValidationStatus = "failed"
 	// ValidationError means checks could not run; it says nothing about the code.
 	ValidationError ValidationStatus = "error"
+	// ValidationSkipped means a project chose to run no checks. It is never a pass.
+	ValidationSkipped ValidationStatus = "skipped"
 )
 
 // ValidationCheck is one executed check.

@@ -26,6 +26,8 @@ type Agent struct {
 	Name string
 	Caps []core.Capability
 	Auth core.AuthStatus
+	// Fallback answers runs once the script is exhausted.
+	Fallback func(core.AgentRequest) string
 
 	mu       sync.Mutex
 	Steps    []AgentStep
@@ -78,6 +80,8 @@ func (a *Agent) Run(ctx context.Context, req core.AgentRequest, sink func(core.A
 	var step AgentStep
 	if len(a.Steps) > 0 {
 		step, a.Steps = a.Steps[0], a.Steps[1:]
+	} else if a.Fallback != nil {
+		step.Output = a.Fallback(req)
 	}
 	a.mu.Unlock()
 

@@ -31,3 +31,13 @@ that looks sensitive, including credentials embedded in URLs.
 Provider instances are declared per kind under a name of your choice, and
 projects refer to them by name, so trackers, source control, agents and runtimes
 can be combined freely. See [`configs/example.yaml`](../configs/example.yaml).
+
+## Skipping checks is an explicit choice
+
+A project must name a `validation`, or set `policy.allow_unvalidated_draft_pr: true`. It must
+name a `review`, or set `policy.allow_skipped_review: true`. Without these, the configuration
+is refused at startup, and a task that still reaches such a step blocks.
+
+With the opt-in, the step reports `skipped`, never a pass: the commit is not recorded as
+validated, and the status report says that nothing was tested. Use these only when a person
+reviews every draft pull request.

@@ -193,6 +193,7 @@ func (t *Tracker) ListComments(_ context.Context, ref core.IssueRef, since time.
 	out := []core.Comment{}
 	for _, c := range t.W.comments[refKey(ref)] {
 		if !c.UpdatedAt.Before(since) {
+			c.Own = c.Author.ID == t.W.Bot.ID
 			out = append(out, c)
 		}
 	}
@@ -513,8 +514,16 @@ func Register(r *providers.Registry, w *World) {
 	r.Register(providers.KindEventSource, "fake", func(name string, _ providers.Deps, _ providers.Options) (any, error) {
 		return NewEventSource(name), nil
 	})
-	r.Register(providers.KindAgent, "fake", func(name string, _ providers.Deps, _ providers.Options) (any, error) { return NewAgent(name), nil })
-	r.Register(providers.KindRuntime, "fake", func(name string, _ providers.Deps, _ providers.Options) (any, error) { return NewRuntime(name), nil })
+	r.Register(providers.KindAgent, "fake", func(name string, _ providers.Deps, _ providers.Options) (any, error) {
+		a := NewAgent(name)
+		a.Fallback = mockAgent
+		return a, nil
+	})
+	r.Register(providers.KindRuntime, "fake", func(name string, _ providers.Deps, _ providers.Options) (any, error) {
+		rt := NewRuntime(name)
+		rt.Behavior = mockWorkload
+		return rt, nil
+	})
 	r.Register(providers.KindReview, "fake", func(name string, _ providers.Deps, _ providers.Options) (any, error) {
 		return &Review{Name: name, Result: core.ReviewResult{Verdict: core.VerdictApprove, Summary: "fake review approved"}}, nil
 	})
@@ -524,4 +533,21 @@ func Register(r *providers.Registry, w *World) {
 	r.Register(providers.KindNotification, "fake", func(name string, _ providers.Deps, _ providers.Options) (any, error) {
 		return &Notifier{W: w, Name: name}, nil
 	})
+}
+
+// mockAgent gives mock mode something plausible to show: a planner that proposes a
+// design, and an implementer that reports success. It consumes no tokens.
+func mockAgent(req core.AgentRequest) string {
+	if req.Role != core.RolePlanner {
+		return "Mock implementation finished."
+	}
+	return "```goblins-plan\n" + `{"design":{"scope":"Mock scope","architecture":"Mock architecture","alternatives":"None considered in mock mode",` +
+		`"constraints":"None","implementation_plan":"Pretend to implement it","tests":"Pretend to test it","security":"None","out_of_scope":"Everything real"}}` + "\n```"
+}
+
+// mockWorkload answers the workspace operations of a mock run.
+func mockWorkload(core.WorkloadSpec) WorkloadResult {
+	const sha = "1111111111111111111111111111111111111111"
+	const head = "2222222222222222222222222222222222222222"
+	return WorkloadResult{Stdout: `GOBLINS_RESULT {"prepared":true,"base_sha":"` + sha + `","head_sha":"` + head + `","changed":true}` + "\n"}
 }

@@ -141,3 +141,49 @@ installations are never touched.
 
 Worker output goes to a per-task transcript that is bounded per job and per line, and is
 redacted before it is stored.
+
+## Design conversation
+
+The planner runs before any code is written. Its input is the ticket and the conversation;
+its output is one of two things, as JSON in a fenced `goblins-plan` block:
+
+- **Questions**, which are posted as one grouped comment. The task then waits, for as long as
+  it takes, at no cost. A reply from a permitted person resumes the same agent session.
+- **A design** with required sections: scope, architecture, alternatives, constraints,
+  implementation plan, tests, security considerations, out of scope. Goblins renders it,
+  hashes it, stores it as an immutable revision and posts it with the approval command.
+
+### What a model can and cannot do
+
+Prompts guide the model; they are not the security boundary. These are enforced in Go:
+
+- A model's output only ever becomes questions or a design. A reply that says "approved", or
+  a design that contains `/approve-design 1`, is just text in a design that still needs a
+  person. Comments by automation are ignored, so posting it does nothing.
+- Implementation and publishing recheck, right before running, that an approval exists for the
+  exact revision and hash, whatever the state machine scheduled.
+- Malformed planner output is retried once, then blocks the task. It never reaches the ticket.
+
+### Untrusted input
+
+- Comments by people without `min_input_permission` are withheld from the model, cost no
+  model run and cannot approve. Their count is mentioned to the planner.
+- Tickets, comments and test output go into the prompt as data, inside a delimiter with a random
+  value the content cannot predict, under a system prompt saying they are not instructions.
+  This reduces prompt injection but cannot eliminate it. The boundaries above are what contain it.
+- An `intake_label` restricts which items start work at all. Without one, an issue opened by
+  someone with `min_input_permission` starts work. For public repositories, keep this in mind:
+  the defaults mean strangers cannot spend your subscription.
+
+### Trackers that cannot carry a conversation
+
+If a tracker cannot accept comments, messages go to the project's notification provider
+instead. With no provider, the task becomes `blocked` with the reason rather than waiting for
+an answer nobody could give. Replies can be entered by anyone with shell access:
+
+```bash
+goblins comment --config goblins.yaml --task <task-id> --as alice --body "/approve-design 2"
+```
+
+The same rules apply to the content, and shell access on the installation stands in for
+tracker permission. The name you give is recorded as the approver.

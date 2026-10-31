@@ -6,6 +6,7 @@ package contract
 import (
 	"bytes"
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -72,6 +73,18 @@ func IssueTracker(t *testing.T, build func(t *testing.T) TrackerHarness) {
 			t.Skip("no comment.write")
 		}
 		a, err := h.Tracker.PostComment(ctx, ref, core.CommentDraft{IdempotencyKey: "k1", Body: "hello"})
+		defer func() {
+			if t.Failed() {
+				return
+			}
+			list, err := h.Tracker.ListComments(ctx, ref, time.Time{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.ContainsFunc(list, func(c core.Comment) bool { return c.ID == a.ID && c.Own }) {
+				t.Fatalf("own post not recognized: %+v", list)
+			}
+		}()
 		if err != nil {
 			t.Fatal(err)
 		}
