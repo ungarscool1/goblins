@@ -67,3 +67,7 @@ These are real and accepted for P0. Read them before pointing Goblins at anythin
 7. **The restricted-mode behavior was checked against `--help`, not with a real model run,** to avoid
    spending subscription usage during development. Run the smoke test in [claude.md](claude.md) once.
 8. **Named volumes have no size limit.** A hostile repository could fill the disk.
+9. **A compromised orchestrator controls its Docker engine.** The proxy filters API paths, not what
+   a created container asks for, so it could start a privileged container or mount host paths. Run
+   on a dedicated, disposable host or VM, and do not share the engine with anything important.
+   A policy-enforcing boundary is #16.
