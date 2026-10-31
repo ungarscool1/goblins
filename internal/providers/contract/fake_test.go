@@ -183,3 +183,20 @@ func TestIndependentTrackerPassesSuite(t *testing.T) {
 		}
 	})
 }
+
+func TestProcessRuntime(t *testing.T) {
+	contract.ExecutionRuntime(t, func(t *testing.T) contract.RuntimeHarness {
+		return contract.RuntimeHarness{
+			Runtime: fake.NewProcessRuntime("p", t.TempDir(), ""),
+			Translate: func(cmd ...string) []string {
+				switch cmd[0] {
+				case "ok":
+					return []string{"sh", "-c", "echo " + strings.Join(cmd[1:], " ")}
+				case "hang":
+					return []string{"sleep", "300"}
+				}
+				return []string{"sh", "-c", "exit 3"}
+			},
+		}
+	})
+}
