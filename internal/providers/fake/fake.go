@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -325,6 +326,13 @@ func (s *SCM) GetPullRequest(_ context.Context, repo core.RepoRef, number string
 	return core.PullRequest{}, core.Errorf(core.KindNotFound, "fake.get_pr", "pull request %s not found", number)
 }
 
+// PullRequestComments lists comments posted on a pull request, as key|body.
+func (w *World) PullRequestComments(repo, number string) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.prComments[repo+"#"+number])
+}
+
 func (s *SCM) PostPullRequestComment(_ context.Context, repo core.RepoRef, number string, d core.CommentDraft) error {
 	s.W.mu.Lock()
 	defer s.W.mu.Unlock()
@@ -332,10 +340,11 @@ func (s *SCM) PostPullRequestComment(_ context.Context, repo core.RepoRef, numbe
 	if _, ok := s.W.prs[k]; !ok {
 		return core.Errorf(core.KindNotFound, "fake.pr_comment", "pull request %s not found", number)
 	}
-	marker := d.IdempotencyKey + "|" + d.Body
-	if !slices.Contains(s.W.prComments[k], marker) {
-		s.W.prComments[k] = append(s.W.prComments[k], marker)
+	prefix := d.IdempotencyKey + "|"
+	if d.IdempotencyKey != "" && slices.ContainsFunc(s.W.prComments[k], func(c string) bool { return strings.HasPrefix(c, prefix) }) {
+		return nil
 	}
+	s.W.prComments[k] = append(s.W.prComments[k], prefix+d.Body)
 	return nil
 }
 

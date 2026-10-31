@@ -309,7 +309,15 @@ func (r *Runtime) Create(ctx context.Context, spec core.WorkloadSpec) (core.Work
 	switch {
 	case err == nil:
 	case core.IsKind(err, core.KindConflict):
-		// Created by an earlier call; starting it again below is harmless.
+		// Created by an earlier call. Only one that never started may be started: starting
+		// a finished container would run it a second time.
+		st, serr := r.Status(ctx, spec.Name)
+		if serr != nil {
+			return core.WorkloadStatus{}, serr
+		}
+		if st.Phase != core.WorkloadPending {
+			return st, nil
+		}
 	default:
 		return core.WorkloadStatus{}, err
 	}
@@ -353,11 +361,23 @@ func (r *Runtime) ensureNetwork(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runtime) pull(ctx context.Context, image string) error {
-	name, tag := image, "latest"
-	if i := strings.LastIndex(image, ":"); i > strings.LastIndex(image, "/") {
-		name, tag = image[:i], image[i+1:]
+// imageRef splits a reference into what the pull endpoint takes, whose tag parameter
+// may also hold a digest. A digest pins the content, so any tag beside it is dropped.
+func imageRef(image string) (name, tag string) {
+	repo, digest, pinned := strings.Cut(image, "@")
+	if i := strings.LastIndex(repo, ":"); i > strings.LastIndex(repo, "/") {
+		name, tag = repo[:i], repo[i+1:]
+	} else {
+		name, tag = repo, "latest"
 	}
+	if pinned {
+		tag = digest
+	}
+	return name, tag
+}
+
+func (r *Runtime) pull(ctx context.Context, image string) error {
+	name, tag := imageRef(image)
 	q := url.Values{"fromImage": {name}, "tag": {tag}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.base+"/images/create?"+q.Encode(), nil)
 	if err != nil {

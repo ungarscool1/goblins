@@ -69,6 +69,9 @@ func TestRejections(t *testing.T) {
 		{"missing type", "version: 1\nagents: {a: {}}", "agents.a.type: required"},
 		{"inline secret", "version: 1\ntrackers: {t: {type: fake, options: {api_token: abc}}}", "inline secrets"},
 		{"nested inline secret", "version: 1\ntrackers: {t: {type: fake, options: {auth: {password: abc}}}}", "inline secrets"},
+		{"inline secret in a sequence", "version: 1\ntrackers: {t: {type: fake, options: {accounts: [{password: abc}]}}}", "inline secrets"},
+		{"inline secrets as a sequence", "version: 1\ntrackers: {t: {type: fake, options: {tokens: [abc]}}}", "inline secrets"},
+		{"inline secret in nested sequences", "version: 1\ntrackers: {t: {type: fake, options: {a: [[{api_key: abc}]]}}}", "inline secrets"},
 		{"bad storage", "version: 1\nstorage: {driver: mongo}", "unknown driver"},
 		{"postgres dsn", "version: 1\nstorage: {driver: postgres}", "dsn_env"},
 		{"bad level", "version: 1\nlog: {level: loud}", "invalid log level"},
@@ -93,16 +96,21 @@ func TestRenderRedacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Agents["a1"] = Provider{Type: "fake", Options: map[string]any{"api_token": "leak-me", "nested": map[string]any{"secret": 42}}}
+	cfg.Agents["a1"] = Provider{Type: "fake", Options: map[string]any{"api_token": "leak-me", "nested": map[string]any{"secret": 42},
+		"accounts": []any{map[string]any{"password": "leak-listed", "name": "visible-name"}, []any{map[string]any{"token": "leak-deep"}}},
+		"tokens":   []any{"leak-sequence"}, "urls": []any{"https://alice:leak-userinfo@example.com"}}}
 	out, err := cfg.Render()
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(out)
-	for _, leak := range []string{"leak-me", "pw12345", "42"} {
+	for _, leak := range []string{"leak-me", "pw12345", "42", "leak-listed", "leak-deep", "leak-sequence", "leak-userinfo"} {
 		if strings.Contains(s, leak) {
 			t.Errorf("render leaked %q:\n%s", leak, s)
 		}
+	}
+	if !strings.Contains(s, "visible-name") {
+		t.Errorf("harmless sequence items must stay visible:\n%s", s)
 	}
 	if !strings.Contains(s, "token_env: MY_TOKEN") {
 		t.Errorf("secret reference must stay visible:\n%s", s)
