@@ -190,10 +190,10 @@ func (a *Agent) Run(ctx context.Context, req core.AgentRequest, sink func(core.A
 		spec.Mounts = append(spec.Mounts, w)
 	}
 
+	defer cleanup(ctx, req.Runtime, name) // first: an error from Create does not prove nothing started
 	if _, err := req.Runtime.Create(ctx, spec); err != nil {
 		return core.AgentResult{}, err
 	}
-	defer cleanup(ctx, req.Runtime, name)
 
 	parser := newStreamParser(sink)
 	stderr := &tailBuffer{max: maxStderr}
@@ -268,11 +268,11 @@ func (a *Agent) preflight(ctx context.Context, req core.AgentRequest) error {
 func (a *Agent) runShort(ctx context.Context, rt core.ExecutionRuntime, name string, labels map[string]string, cliArgs []string) (string, core.WorkloadStatus, error) {
 	spec := a.baseSpec(name, []string{"sh", "-c", a.shellScript(cliArgs)})
 	spec.Timeout = preflightWindow
-	spec.Labels = labels // so that a crash here leaves nothing reconciliation cannot find
+	spec.Labels = labels         // so that a crash here leaves nothing reconciliation cannot find
+	defer cleanup(ctx, rt, name) // first: an error from Create does not prove nothing started
 	if _, err := rt.Create(ctx, spec); err != nil {
 		return "", core.WorkloadStatus{}, err
 	}
-	defer cleanup(ctx, rt, name)
 	var out, errb tailBuffer
 	out.max, errb.max = maxStderr, maxStderr
 	if err := rt.Logs(ctx, name, true, &out, &errb); err != nil {

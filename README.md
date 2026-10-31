@@ -41,6 +41,7 @@ docker run --rm -p 127.0.0.1:8080:8080 goblins:dev
 | `make test`        | Unit tests (no network, no tokens)                   |
 | `make race`        | Unit tests with the race detector                    |
 | `make integration` | Integration tests against the built binary           |
+| `make docker-test` | Tests against a real Docker engine                   |
 | `make lint`        | `go vet` and golangci-lint, pinned by `go run`       |
 | `make image`       | Builds the container image                           |
 
@@ -71,7 +72,7 @@ The state machine, its invariants and comment commands are in [docs/workflow.md]
 | `internal/core`          | Provider-neutral domain model, errors and contracts         |
 | `internal/workflow`      | Deterministic workflow state machine                        |
 | `internal/providers`     | Adapter registry and adapters                               |
-| `internal/runtime`       | Execution helpers shared by runtimes                        |
+| `internal/runtime`       | Docker runtime, workspace scripts and shared helpers        |
 | `internal/storage`       | Persistence                                                 |
 | `internal/api`           | HTTP surface: health, readiness                             |
 | `internal/observability` | Structured logs with secret redaction                       |
