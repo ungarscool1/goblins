@@ -39,7 +39,7 @@ inside job results.
 | `reviewing`        | `testing`, `completed` (review-only tasks)                 |
 | `testing`          | `completed`                                                |
 | any active         | `blocked`, `quota-paused`, `failed`, `cancelled`           |
-| `blocked`, `quota-paused` | the state recorded when they were entered           |
+| `blocked`, `quota-paused` | the state recorded when they were entered, or `investigating` if requirements changed meanwhile |
 
 `CheckTransition` enforces the table on every commit, so a bug in the machine stops
 a task instead of corrupting it.

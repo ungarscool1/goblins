@@ -1,6 +1,7 @@
 package github
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -188,46 +189,126 @@ func (s *SCM) PostReview(ctx context.Context, repo core.RepoRef, number string, 
 // ReviewThreads implements core.SourceControl.
 func (s *SCM) ReviewThreads(ctx context.Context, repo core.RepoRef, number string) ([]core.ReviewThread, error) {
 	out := []core.ReviewThread{}
+	var roots []int64
 	err := s.c.list(ctx, repo.Slug, "/repos/"+repo.Slug+"/pulls/"+number+"/comments?per_page=100", func(raw json.RawMessage) error {
 		var c struct {
-			ID   int64  `json:"id"`
-			Path string `json:"path"`
-			Line int    `json:"line"`
-			Body string `json:"body"`
-			User user   `json:"user"`
+			ID        int64  `json:"id"`
+			InReplyTo int64  `json:"in_reply_to_id"`
+			Path      string `json:"path"`
+			Line      int    `json:"line"`
+			Body      string `json:"body"`
+			User      user   `json:"user"`
 		}
 		if err := json.Unmarshal(raw, &c); err != nil {
 			return core.Wrap(core.KindTransient, "github.threads", err)
 		}
 		out = append(out, core.ReviewThread{ID: strconv.FormatInt(c.ID, 10), Path: c.Path, Line: c.Line, Body: c.Body, Author: actorOf(c.User)})
+		roots = append(roots, cmp.Or(c.InReplyTo, c.ID))
 		return nil
 	})
-	return out, err
+	if err != nil || len(out) == 0 {
+		return out, err
+	}
+	resolved, err := s.resolvedThreads(ctx, repo, number)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Resolved = resolved[strconv.FormatInt(roots[i], 10)]
+	}
+	return out, nil
+}
+
+// threadsQuery asks only for each thread's first comment: replies point to it through
+// in_reply_to_id. The comment ID is the BigInt one, as these outgrew a 32-bit integer.
+const threadsQuery = `query($owner: String!, $name: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { isResolved comments(first: 1) { nodes { fullDatabaseId } } }
+      }
+    }
+  }
+}`
+
+// resolvedThreads returns the state of each review thread, keyed by its first comment.
+// REST lists review comments but has no notion of a thread being resolved.
+func (s *SCM) resolvedThreads(ctx context.Context, repo core.RepoRef, number string) (map[string]bool, error) {
+	owner, name, ok := strings.Cut(repo.Slug, "/")
+	n, err := strconv.Atoi(number)
+	if !ok || err != nil {
+		return nil, core.Errorf(core.KindInvalid, "github.threads", "bad pull request reference %s#%s", repo.Slug, number)
+	}
+	out := map[string]bool{}
+	vars := map[string]any{"owner": owner, "name": name, "number": n}
+	for range maxPages {
+		var res struct {
+			Repository struct {
+				PullRequest struct {
+					ReviewThreads struct {
+						PageInfo struct {
+							HasNextPage bool   `json:"hasNextPage"`
+							EndCursor   string `json:"endCursor"`
+						} `json:"pageInfo"`
+						Nodes []struct {
+							IsResolved bool `json:"isResolved"`
+							Comments   struct {
+								Nodes []struct {
+									ID string `json:"fullDatabaseId"`
+								} `json:"nodes"`
+							} `json:"comments"`
+						} `json:"nodes"`
+					} `json:"reviewThreads"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		}
+		if err := s.c.graphql(ctx, repo.Slug, threadsQuery, vars, &res); err != nil {
+			return nil, err
+		}
+		threads := res.Repository.PullRequest.ReviewThreads
+		for _, t := range threads.Nodes {
+			if len(t.Comments.Nodes) > 0 {
+				out[t.Comments.Nodes[0].ID] = t.IsResolved
+			}
+		}
+		if !threads.PageInfo.HasNextPage {
+			break
+		}
+		vars["after"] = threads.PageInfo.EndCursor
+	}
+	return out, nil
 }
 
 // StatusChecks implements core.SourceControl.
 func (s *SCM) StatusChecks(ctx context.Context, repo core.RepoRef, sha string) ([]core.StatusCheck, error) {
-	var res struct {
-		CheckRuns []struct {
-			Name       string `json:"name"`
-			Status     string `json:"status"`
-			Conclusion string `json:"conclusion"`
-			HTMLURL    string `json:"html_url"`
-		} `json:"check_runs"`
-	}
-	if err := s.c.repoCall(ctx, repo.Slug, http.MethodGet, "/repos/"+repo.Slug+"/commits/"+url.PathEscape(sha)+"/check-runs?per_page=100", nil, &res); err != nil {
-		return nil, err
-	}
-	out := make([]core.StatusCheck, 0, len(res.CheckRuns))
-	for _, r := range res.CheckRuns {
-		st := core.StatusCheck{Name: r.Name, URL: r.HTMLURL, State: core.CheckPending}
-		if r.Status == "completed" {
-			st.State = core.CheckFailed
-			if r.Conclusion == "success" || r.Conclusion == "neutral" || r.Conclusion == "skipped" {
-				st.State = core.CheckPassed
-			}
+	out := []core.StatusCheck{}
+	err := s.c.pages(ctx, repo.Slug, "/repos/"+repo.Slug+"/commits/"+url.PathEscape(sha)+"/check-runs?per_page=100", func(raw json.RawMessage) error {
+		var res struct {
+			CheckRuns []struct {
+				Name       string `json:"name"`
+				Status     string `json:"status"`
+				Conclusion string `json:"conclusion"`
+				HTMLURL    string `json:"html_url"`
+			} `json:"check_runs"`
 		}
-		out = append(out, st)
+		if err := json.Unmarshal(raw, &res); err != nil {
+			return core.Wrap(core.KindTransient, "github.checks", err)
+		}
+		for _, r := range res.CheckRuns {
+			st := core.StatusCheck{Name: r.Name, URL: r.HTMLURL, State: core.CheckPending}
+			if r.Status == "completed" {
+				st.State = core.CheckFailed
+				if r.Conclusion == "success" || r.Conclusion == "neutral" || r.Conclusion == "skipped" {
+					st.State = core.CheckPassed
+				}
+			}
+			out = append(out, st)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
 }

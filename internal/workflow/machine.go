@@ -508,7 +508,35 @@ func (m *machine) onIssueEdited() {
 		m.block("the requirements changed after a pull request was opened; a person needs to decide how to proceed")
 	default:
 		m.reason = "requirements updated while paused"
+		m.onEditWhilePaused()
 	}
+}
+
+// onEditWhilePaused applies the rules of the state the task will return to, so that
+// resuming cannot continue work that the edit invalidated.
+func (m *machine) onEditWhilePaused() {
+	switch m.t.ResumeState {
+	case core.StateInvestigating:
+		m.t.PendingInput = true
+	case core.StateWaitingForUser, core.StateDesignProposed:
+		m.replanOnResume()
+	case core.StateAgentReady, core.StateImplementing:
+		m.t.Approval = nil
+		m.cancel = slices.Clone(mainKinds)
+		m.comment("The requirements changed, so the approval of this design no longer applies. Goblins will revise the design and ask again once it resumes.")
+		m.replanOnResume()
+	case core.StatePROpen, core.StateReviewing, core.StateTesting:
+		m.t.Approval = nil
+		m.cancel = slices.Clone(mainKinds)
+		// Blocking also clears any pause timer: this needs a person, not the clock.
+		m.block("the requirements changed after a pull request was opened; a person needs to decide how to proceed")
+	}
+}
+
+// replanOnResume drops the saved job, so that leaving the pause starts a planning round.
+func (m *machine) replanOnResume() {
+	m.t.CurrentJob = nil
+	m.t.ResumeState = core.StateInvestigating
 }
 
 func (m *machine) onJobStarted() {
@@ -541,6 +569,12 @@ func (m *machine) onJobFinished() {
 	// Results of superseded or cancelled jobs must never advance the task.
 	if m.t.CurrentJob == nil || o.Key != m.t.CurrentJob.IdempotencyKey {
 		m.ignore("outcome of a superseded job")
+		return
+	}
+	// A job can finish before the pause that tried to cancel it commits. Resuming runs
+	// it again under a fresh key, so dropping this outcome loses no work for good.
+	if m.t.State == core.StateBlocked || m.t.State == core.StateQuotaPaused {
+		m.ignore("outcome arrived while paused")
 		return
 	}
 	if !o.OK {

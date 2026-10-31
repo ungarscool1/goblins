@@ -107,6 +107,8 @@ type repoState struct {
 	perms    map[string]string
 	pulls    map[int64]*PullRequest
 	reviews  map[int64][]map[string]any
+	replies  map[int64][]map[string]any
+	resolved map[string]bool
 	branches map[string]string
 	checks   map[string][]map[string]any
 	nextNum  int64
@@ -319,6 +321,10 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 200, map[string]int{"id": Installation})
+		return
+	}
+	if path == "graphql" {
+		s.serveGraphQL(w, r, bearer)
 		return
 	}
 	if len(seg) < 4 || seg[0] != "repos" {

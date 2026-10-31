@@ -191,6 +191,9 @@ type JobClaim struct {
 	MaxGlobal     int
 	MaxPerProject int
 	MaxPerLimit   map[string]int
+	// MinPriority restricts the claim to jobs of at least this priority, so that workers
+	// reserved for quick, urgent jobs never get stuck with long ones.
+	MinPriority int
 }
 
 // JobFinish records a job's end together with its outcome event.
@@ -247,6 +250,10 @@ type StateStore interface {
 	SaveCheckpoint(ctx context.Context, jobID, owner string, attempt int, data json.RawMessage) error
 	// RetryJob returns a running job to the queue at notBefore.
 	RetryJob(ctx context.Context, jobID, owner string, attempt int, notBefore time.Time, lastError string) error
+	// RequeueInterruptedJob is RetryJob for an attempt stopped through no fault of the
+	// job, such as a shutdown. The attempt number still rises, because it is the fencing
+	// token, so the job's budget grows by one to keep this from counting as a failure.
+	RequeueInterruptedJob(ctx context.Context, jobID, owner string, attempt int, notBefore time.Time, lastError string) error
 	// FinishJob ends a job and atomically appends its outcome event. A stale
 	// owner or attempt yields KindConflict: results of a fenced worker are dropped.
 	FinishJob(ctx context.Context, f JobFinish) error

@@ -166,6 +166,51 @@ func TestStatusChecksMapping(t *testing.T) {
 	}
 }
 
+func TestStatusChecksFollowPagination(t *testing.T) {
+	srv, s := scmSetup(t)
+	for i := range 150 {
+		srv.SetCheckRun(repo, "bbb", fmt.Sprintf("ok-%d", i), "completed", "success")
+	}
+	srv.SetCheckRun(repo, "bbb", "last", "completed", "failure")
+	got, err := s.StatusChecks(ctx, core.RepoRef{Slug: repo}, "bbb")
+	if err != nil || len(got) != 151 {
+		t.Fatalf("checks = %d, %v", len(got), err)
+	}
+	if last := got[150]; last.Name != "last" || last.State != core.CheckFailed {
+		t.Fatalf("a failure on the last page was lost: %+v", last)
+	}
+}
+
+func TestReviewThreadsReportResolution(t *testing.T) {
+	srv, s := scmSetup(t)
+	r := core.RepoRef{Slug: repo}
+	pr, _, err := s.EnsurePullRequest(ctx, draft())
+	if err != nil {
+		t.Fatal(err)
+	}
+	review := core.ReviewDraft{IdempotencyKey: "rev", Verdict: core.VerdictComment, Body: "b", Comments: []core.InlineComment{
+		{Path: "a.go", Line: 1, Body: "first"}, {Path: "b.go", Line: 2, Body: "second"},
+	}}
+	if err := s.PostReview(ctx, r, pr.Number, review); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	_, _ = fmt.Sscan(pr.Number, &n)
+	srv.AddReviewReply(repo, n, 99, 1, "a reply")
+	srv.ResolveThread(repo, n, 1)
+
+	got, err := s.ReviewThreads(ctx, r, pr.Number)
+	if err != nil || len(got) != 3 {
+		t.Fatalf("threads = %+v, %v", got, err)
+	}
+	want := map[string]bool{"first": true, "second": false, "a reply": true}
+	for _, th := range got {
+		if th.Resolved != want[th.Body] {
+			t.Errorf("%q resolved = %v", th.Body, th.Resolved)
+		}
+	}
+}
+
 func TestSCMFactory(t *testing.T) {
 	srv, _ := scmSetup(t)
 	r := providers.NewRegistry()
