@@ -79,9 +79,9 @@ func TestPromptDelimiterCannotBeForged(t *testing.T) {
 func TestPlannerPromptMarksAuthors(t *testing.T) {
 	p := PlannerPrompt(core.Issue{Title: "t"}, []core.Comment{
 		{Author: core.Actor{Login: "alice", Type: core.ActorHuman}, Body: "answer"},
-		{Author: core.Actor{Login: "goblins[bot]", Type: core.ActorBot}, Body: "question"},
+		{Author: core.Actor{Login: "goblins[bot]", Type: core.ActorBot}, Body: "question", Own: true},
 	}, 3, "reply")
-	for _, want := range []string{"participant alice", "this workflow goblins[bot]", "3 comments from people without sufficient access were withheld", "reply"} {
+	for _, want := range []string{"participant alice", "this workflow goblins[bot]", "3 comments from people or automation without sufficient access were withheld", "reply"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("missing %q:\n%s", want, p)
 		}
@@ -89,9 +89,12 @@ func TestPlannerPromptMarksAuthors(t *testing.T) {
 }
 
 func TestImplementerPromptFeedbackForbidsWeakeningTests(t *testing.T) {
-	p := ImplementerPrompt(core.Issue{}, core.Design{}, "FAIL: x")
-	if !strings.Contains(p, "FAIL: x") || !strings.Contains(p, "Do not weaken") {
-		t.Fatal(p)
+	p := ImplementerPrompt(core.Issue{Title: "the ticket"}, core.Design{Body: "the design"}, "FAIL: x")
+	// All of it: after a lost session, this prompt is all a new session has to go on.
+	for _, want := range []string{"FAIL: x", "Do not weaken", "the ticket", "the design"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("missing %q:\n%s", want, p)
+		}
 	}
 }
 
@@ -127,5 +130,10 @@ func TestSizeLimitsHold(t *testing.T) {
 	impl := ImplementerPrompt(core.Issue{Title: "t", Body: huge}, core.Design{Body: design}, "")
 	if len(impl) > maxPromptBytes {
 		t.Fatalf("implementer prompt = %d bytes", len(impl))
+	}
+	// A feedback round carries everything else too, so it has to fit as well.
+	withFeedback := ImplementerPrompt(core.Issue{Title: "t", Body: strings.Repeat("b", 10*maxTicketBytes)}, core.Design{Body: strings.Repeat("d", 8*maxDesignField)}, strings.Repeat("f", 16<<10))
+	if len(withFeedback) > maxPromptBytes {
+		t.Fatalf("prompt with feedback is %d bytes", len(withFeedback))
 	}
 }

@@ -107,13 +107,19 @@ func (t *Tracker) ListComments(ctx context.Context, ref core.IssueRef, since tim
 	if !since.IsZero() {
 		v.Set("since", since.UTC().Format(time.RFC3339))
 	}
+	own, err := t.c.AppLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := []core.Comment{}
-	err := t.c.list(ctx, ref.Container, "/repos/"+ref.Container+"/issues/"+ref.ExternalID+"/comments?"+v.Encode(), func(raw json.RawMessage) error {
+	err = t.c.list(ctx, ref.Container, "/repos/"+ref.Container+"/issues/"+ref.ExternalID+"/comments?"+v.Encode(), func(raw json.RawMessage) error {
 		var c comment
 		if err := json.Unmarshal(raw, &c); err != nil {
 			return core.Wrap(core.KindTransient, "github.list_comments", err)
 		}
-		out = append(out, c.canonical(ref))
+		cc := c.canonical(ref)
+		cc.Own = cc.Author.Type == core.ActorBot && cc.Author.Login == own
+		out = append(out, cc)
 		return nil
 	})
 	return out, err
@@ -138,7 +144,7 @@ func (t *Tracker) PostComment(ctx context.Context, ref core.IssueRef, d core.Com
 			return core.Comment{}, err
 		}
 		for _, c := range existing {
-			if c.Author.Type == core.ActorBot && strings.Contains(c.Body, marker) {
+			if c.Own && strings.Contains(c.Body, marker) {
 				return c, nil
 			}
 		}

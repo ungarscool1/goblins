@@ -2,6 +2,7 @@ package core
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"strings"
 	"time"
@@ -98,8 +99,8 @@ func (i Issue) RequirementsHash() string {
 func Digest(parts ...string) string {
 	h := sha256.New()
 	for _, p := range parts {
+		_ = binary.Write(h, binary.BigEndian, uint64(len(p)))
 		h.Write([]byte(p))
-		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -112,6 +113,9 @@ type Comment struct {
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// Own is set by trackers listing comments, on those this integration itself posted.
+	// Being written by some bot does not imply it: other automation can relay anything.
+	Own bool `json:"own,omitempty"`
 }
 
 // CommentDraft is a comment to publish. Trackers must treat IdempotencyKey as

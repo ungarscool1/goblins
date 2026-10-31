@@ -278,6 +278,9 @@ func (m *machine) fail(reason string) {
 	m.notify(core.SeverityError, "Task failed", reason)
 }
 
+// maxManualInput bounds what a task stores of its manual conversation.
+const maxManualInput = 100
+
 // Canonical commands. Each must be alone on the first non-blank line of a new
 // comment, which rules out quoted replies and prose that merely mentions them.
 var (
@@ -382,13 +385,26 @@ func (m *machine) onComment() {
 			m.ignore("comment predates the current design")
 			return
 		}
+		m.recordManualInput(c)
 		m.replan("new input from " + c.Author.Login)
 	case core.StateInvestigating:
+		m.recordManualInput(c)
 		m.t.PendingInput = true
 		m.changed = true
 		m.reason = "input arrived during investigation"
 	default:
 		m.ignore("input is not requested in this state")
+	}
+}
+
+// recordManualInput keeps a reply the tracker will never list.
+func (m *machine) recordManualInput(c *core.Comment) {
+	if m.ev.Source != SourceOperator {
+		return
+	}
+	m.t.ManualInput = append(slices.Clone(m.t.ManualInput), *c)
+	if extra := len(m.t.ManualInput) - maxManualInput; extra > 0 {
+		m.t.ManualInput = m.t.ManualInput[extra:]
 	}
 }
 
