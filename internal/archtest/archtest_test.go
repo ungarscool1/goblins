@@ -70,7 +70,8 @@ func TestCorePackagesAreProductNeutral(t *testing.T) {
 				t.Fatal(err)
 			}
 			for i, line := range strings.Split(string(data), "\n") {
-				if m := productName.FindString(line); m != "" && !strings.Contains(line, module) {
+				// Import paths name hosting sites, not behavior.
+				if m := productName.FindString(line); m != "" && !strings.Contains(line, `"github.com/`) && !strings.Contains(line, module) {
 					t.Errorf("%s:%d mentions product %q", file, i+1, m)
 				}
 			}
