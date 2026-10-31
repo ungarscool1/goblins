@@ -404,6 +404,110 @@ func TestShutdownRequeuesWithoutFailing(t *testing.T) {
 	}
 }
 
+func TestRestartsDoNotConsumeTheRetryBudget(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.sched.Inbox.Accept(context.Background(), "src", []core.Event{issueEvent("1")}); err != nil {
+		t.Fatal(err)
+	}
+	// Planning jobs get three attempts, and shutdown interrupts the first three runs.
+	for range 3 {
+		ctx, cancel := context.WithCancel(context.Background())
+		started := make(chan struct{})
+		e.sched.Handlers[workflow.JobPlan] = func(hctx context.Context, _ scheduler.JobContext) (any, error) {
+			close(started)
+			<-hctx.Done()
+			return nil, hctx.Err()
+		}
+		done := make(chan struct{})
+		go func() { _ = e.sched.Run(ctx); close(done) }()
+		<-started
+		cancel()
+		<-done
+		e.boot()
+	}
+	bg := context.Background()
+	failures := 0
+	e.sched.Handlers[workflow.JobPlan] = func(context.Context, scheduler.JobContext) (any, error) {
+		if failures < 2 {
+			failures++
+			return nil, core.Errorf(core.KindTransient, "test", "flaky")
+		}
+		return workflow.PlanResult{Questions: []string{"Why?"}}, nil
+	}
+	for range 3 {
+		e.sched.Step(bg)
+		e.tick(time.Hour)
+	}
+	if st := e.task("1").State; st != core.StateWaitingForUser {
+		t.Fatalf("state = %s after %d failures: restarts used up the retries", st, failures)
+	}
+}
+
+func TestSideJobsRunWhileAgentsFillEveryWorker(t *testing.T) {
+	e := newEnv(t)
+	e.sched.Cfg.Workers = 1
+	release := make(chan struct{})
+	running := make(chan struct{})
+	e.sched.Handlers[workflow.JobPlan] = func(context.Context, scheduler.JobContext) (any, error) {
+		close(running)
+		<-release
+		return workflow.PlanResult{Questions: []string{"Why?"}}, nil
+	}
+	commented := make(chan struct{})
+	var once sync.Once
+	e.sched.Handlers[workflow.JobComment] = func(context.Context, scheduler.JobContext) (any, error) {
+		once.Do(func() { close(commented) })
+		return struct{}{}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = e.sched.Run(ctx); close(done) }()
+	defer func() {
+		cancel()
+		<-done
+	}()
+	defer close(release)
+
+	if _, err := e.sched.Inbox.Accept(ctx, "src", []core.Event{issueEvent("1")}); err != nil {
+		t.Fatal(err)
+	}
+	<-running
+	// An approval now is refused with a comment, which must not wait for the planner.
+	approval := issueEvent("1")
+	approval.Type, approval.DedupKey, approval.Issue = core.EventCommentCreated, "approve-early", nil
+	approval.Comment = &core.Comment{ID: "c1", Author: approval.Actor, Body: "/approve-design 1", CreatedAt: e.clock()}
+	if _, err := e.sched.Inbox.Accept(ctx, "src", []core.Event{approval}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-commented:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the comment waited for the only worker")
+	}
+}
+
+func TestSecretCutByTheLineLimitIsStillRedacted(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.sched.Cfg.MaxTranscriptLine = 50
+	e.sched.Handlers[workflow.JobPlan] = func(_ context.Context, jc scheduler.JobContext) (any, error) {
+		// The limit falls inside the password, before the @ that identifies it.
+		jc.Log("text", strings.Repeat("x", 20)+" https://alice:supersecretpassword@example.com/repo.git")
+		return workflow.PlanResult{Questions: []string{"Q"}}, nil
+	}
+	if _, err := e.sched.Inbox.Accept(ctx, "src", []core.Event{issueEvent("1")}); err != nil {
+		t.Fatal(err)
+	}
+	e.sched.Step(ctx)
+	entries, err := e.store.ListTranscript(ctx, e.task("1").ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || strings.Contains(entries[0].Text, "supersecret") {
+		t.Fatalf("entries = %+v", entries)
+	}
+}
+
 func TestTranscriptIsBoundedAndRedacted(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
