@@ -59,6 +59,17 @@ func TestRequirementsHashIgnoresNonMaterialFields(t *testing.T) {
 	}
 }
 
+func TestDigestFramesItsParts(t *testing.T) {
+	a := Issue{Title: "a", Body: "b\x00c"}
+	b := Issue{Title: "a\x00b", Body: "c"}
+	if a.RequirementsHash() == b.RequirementsHash() {
+		t.Fatal("a separator inside a field made different requirements collide")
+	}
+	if Digest("ab", "c") == Digest("a", "bc") || Digest("a", "") == Digest("", "a") {
+		t.Fatal("parts must not run together")
+	}
+}
+
 func TestSubjectKeyAndPermissions(t *testing.T) {
 	s := Subject{Kind: SubjectIssue, Provider: "p", Container: "c", ExternalID: "1"}
 	if s.Key() != "issue/p/c/1" {

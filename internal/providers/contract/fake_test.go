@@ -114,6 +114,34 @@ func TestFakeRuntimeUnderAnotherName(t *testing.T) {
 	contract.ExecutionRuntime(t, func(*testing.T) contract.RuntimeHarness { return runtimeHarness("fake-cluster") })
 }
 
+// Without the capability, a request for resource limits has to be refused.
+func TestFakeRuntimeWithoutResourceLimits(t *testing.T) {
+	contract.ExecutionRuntime(t, func(*testing.T) contract.RuntimeHarness {
+		h := runtimeHarness("fake")
+		r := h.Runtime.(*fake.Runtime)
+		r.Caps = []core.Capability{core.CapRuntimeVolumes, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress}
+		return h
+	})
+}
+
+func TestPullRequestCommentsDeduplicateByKeyAlone(t *testing.T) {
+	w := fake.NewWorld()
+	s := &fake.SCM{W: w, Name: "s", Caps: []core.Capability{core.CapSCMPullRequests}}
+	repo := core.RepoRef{Slug: "acme/app"}
+	pr, _, err := s.EnsurePullRequest(context.Background(), core.PullRequestDraft{IdempotencyKey: "p", Repo: repo, Head: "h", Base: "b", Title: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{"first wording", "second wording"} {
+		if err := s.PostPullRequestComment(context.Background(), repo, pr.Number, core.CommentDraft{IdempotencyKey: "k", Body: body}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := w.PullRequestComments("acme/app", pr.Number); len(got) != 1 {
+		t.Fatalf("comments = %q", got)
+	}
+}
+
 func TestSmallContracts(t *testing.T) {
 	w := fake.NewWorld()
 	contract.Notification(t, &fake.Notifier{W: w, Name: "n"})
