@@ -96,6 +96,14 @@ with at least `MinApprovePermission`:
 | `/goblins resume`       | Return from `blocked` or `quota-paused`               |
 | `/goblins cancel`       | Stop everything and clean up                          |
 
+## What a blocked ticket shows
+
+When validation blocks a task, the ticket comment includes the end of each failed check's
+output, up to 4 KiB per check. The ticket can be public, so credential-shaped text is
+redacted first. Redaction only recognizes common shapes, and validation workloads receive
+no credentials: keep secrets out of what your checks print. Notifications and the task's
+stored reason carry only the summary.
+
 ## Storage
 
 SQLite suits single-node installations; PostgreSQL suits several replicas. Both run
