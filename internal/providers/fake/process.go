@@ -3,6 +3,7 @@ package fake
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"maps"
 	"os"
@@ -99,7 +100,7 @@ func (r *ProcessRuntime) Create(_ context.Context, spec core.WorkloadSpec) (core
 		return s
 	}
 	for _, m := range spec.Mounts {
-		if err := os.MkdirAll(r.VolumePath(m.Volume), 0o755); err != nil {
+		if err := os.MkdirAll(r.VolumePath(m.Volume), 0o750); err != nil {
 			return core.WorkloadStatus{}, core.Wrap(core.KindInternal, "process.create", err)
 		}
 	}
@@ -110,7 +111,7 @@ func (r *ProcessRuntime) Create(_ context.Context, spec core.WorkloadSpec) (core
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = rewrite(spec.WorkDir)
 	if cmd.Dir != "" {
-		if err := os.MkdirAll(cmd.Dir, 0o755); err != nil {
+		if err := os.MkdirAll(cmd.Dir, 0o750); err != nil {
 			return core.WorkloadStatus{}, core.Wrap(core.KindInternal, "process.create", err)
 		}
 	}
@@ -151,7 +152,8 @@ func (r *ProcessRuntime) wait(w *procWorkload) {
 	code := 0
 	if err != nil {
 		code = 1
-		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() > 0 {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() > 0 {
 			code = ee.ExitCode()
 		}
 	}
@@ -274,7 +276,7 @@ func (r *ProcessRuntime) List(_ context.Context, labels map[string]string) ([]co
 
 // EnsureVolume implements core.ExecutionRuntime.
 func (r *ProcessRuntime) EnsureVolume(_ context.Context, name string, _ map[string]string) error {
-	if err := os.MkdirAll(r.VolumePath(name), 0o755); err != nil {
+	if err := os.MkdirAll(r.VolumePath(name), 0o750); err != nil {
 		return core.Wrap(core.KindInternal, "process.volume", err)
 	}
 	return nil
