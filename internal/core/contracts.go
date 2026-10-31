@@ -79,7 +79,10 @@ type ToolPolicy struct {
 
 // AgentRequest launches a new conversation or, with ResumeSessionID, resumes one.
 type AgentRequest struct {
-	IdempotencyKey  string
+	IdempotencyKey string
+	// WorkloadName is unique per attempt, so a retry never attaches to the workload
+	// of a dead attempt; orphan reconciliation removes that one.
+	WorkloadName    string
 	Role            AgentRole
 	Prompt          string
 	SystemPrompt    string
@@ -177,9 +180,12 @@ type Resources struct {
 // SecurityProfile requests features beyond the unprivileged default. Runtimes
 // must reject a spec asking for something they do not advertise.
 type SecurityProfile struct {
-	Privileged bool
-	GPU        bool
-	KVM        bool
+	// ReadOnlyRoot makes the image filesystem read-only; only mounts and a
+	// scratch /tmp are writable.
+	ReadOnlyRoot bool
+	Privileged   bool
+	GPU          bool
+	KVM          bool
 }
 
 // WorkloadSpec describes one isolated process.
@@ -287,6 +293,7 @@ type ValidationCheck struct {
 // started for it must not receive agent or SCM credentials.
 type ValidationRequest struct {
 	IdempotencyKey string
+	WorkloadName   string
 	HeadSHA        string
 	Workspace      Mount
 	WorkDir        string

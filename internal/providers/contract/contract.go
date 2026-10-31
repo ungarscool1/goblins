@@ -436,9 +436,10 @@ func ExecutionRuntime(t *testing.T, build func(t *testing.T) RuntimeHarness) {
 		h := build(t)
 		info := h.Runtime.Info()
 		for cap, sec := range map[core.Capability]core.SecurityProfile{
-			core.CapRuntimePrivileged: {Privileged: true},
-			core.CapRuntimeGPU:        {GPU: true},
-			core.CapRuntimeKVM:        {KVM: true},
+			core.CapRuntimePrivileged:   {Privileged: true},
+			core.CapRuntimeReadOnlyRoot: {ReadOnlyRoot: true},
+			core.CapRuntimeGPU:          {GPU: true},
+			core.CapRuntimeKVM:          {KVM: true},
 		} {
 			if info.Has(cap) {
 				continue

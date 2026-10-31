@@ -4,6 +4,7 @@ package builtin
 
 import (
 	"github.com/ungarscool1/goblins/internal/providers"
+	"github.com/ungarscool1/goblins/internal/providers/claude"
 	"github.com/ungarscool1/goblins/internal/providers/fake"
 	gh "github.com/ungarscool1/goblins/internal/providers/github"
 )
@@ -13,5 +14,6 @@ func Registry() *providers.Registry {
 	r := providers.NewRegistry()
 	fake.Register(r, fake.NewWorld())
 	gh.Register(r)
+	claude.Register(r)
 	return r
 }

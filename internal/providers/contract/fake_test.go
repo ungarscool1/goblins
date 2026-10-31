@@ -114,6 +114,16 @@ func TestFakeRuntimeUnderAnotherName(t *testing.T) {
 	contract.ExecutionRuntime(t, func(*testing.T) contract.RuntimeHarness { return runtimeHarness("fake-cluster") })
 }
 
+// Without the capability, a request for a read-only root has to be refused.
+func TestFakeRuntimeWithoutReadOnlyRoot(t *testing.T) {
+	contract.ExecutionRuntime(t, func(*testing.T) contract.RuntimeHarness {
+		h := runtimeHarness("fake")
+		r := h.Runtime.(*fake.Runtime)
+		r.Caps = []core.Capability{core.CapRuntimeVolumes, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress}
+		return h
+	})
+}
+
 // Without the capability, a request for resource limits has to be refused.
 func TestFakeRuntimeWithoutResourceLimits(t *testing.T) {
 	contract.ExecutionRuntime(t, func(*testing.T) contract.RuntimeHarness {
@@ -207,6 +217,23 @@ func TestIndependentTrackerPassesSuite(t *testing.T) {
 				c := core.Comment{ID: "c", Issue: ref, Body: body, Author: core.Actor{Login: login, Type: core.ActorHuman}}
 				l.comments[ref.ExternalID] = append(l.comments[ref.ExternalID], c)
 				return c
+			},
+		}
+	})
+}
+
+func TestProcessRuntime(t *testing.T) {
+	contract.ExecutionRuntime(t, func(t *testing.T) contract.RuntimeHarness {
+		return contract.RuntimeHarness{
+			Runtime: fake.NewProcessRuntime("p", t.TempDir(), ""),
+			Translate: func(cmd ...string) []string {
+				switch cmd[0] {
+				case "ok":
+					return []string{"sh", "-c", "echo " + strings.Join(cmd[1:], " ")}
+				case "hang":
+					return []string{"sleep", "300"}
+				}
+				return []string{"sh", "-c", "exit 3"}
 			},
 		}
 	})
