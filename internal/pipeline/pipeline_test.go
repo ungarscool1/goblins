@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ungarscool1/goblins/internal/app"
 	"github.com/ungarscool1/goblins/internal/core"
 	"github.com/ungarscool1/goblins/internal/pipeline"
 	"github.com/ungarscool1/goblins/internal/providers/fake"
@@ -492,6 +493,42 @@ func TestPlannerGarbageRetriesThenBlocks(t *testing.T) {
 	task := w.want(core.StateBlocked)
 	if !strings.Contains(task.Reason, "unusable") || w.agent.RunCount() != 2 {
 		t.Fatalf("task = %+v, runs = %d", task, w.agent.RunCount())
+	}
+}
+
+func TestOtherAutomationNeverReachesTheModel(t *testing.T) {
+	w := setup(t)
+	w.agent.Script(fake.AgentStep{Output: designJSON("d1")}, fake.AgentStep{Output: designJSON("d2")})
+	w.open()
+	w.want(core.StateDesignProposed)
+	const relayed = "relayed text from an untrusted source"
+	w.say(core.Actor{ID: "77", Login: "other-app[bot]", Type: core.ActorBot}, relayed)
+	w.say(maintainer, "Adjust please")
+	prompt := w.agent.Requests[1].Prompt
+	if strings.Contains(prompt, relayed) || !strings.Contains(prompt, "withheld") {
+		t.Fatalf("prompt:\n%s", prompt)
+	}
+	// This workflow's own post is still there, marked as such.
+	if !strings.Contains(prompt, "this workflow") {
+		t.Fatalf("own posts were lost:\n%s", prompt)
+	}
+}
+
+func TestManualInboxRepliesReachThePlanner(t *testing.T) {
+	w := setup(t)
+	w.agent.Script(fake.AgentStep{Output: designJSON("d1")}, fake.AgentStep{Output: designJSON("d2")})
+	w.open()
+	w.want(core.StateDesignProposed)
+	const reply = "use the second option, please"
+	if err := app.OperatorComment(context.Background(), w.store, w.task().ID, "operator", reply, w.clock()); err != nil {
+		t.Fatal(err)
+	}
+	w.sched.Step(context.Background())
+	if w.agent.RunCount() != 2 {
+		t.Fatalf("planner runs = %d", w.agent.RunCount())
+	}
+	if !strings.Contains(w.agent.Requests[1].Prompt, reply) {
+		t.Fatalf("prompt:\n%s", w.agent.Requests[1].Prompt)
 	}
 }
 

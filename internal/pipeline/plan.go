@@ -81,7 +81,7 @@ func PlannerPrompt(issue core.Issue, comments []core.Comment, withheld int, trig
 		b.WriteString("Conversation so far, oldest first:\n\n")
 		for _, c := range comments {
 			role := "participant"
-			if c.Author.Type == core.ActorBot {
+			if c.Own {
 				role = "this workflow"
 			}
 			b.WriteString(dataBlock(role+" "+c.Author.Login, nonce, c.Body))
@@ -89,7 +89,7 @@ func PlannerPrompt(issue core.Issue, comments []core.Comment, withheld int, trig
 		}
 	}
 	if withheld > 0 {
-		fmt.Fprintf(&b, "%d comments from people without sufficient access were withheld.\n\n", withheld)
+		fmt.Fprintf(&b, "%d comments from people or automation without sufficient access were withheld.\n\n", withheld)
 	}
 	b.WriteString("The repository is in the working directory, read-only. Read the code and docs before " +
 		"deciding. Ask questions only about what you cannot determine yourself.")
@@ -100,16 +100,18 @@ func PlannerPrompt(issue core.Issue, comments []core.Comment, withheld int, trig
 // previous round if there were any.
 func ImplementerPrompt(issue core.Issue, design core.Design, feedback string) string {
 	nonce := newNonce()
-	if feedback != "" {
-		return "The checks failed on your last change. Fix the cause in the code. Do not weaken or " +
-			"remove tests to make them pass. Output of the failed checks:\n\n" + dataBlock("test output", nonce, feedback)
-	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Implement design revision %d.\n\n", design.Revision)
 	b.WriteString(dataBlock("ticket", nonce, "Title: "+issue.Title+"\n\n"+issue.Body))
 	b.WriteString("\n\n")
 	b.WriteString(dataBlock("approved design", nonce, design.Body))
 	b.WriteString("\n\nThe repository is in the working directory, and your changes are committed for you. Include tests.")
+	if feedback != "" {
+		// The ticket and design stay above, as this may start a new session after the old
+		// one was lost, and a new session knows nothing else.
+		b.WriteString("\n\nThe checks failed on your last change. Fix the cause in the code. Do not weaken or " +
+			"remove tests to make them pass. Output of the failed checks:\n\n" + dataBlock("test output", nonce, feedback))
+	}
 	return b.String()
 }
 

@@ -193,6 +193,7 @@ func (t *Tracker) ListComments(_ context.Context, ref core.IssueRef, since time.
 	out := []core.Comment{}
 	for _, c := range t.W.comments[refKey(ref)] {
 		if !c.UpdatedAt.Before(since) {
+			c.Own = c.Author.ID == t.W.Bot.ID
 			out = append(out, c)
 		}
 	}

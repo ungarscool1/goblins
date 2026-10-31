@@ -332,6 +332,14 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	path := strings.Trim(r.URL.Path, "/")
 	seg := strings.Split(path, "/")
 
+	if path == "app" {
+		if !s.verifyJWT(bearer) {
+			fail(w, 401, "bad JWT")
+			return
+		}
+		writeJSON(w, 200, map[string]string{"slug": strings.TrimSuffix(BotUser.Login, "[bot]")})
+		return
+	}
 	// App-level endpoints authenticate with the App JWT.
 	if len(seg) == 5 && seg[0] == "repos" && seg[3] == "installation" || strings.HasPrefix(path, "app/") {
 		if !s.verifyJWT(bearer) {
