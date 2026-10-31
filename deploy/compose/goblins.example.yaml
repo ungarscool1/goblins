@@ -1,0 +1,74 @@
+# Copy to goblins.yaml and replace the values marked CHANGE ME.
+version: 1
+installation:
+  name: personal   # CHANGE ME: also used in volume names; unique per installation
+  data_dir: /var/lib/goblins
+storage:
+  driver: sqlite
+scheduler:
+  max_concurrent_agents: 2
+
+trackers:
+  forge:
+    type: github
+    options:
+      app_id: 123456   # CHANGE ME
+      private_key_file: /run/secrets/github-app.pem
+scms:
+  forge:
+    type: github
+    options:
+      app_id: 123456   # CHANGE ME
+      private_key_file: /run/secrets/github-app.pem
+event_sources:
+  forge:
+    type: github
+    options:
+      app_id: 123456   # CHANGE ME
+      private_key_file: /run/secrets/github-app.pem
+      webhook_secret_env: GOBLINS_WEBHOOK_SECRET
+      repositories: [your-name/your-repo]   # CHANGE ME
+
+agents:
+  claude:
+    type: claude-cli
+    max_concurrent: 1
+    options:
+      image: goblins-agent-claude:dev
+      config_volume: goblins-personal-claude-config   # CHANGE ME: same as GOBLINS_AGENT_VOLUME
+      # oauth_token_env: CLAUDE_CODE_OAUTH_TOKEN
+
+runtimes:
+  docker:
+    type: docker
+    options:
+      host: tcp://docker-proxy:2375
+      network: goblins-personal-workers   # CHANGE ME: unique per installation
+
+validations:
+  checks:
+    type: command
+    options:
+      image: golang:1.27-alpine   # CHANGE ME: anything that can run your tests
+      checks:
+        - {name: test, run: "go test ./..."}
+      # Tests have no network unless you allow it. They never get credentials either way.
+      network: none
+
+projects:
+  - id: app
+    tracker: forge
+    scm: forge
+    event_sources: [forge]
+    repository: your-name/your-repo   # CHANGE ME
+    base_branch: main
+    validation: checks
+    poll_interval: 10m
+    workspace:
+      git_image: goblins-git:dev
+      commit_name: Goblins
+      commit_email: goblins@example.invalid   # CHANGE ME
+      signoff: true
+    stages:
+      planner: {agent: claude, runtime: docker, timeout: 30m}
+      implementer: {agent: claude, runtime: docker, model: opus, effort: high, timeout: 2h}

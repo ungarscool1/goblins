@@ -63,8 +63,11 @@ protected target stops the task rather than overwriting anything.
 ## Exposing the engine to the orchestrator
 
 Access to the Docker API is root-equivalent on that host. The orchestrator needs it, but
-workers never get it. Prefer an API-filtering proxy, which is what the Compose
-distribution uses, or a remote engine dedicated to workers.
+workers never get it. The Compose distribution puts a filtering proxy in between, on an
+internal network, which refuses unrelated API areas such as image builds, swarm, secrets and
+starting an exec. It filters by path and not by request body, so it reduces what a compromised
+orchestrator can do but does not contain it: it could still create a privileged container. For a
+stronger boundary, point the runtime at a remote engine dedicated to workers.
 
 ## Known limitations
 
