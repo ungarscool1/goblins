@@ -60,6 +60,8 @@ Secrets are passed by reference, never inline.
 ./bin/goblins config render --config configs/example.yaml
 ```
 
+Adapters and how to add one are described in [docs/providers.md](docs/providers.md).
+
 ## Layout
 
 | Path                     | Purpose                                                     |
