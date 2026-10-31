@@ -39,6 +39,9 @@ type Config struct {
 	Owner        string
 	Installation string
 	Workers      int
+	// SideWorkers run only prioritized jobs, like comments and notifications, so that
+	// long agent runs filling Workers cannot hold up questions to people.
+	SideWorkers  int
 	Limits       Limits
 	Lease        time.Duration
 	Heartbeat    time.Duration
@@ -62,6 +65,9 @@ func (c *Config) fill() {
 	}
 	if c.Workers == 0 {
 		c.Workers = 8
+	}
+	if c.SideWorkers == 0 {
+		c.SideWorkers = 2
 	}
 	if c.Owner == "" {
 		c.Owner = "scheduler"
@@ -111,6 +117,7 @@ type Scheduler struct {
 	once sync.Once
 	wg   sync.WaitGroup
 	sem  chan struct{}
+	side chan struct{}
 	last map[string]time.Time
 	mu   sync.Mutex
 }
@@ -119,6 +126,7 @@ func (s *Scheduler) init() {
 	s.once.Do(func() {
 		s.Cfg.fill()
 		s.sem = make(chan struct{}, s.Cfg.Workers)
+		s.side = make(chan struct{}, s.Cfg.SideWorkers)
 		s.last = map[string]time.Time{}
 		if s.Now == nil {
 			s.Now = func() time.Time { return time.Now().UTC() }
@@ -200,19 +208,27 @@ func (s *Scheduler) fireTimers(ctx context.Context) {
 }
 
 func (s *Scheduler) dispatch(ctx context.Context) bool {
+	side := s.dispatchFrom(ctx, s.side, 1)
+	return s.dispatchFrom(ctx, s.sem, 0) || side
+}
+
+// dispatchFrom starts jobs of at least minPriority while the pool has room. A slot is
+// taken before claiming, because a claimed job has to start at once.
+func (s *Scheduler) dispatchFrom(ctx context.Context, pool chan struct{}, minPriority int) bool {
 	started := false
 	for ctx.Err() == nil {
 		select {
-		case s.sem <- struct{}{}:
+		case pool <- struct{}{}:
 		default:
 			return started
 		}
 		job, err := s.Store.ClaimJob(ctx, core.JobClaim{
 			Owner: s.Cfg.Owner, LeaseFor: s.Cfg.Lease, Now: s.Now(),
 			MaxGlobal: s.Cfg.Limits.MaxGlobal, MaxPerProject: s.Cfg.Limits.MaxPerProject, MaxPerLimit: s.Cfg.Limits.MaxPerKey,
+			MinPriority: minPriority,
 		})
 		if err != nil || job == nil {
-			<-s.sem
+			<-pool
 			if err != nil && !errors.Is(err, context.Canceled) {
 				s.Log.Warn("cannot claim a job", "err", err)
 			}
@@ -222,7 +238,7 @@ func (s *Scheduler) dispatch(ctx context.Context) bool {
 		s.wg.Add(1)
 		go func(j core.Job) {
 			defer s.wg.Done()
-			defer func() { <-s.sem }()
+			defer func() { <-pool }()
 			s.runJob(ctx, j)
 		}(*job)
 	}
@@ -239,7 +255,11 @@ func (s *Scheduler) runJob(parent context.Context, job core.Job) {
 	task, err := s.Store.GetTask(parent, job.TaskID)
 	if err != nil {
 		log.Warn("cannot load task", "err", err)
-		if rerr := s.Store.RetryJob(bg, job.ID, job.LeaseOwner, job.Attempt, s.Now().Add(s.Cfg.RetryBase), "task unavailable"); rerr != nil {
+		retry := s.Store.RetryJob
+		if parent.Err() != nil {
+			retry = s.Store.RequeueInterruptedJob
+		}
+		if rerr := retry(bg, job.ID, job.LeaseOwner, job.Attempt, s.Now().Add(s.Cfg.RetryBase), "task unavailable"); rerr != nil {
 			log.Warn("cannot requeue", "err", rerr)
 		}
 		return
@@ -345,7 +365,7 @@ func (s *Scheduler) record(bg context.Context, shuttingDown, timedOut bool, log 
 
 	// Shutting down is not the job's fault: run it again on the next start.
 	if shuttingDown {
-		if err := s.Store.RetryJob(bg, job.ID, job.LeaseOwner, job.Attempt, now, "interrupted by shutdown"); err != nil {
+		if err := s.Store.RequeueInterruptedJob(bg, job.ID, job.LeaseOwner, job.Attempt, now, "interrupted by shutdown"); err != nil {
 			log.Warn("cannot requeue interrupted job", "err", err)
 		}
 		return
@@ -444,10 +464,12 @@ func (t *transcript) log(kind, text string) {
 	if t.count == t.s.Cfg.MaxTranscript {
 		kind, text = "system", "transcript limit reached, further output dropped"
 	}
+	// Redact first: a cut can remove the delimiter that makes a secret recognizable.
+	text = observability.RedactText(text)
 	if n := t.s.Cfg.MaxTranscriptLine; len(text) > n {
 		text = text[:n] + " [truncated]"
 	}
-	t.buf = append(t.buf, core.TranscriptEntry{TaskID: t.job.TaskID, JobID: t.job.ID, Kind: kind, Text: observability.RedactText(text), At: t.s.Now()})
+	t.buf = append(t.buf, core.TranscriptEntry{TaskID: t.job.TaskID, JobID: t.job.ID, Kind: kind, Text: text, At: t.s.Now()})
 	if len(t.buf) >= 50 {
 		t.flushLocked(context.Background())
 	}

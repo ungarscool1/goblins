@@ -114,6 +114,16 @@ func TestFakeRuntimeUnderAnotherName(t *testing.T) {
 	contract.ExecutionRuntime(t, func(*testing.T) contract.RuntimeHarness { return runtimeHarness("fake-cluster") })
 }
 
+// Without the capability, a request for a read-only root has to be refused.
+func TestFakeRuntimeWithoutReadOnlyRoot(t *testing.T) {
+	contract.ExecutionRuntime(t, func(*testing.T) contract.RuntimeHarness {
+		h := runtimeHarness("fake")
+		r := h.Runtime.(*fake.Runtime)
+		r.Caps = []core.Capability{core.CapRuntimeVolumes, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress}
+		return h
+	})
+}
+
 func TestSmallContracts(t *testing.T) {
 	w := fake.NewWorld()
 	contract.Notification(t, &fake.Notifier{W: w, Name: "n"})
