@@ -1,0 +1,33 @@
+# Goblins, mock mode. `docker compose up -d` needs no credentials, no agent login and
+# no access to the Docker socket. For a real installation, see docs/quickstart.md.
+name: ${GOBLINS_PROJECT:-goblins}
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp:size=64m,nosuid,nodev"]
+  restart: unless-stopped
+
+services:
+  goblins:
+    <<: *hardening
+    image: goblins:${GOBLINS_VERSION:-dev}
+    build:
+      context: ../..
+      args:
+        VERSION: ${GOBLINS_VERSION:-dev}
+    command: ["serve", "--mock"]
+    environment:
+      GOBLINS_DATA_DIR: /var/lib/goblins
+      GOBLINS_LISTEN: 0.0.0.0:8080
+      GOBLINS_INSTALLATION_NAME: ${GOBLINS_INSTALLATION:-mock}
+    volumes:
+      - data:/var/lib/goblins
+    ports:
+      # Loopback only. Publish /webhooks through a reverse proxy, never this port.
+      - "127.0.0.1:${GOBLINS_PORT:-8080}:8080"
+    stop_grace_period: 30s
+
+volumes:
+  data:

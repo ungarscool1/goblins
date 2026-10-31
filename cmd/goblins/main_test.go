@@ -42,3 +42,13 @@ func TestConfigCheckRejectsUnknownProvider(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestShippedExampleConfigsAreValid(t *testing.T) {
+	t.Setenv("GOBLINS_CONFIG", "")
+	for _, path := range []string{"../../configs/example.yaml", "../../deploy/compose/goblins.example.yaml"} {
+		var out, errb bytes.Buffer
+		if err := run(context.Background(), []string{"config", "check", "--config", path}, &out, &errb); err != nil {
+			t.Errorf("%s: %v", path, err)
+		}
+	}
+}

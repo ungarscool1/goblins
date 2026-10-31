@@ -8,3 +8,5 @@ coverage.out
 .env
 deploy/compose/.env
 .claude/
+deploy/compose/goblins.yaml
+deploy/compose/secrets/
