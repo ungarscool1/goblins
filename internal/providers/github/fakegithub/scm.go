@@ -194,22 +194,34 @@ func (s *Server) routePulls(w http.ResponseWriter, r *http.Request, repo string,
 			}
 			writeJSON(w, 200, out)
 		case len(seg) == 3 && seg[2] == "comments" && r.Method == http.MethodGet:
-			out := []map[string]any{}
-			for _, rev := range st.reviews[n] {
-				if cs, ok := rev["comments"].([]any); ok {
-					for i, c := range cs {
-						m, _ := c.(map[string]any)
-						out = append(out, map[string]any{"id": i + 1, "path": m["path"], "line": m["line"], "body": m["body"], "user": BotUser})
-					}
-				}
-			}
-			writeJSON(w, 200, append(out, st.replies[n]...))
+			writeJSON(w, 200, append(reviewComments(st.reviews[n]), st.replies[n]...))
 		default:
 			fail(w, 404, "unknown endpoint")
 		}
 	default:
 		fail(w, 404, "unknown endpoint")
 	}
+}
+
+func reviewComments(reviews []map[string]any) []map[string]any {
+	out := []map[string]any{}
+	for _, rev := range reviews {
+		comments, ok := rev["comments"].([]any)
+		if !ok {
+			continue
+		}
+		for i, comment := range comments {
+			m, _ := comment.(map[string]any)
+			out = append(out, map[string]any{
+				"id":   i + 1,
+				"path": m["path"],
+				"line": m["line"],
+				"body": m["body"],
+				"user": BotUser,
+			})
+		}
+	}
+	return out
 }
 
 // AddReviewReply answers a review comment, as a person would on GitHub.

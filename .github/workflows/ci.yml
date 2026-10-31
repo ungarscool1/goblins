@@ -42,6 +42,11 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make lint
+      - name: Check Go coding style budgets
+        uses: ungarscool1/go-coding-style-checker@826599a5c3edfd9ba4e8ad558e4c1cf46d16b156 # v1.0.0
+        with:
+          # Reuse the version declared in go.mod, already installed above.
+          go-version: ''
   docker:
     runs-on: ubuntu-latest
     steps:

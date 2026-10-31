@@ -111,15 +111,19 @@ func TestDependencyRules(t *testing.T) {
 	root := repoRoot(t)
 	for pkg, banned := range forbiddenImports {
 		for _, file := range goFiles(t, filepath.Join(root, pkg)) {
-			if strings.HasSuffix(file, "_test.go") {
-				continue
-			}
-			for _, imp := range imports(t, file) {
-				for _, b := range banned {
-					if imp == b || strings.HasPrefix(imp, b+"/") {
-						t.Errorf("%s imports forbidden package %s", file, imp)
-					}
-				}
+			checkForbiddenImports(t, file, banned)
+		}
+	}
+}
+
+func checkForbiddenImports(t *testing.T, file string, banned []string) {
+	if strings.HasSuffix(file, "_test.go") {
+		return
+	}
+	for _, imp := range imports(t, file) {
+		for _, b := range banned {
+			if imp == b || strings.HasPrefix(imp, b+"/") {
+				t.Errorf("%s imports forbidden package %s", file, imp)
 			}
 		}
 	}

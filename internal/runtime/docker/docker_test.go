@@ -201,9 +201,35 @@ func TestRetriedCreateNeverRestartsAFinishedContainer(t *testing.T) {
 	}
 }
 
+type imageReference struct{ image, name, tag string }
+
+func pullHandler(t *testing.T, tc imageReference, pulled *bool, creates *int) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case strings.HasPrefix(req.URL.Path, "/containers/create"):
+			*creates += 1
+			if *creates == 1 {
+				w.WriteHeader(404)
+				_, _ = io.WriteString(w, `{"message":"No such image"}`)
+			}
+		case req.URL.Path == "/images/create":
+			*pulled = true
+			q := req.URL.Query()
+			if q.Get("fromImage") != tc.name || q.Get("tag") != tc.tag {
+				t.Errorf("pull query = %v", q)
+			}
+		case strings.HasSuffix(req.URL.Path, "/json"):
+			_, _ = io.WriteString(w, `{"State":{"Status":"running"},"Config":{"Labels":{}}}`)
+		default:
+			w.WriteHeader(204)
+		}
+	}
+}
+
 func TestPullQueryForImageReferences(t *testing.T) {
 	const digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	cases := []struct{ image, name, tag string }{
+	cases := []imageReference{
 		{"img", "img", "latest"},
 		{"img:v1", "img", "v1"},
 		{"registry:5000/img", "registry:5000/img", "latest"},
@@ -216,25 +242,7 @@ func TestPullQueryForImageReferences(t *testing.T) {
 		t.Run(tc.image, func(t *testing.T) {
 			pulled := false
 			creates := 0
-			r := engineStub(t, func(w http.ResponseWriter, req *http.Request) {
-				switch {
-				case strings.HasPrefix(req.URL.Path, "/containers/create"):
-					creates++
-					if creates == 1 {
-						w.WriteHeader(404)
-						_, _ = io.WriteString(w, `{"message":"No such image"}`)
-					}
-				case req.URL.Path == "/images/create":
-					pulled = true
-					if q := req.URL.Query(); q.Get("fromImage") != tc.name || q.Get("tag") != tc.tag {
-						t.Errorf("pull query = %v", q)
-					}
-				case strings.HasSuffix(req.URL.Path, "/json"):
-					_, _ = io.WriteString(w, `{"State":{"Status":"running"},"Config":{"Labels":{}}}`)
-				default:
-					w.WriteHeader(204)
-				}
-			})
+			r := engineStub(t, pullHandler(t, tc, &pulled, &creates))
 			if _, err := r.Create(context.Background(), core.WorkloadSpec{Name: "w", Image: tc.image, Command: []string{"c"}, Network: core.NetworkNone}); err != nil || !pulled {
 				t.Fatalf("err=%v pulled=%v", err, pulled)
 			}

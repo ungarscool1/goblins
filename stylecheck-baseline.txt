@@ -1,0 +1,19 @@
+# Style budget backlog.
+#
+#   width  <module> <lines>  non-exempt lines over 100 columns
+#   file   <path> <lines>    non-test file over 600 lines
+#   review <path> <findings> branch, parameter, or return budgets over their ceilings
+#
+# The check fails when a number rises and when one is stale, so any change to
+# the debt shows up here. Regenerate this file by rerunning the check with -update.
+#
+# An entry is not a licence to add more. New code goes in under budget; the
+# backlog exists so the cleanup can land module by module.
+
+width . 363
+
+file internal/storage/store.go 763
+file internal/workflow/machine.go 831
+
+review internal/runtime/workspace/workspace.go 2
+review internal/scheduler/scheduler.go 1
