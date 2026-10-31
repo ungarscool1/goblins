@@ -67,9 +67,10 @@ func NewProcessRuntime(name, root, pathPrefix string) *ProcessRuntime {
 	return &ProcessRuntime{Name: name, Root: root, PathPrefix: pathPrefix, workloads: map[string]*procWorkload{}}
 }
 
-// Info implements core.Provider.
+// Info implements core.Provider. As a test double it accepts the requests a real runtime
+// must honor, so that adapters can be tested with their normal specs; it enforces none.
 func (r *ProcessRuntime) Info() core.ProviderInfo {
-	i := info(core.ProviderRuntime, r.Name, []core.Capability{core.CapRuntimeVolumes, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress, core.CapRuntimeReadOnlyRoot})
+	i := info(core.ProviderRuntime, r.Name, []core.Capability{core.CapRuntimeVolumes, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress, core.CapRuntimeResourceLimits, core.CapRuntimeReadOnlyRoot})
 	i.Type = "fake-process"
 	return i
 }
