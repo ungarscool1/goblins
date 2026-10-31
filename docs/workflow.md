@@ -66,6 +66,12 @@ a task instead of corrupting it.
    saying `/goblins resume` resets them.
 9. **Waiting costs nothing.** Idle states run no job, for as long as it takes.
 
+## Not implemented yet
+
+Blocking a task on another issue it depends on is **not part of P0**, although #4 lists
+it. Each task proceeds on its own, so sequence dependent issues by hand. Dependency
+planning is tracked in #25.
+
 ## Delivery semantics
 
 Delivery is at-least-once; effects are exactly-once *by idempotency*:
