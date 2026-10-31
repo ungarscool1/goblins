@@ -677,3 +677,77 @@ func TestOnlyAPassRecordsACommitAsValidated(t *testing.T) {
 		t.Fatalf("provider's skip: %+v, jobs %v", d.Task, kinds(d))
 	}
 }
+
+func commentBodies(t *testing.T, d Decision) []string {
+	t.Helper()
+	var out []string
+	for _, j := range d.Jobs {
+		if j.Kind != JobComment {
+			continue
+		}
+		var c CommentPayload
+		if err := json.Unmarshal(j.Payload, &c); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, c.Body)
+	}
+	return out
+}
+
+func TestBlockedValidationShowsFailingOutputOnTheTicket(t *testing.T) {
+	p := DefaultPolicy()
+	output := strings.Repeat("noise\n", 2000) + "fork/exec /tmp/x.test: permission denied\n" +
+		"token abcdefgh12345678\n```\n@maintainer\n<!-- goblins:idem:abc -->\n\xff"
+	rep := core.ValidationReport{Status: core.ValidationFailed, Summary: "failed: test", Checks: []core.ValidationCheck{
+		{Name: "lint", Status: core.ValidationPassed, Output: "lint-was-clean"},
+		{Name: "test", Status: core.ValidationFailed, ExitCode: 1, Output: output},
+	}}
+	prePR := at(core.StateImplementing, JobValidate)
+	prePR.Loops = map[string]int{"implement": p.MaxImplementLoops}
+	final := at(core.StateTesting, JobValidate)
+	final.CurrentJob.Payload = mustJSON(ValidatePayload{Stage: StageFinal, SHA: "x"})
+
+	for name, tk := range map[string]*core.Task{"before the pull request": prePR, "on the pull request": final} {
+		t.Run(name, func(t *testing.T) {
+			d := Decide(tk, finished(tk, true, "", "", ValidateResult{Report: rep}), writeFacts(), p)
+			mustState(t, d, core.StateBlocked)
+			bodies := commentBodies(t, d)
+			if len(bodies) != 1 {
+				t.Fatalf("comments = %q", bodies)
+			}
+			body := bodies[0]
+			for _, want := range []string{"failed: test", "**test** (exit 1)", "permission denied", "`/goblins resume`", "````\n"} {
+				if !strings.Contains(body, want) {
+					t.Errorf("missing %q in:\n%s", want, body)
+				}
+			}
+			for _, bad := range []string{"abcdefgh12345678", "lint-was-clean", "<!--", "\xff"} {
+				if strings.Contains(body, bad) {
+					t.Errorf("found %q in:\n%s", bad, body)
+				}
+			}
+			if len(body) > 2*maxTicketCheckOutput {
+				t.Errorf("comment is %d bytes", len(body))
+			}
+			if strings.Contains(d.Task.Reason, "permission denied") {
+				t.Errorf("output reached the stored reason: %s", d.Task.Reason)
+			}
+			for _, j := range d.Jobs {
+				if j.Kind == JobNotify && strings.Contains(string(j.Payload), "permission denied") {
+					t.Errorf("output reached the notification: %s", j.Payload)
+				}
+			}
+		})
+	}
+}
+
+func TestFailedChecksStopAtTheCommentBudget(t *testing.T) {
+	rep := core.ValidationReport{}
+	for range 50 {
+		rep.Checks = append(rep.Checks, core.ValidationCheck{Name: "c", Status: core.ValidationFailed, Output: strings.Repeat("x", 2*maxTicketCheckOutput)})
+	}
+	got := RenderFailedChecks(rep)
+	if len(got) > maxTicketOutput+2*maxTicketCheckOutput || !strings.Contains(got, "further failed checks") {
+		t.Fatalf("%d bytes: ...%s", len(got), got[len(got)-80:])
+	}
+}

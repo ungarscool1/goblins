@@ -45,6 +45,7 @@ GitHub, Anthropic or Docker being compromised.
 | Paid API fallback                     | Billing variables unset, API key options refused, API-keyed sessions discarded | Go code, wrapper |
 | Runaway cost                          | Concurrency limits, bounded loops, deadlines, pause on quota | Go code |
 | Secrets in logs                       | `core.Secret`, redacting logger and transcript, no raw CLI output in messages | Go code |
+| Secrets in check output on the ticket | Validation gets no credentials; output is redacted, bounded and fenced. Redaction only knows common shapes, so a secret a repository already holds can still be printed | Go code, separate containers |
 | Agent pushes to a protected branch    | Only `goblins/*`, never forced; App lacks workflow permission | Go code, GitHub |
 
 ## Known gaps
