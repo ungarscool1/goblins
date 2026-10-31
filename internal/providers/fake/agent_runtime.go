@@ -181,6 +181,9 @@ func CheckSpec(rt core.ExecutionRuntime, spec core.WorkloadSpec) error {
 	if len(spec.Mounts) > 0 {
 		req = append(req, core.CapRuntimeVolumes)
 	}
+	if spec.Resources != (core.Resources{}) {
+		req = append(req, core.CapRuntimeResourceLimits)
+	}
 	return core.Negotiate(rt, req...)
 }
 

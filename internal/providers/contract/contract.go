@@ -452,6 +452,16 @@ func ExecutionRuntime(t *testing.T, build func(t *testing.T) RuntimeHarness) {
 				t.Fatalf("refused workload exists: %v", serr)
 			}
 		}
+		if !info.Has(core.CapRuntimeResourceLimits) {
+			name := uniqueName(t, "denied")
+			s := spec(h, name, "ok", "x")
+			s.Resources = core.Resources{MemoryBytes: 1 << 30}
+			_, err := h.Runtime.Create(ctx, s)
+			wantKind(t, err, core.KindUnsupported)
+			if _, serr := h.Runtime.Status(ctx, name); !core.IsKind(serr, core.KindNotFound) {
+				t.Fatalf("refused workload exists: %v", serr)
+			}
+		}
 	})
 
 	t.Run("volumes", func(t *testing.T) {
