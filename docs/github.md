@@ -20,11 +20,10 @@ These are the minimum Goblins uses:
 
 | Permission      | Access       | Used for                                   |
 | --------------- | ------------ | ------------------------------------------ |
-| Metadata        | Read         | Required by GitHub                         |
+| Metadata        | Read         | Required by GitHub; also collaborator permission for approvals |
 | Issues          | Read & write | Reading issues, posting questions, designs |
 | Pull requests   | Read & write | Draft pull requests, comments, reviews     |
 | Contents        | Read & write | Cloning, pushing work branches             |
-| Administration  | Read         | Reading collaborator permission for approvals |
 | Checks          | Read         | Optional: reading CI results               |
 
 Do not grant **Workflows**. Without it GitHub refuses a push that changes
