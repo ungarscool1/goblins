@@ -22,15 +22,16 @@ type Result struct {
 // RunToCompletion starts a workload, waits for it, and always removes it. Cancelling
 // ctx cancels the workload.
 func RunToCompletion(ctx context.Context, rt core.ExecutionRuntime, spec core.WorkloadSpec) (Result, error) {
-	if _, err := rt.Create(ctx, spec); err != nil {
-		return Result{}, err
-	}
+	// Set up before creating: an error from Create does not prove nothing started.
 	defer func() {
 		bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
 		_ = rt.Cancel(bg, spec.Name)
 		_ = rt.Cleanup(bg, spec.Name)
 	}()
+	if _, err := rt.Create(ctx, spec); err != nil {
+		return Result{}, err
+	}
 	stdout, stderr := &Tail{Max: MaxOutput}, &Tail{Max: MaxOutput}
 	if err := rt.Logs(ctx, spec.Name, true, stdout, stderr); err != nil {
 		return Result{}, err

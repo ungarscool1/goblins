@@ -73,7 +73,11 @@ tunnel such as Cloudflare Tunnel or Tailscale Funnel. **Do not expose the rest o
 HTTP port.**
 
 With no inbound path at all, leave `webhook_secret_env` out. The source then advertises
-polling only, and the scheduler reads changes on an interval. Polling is read-only and
+polling only, and the scheduler reads changes on an interval. In this mode a comment
+edited before it is read counts as an edit, so it can give input but cannot approve or
+run a command. Polling catches up gradually after a long gap, but stops with a logged
+error if more than 2000 issue events or open pull requests changed since its last read,
+because those listings cannot resume. Polling is read-only and
 has two limits: an edit is attributed to the issue's author, because the API does not
 say who edited it; and comment edits only surface as new timestamps. Webhooks and
 polling can run together, since one fact has one identity and is processed once.

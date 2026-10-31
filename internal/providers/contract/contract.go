@@ -6,6 +6,7 @@ package contract
 import (
 	"bytes"
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -72,6 +73,18 @@ func IssueTracker(t *testing.T, build func(t *testing.T) TrackerHarness) {
 			t.Skip("no comment.write")
 		}
 		a, err := h.Tracker.PostComment(ctx, ref, core.CommentDraft{IdempotencyKey: "k1", Body: "hello"})
+		defer func() {
+			if t.Failed() {
+				return
+			}
+			list, err := h.Tracker.ListComments(ctx, ref, time.Time{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.ContainsFunc(list, func(c core.Comment) bool { return c.ID == a.ID && c.Own }) {
+				t.Fatalf("own post not recognized: %+v", list)
+			}
+		}()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -447,6 +460,16 @@ func ExecutionRuntime(t *testing.T, build func(t *testing.T) RuntimeHarness) {
 			name := uniqueName(t, "denied")
 			s := spec(h, name, "ok", "x")
 			s.Security = sec
+			_, err := h.Runtime.Create(ctx, s)
+			wantKind(t, err, core.KindUnsupported)
+			if _, serr := h.Runtime.Status(ctx, name); !core.IsKind(serr, core.KindNotFound) {
+				t.Fatalf("refused workload exists: %v", serr)
+			}
+		}
+		if !info.Has(core.CapRuntimeResourceLimits) {
+			name := uniqueName(t, "denied")
+			s := spec(h, name, "ok", "x")
+			s.Resources = core.Resources{MemoryBytes: 1 << 30}
 			_, err := h.Runtime.Create(ctx, s)
 			wantKind(t, err, core.KindUnsupported)
 			if _, serr := h.Runtime.Status(ctx, name); !core.IsKind(serr, core.KindNotFound) {

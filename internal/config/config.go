@@ -369,13 +369,22 @@ func (c *Config) sets() []namedSet {
 // validateOptions rejects inline secrets so a file is always safe to render.
 func validateOptions(path string, opts map[string]any, add func(string, ...any)) {
 	for _, k := range slices.Sorted(maps.Keys(opts)) {
-		switch v := opts[k].(type) {
-		case map[string]any:
-			validateOptions(path+"."+k, v, add)
-		case string:
-			if observability.IsSensitiveKey(k) && !secretRefRE.MatchString(k) && v != "" {
-				add("%s.%s: inline secrets are not allowed, use %s_env or %s_file", path, k, k, k)
-			}
+		validateOption(path+"."+k, k, opts[k], add)
+	}
+}
+
+// validateOption checks one value. Items of a sequence inherit the key that holds them.
+func validateOption(path, key string, value any, add func(string, ...any)) {
+	switch v := value.(type) {
+	case map[string]any:
+		validateOptions(path, v, add)
+	case []any:
+		for i, item := range v {
+			validateOption(fmt.Sprintf("%s[%d]", path, i), key, item, add)
+		}
+	case string:
+		if observability.IsSensitiveKey(key) && !secretRefRE.MatchString(key) && v != "" {
+			add("%s: inline secrets are not allowed, use %s_env or %s_file", path, key, key)
 		}
 	}
 }
@@ -413,25 +422,35 @@ func redactMap(m map[string]any) map[string]any {
 	}
 	out := make(map[string]any, len(m))
 	for k, v := range m {
-		switch tv := v.(type) {
-		case map[string]any:
-			out[k] = redactMap(tv)
-		case string:
-			switch {
-			case secretRefRE.MatchString(k):
-				out[k] = tv // a reference, not the secret itself
-			case observability.IsSensitiveKey(k):
-				out[k] = "[REDACTED]"
+		switch {
+		case secretRefRE.MatchString(k):
+			out[k] = v // a reference, not the secret itself
+		case observability.IsSensitiveKey(k):
+			switch v.(type) {
+			case map[string]any:
+				out[k] = redactValue(v)
 			default:
-				out[k] = observability.RedactText(tv)
+				out[k] = "[REDACTED]"
 			}
 		default:
-			if observability.IsSensitiveKey(k) {
-				out[k] = "[REDACTED]"
-			} else {
-				out[k] = v
-			}
+			out[k] = redactValue(v)
 		}
 	}
 	return out
+}
+
+func redactValue(v any) any {
+	switch tv := v.(type) {
+	case map[string]any:
+		return redactMap(tv)
+	case []any:
+		out := make([]any, len(tv))
+		for i, item := range tv {
+			out[i] = redactValue(item)
+		}
+		return out
+	case string:
+		return observability.RedactText(tv)
+	}
+	return v
 }

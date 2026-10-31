@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -225,9 +226,10 @@ func (p *Pipeline) prepare(ctx context.Context, jc scheduler.JobContext, pr *Pro
 }
 
 // visibleComments returns the conversation the planner may see: people with sufficient
-// access and this workflow's own posts. Others are withheld, so a stranger's comment cannot
-// feed instructions to the model. Permission lookups fail closed.
-func (p *Pipeline) visibleComments(ctx context.Context, pr *Project, ref core.IssueRef) ([]core.Comment, int, error) {
+// access, this workflow's own posts, and replies through the manual inbox, which were
+// checked when they arrived. Others are withheld, so that neither a stranger's comment nor
+// other automation can feed instructions to the model. Permission lookups fail closed.
+func (p *Pipeline) visibleComments(ctx context.Context, pr *Project, task core.Task, ref core.IssueRef) ([]core.Comment, int, error) {
 	all, err := pr.Tracker.ListComments(ctx, ref, time.Time{})
 	if err != nil {
 		return nil, 0, err
@@ -236,8 +238,12 @@ func (p *Pipeline) visibleComments(ctx context.Context, pr *Project, ref core.Is
 	out := make([]core.Comment, 0, len(all))
 	withheld := 0
 	for _, c := range all {
-		if c.Author.Type == core.ActorBot {
+		if c.Own {
 			out = append(out, c)
+			continue
+		}
+		if c.Author.Type != core.ActorHuman {
+			withheld++
 			continue
 		}
 		perm, known := perms[c.Author.Login]
@@ -251,12 +257,14 @@ func (p *Pipeline) visibleComments(ctx context.Context, pr *Project, ref core.Is
 			}
 			perms[c.Author.Login] = perm
 		}
-		if c.Author.Type == core.ActorHuman && perm >= pr.MinInput {
+		if perm >= pr.MinInput {
 			out = append(out, c)
 		} else {
 			withheld++
 		}
 	}
+	out = append(out, task.ManualInput...)
+	slices.SortStableFunc(out, func(a, b core.Comment) int { return a.CreatedAt.Compare(b.CreatedAt) })
 	return out, withheld, nil
 }
 
@@ -274,7 +282,7 @@ func (p *Pipeline) plan(ctx context.Context, jc scheduler.JobContext) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	comments, withheld, err := p.visibleComments(ctx, pr, ref)
+	comments, withheld, err := p.visibleComments(ctx, pr, jc.Task, ref)
 	if err != nil {
 		return nil, err
 	}
