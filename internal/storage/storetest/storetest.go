@@ -45,6 +45,24 @@ func addTask(t *testing.T, s core.StateStore, id string, jobs ...core.JobDraft) 
 	return got
 }
 
+func claimJobs(ctx context.Context, t *testing.T, s core.StateStore, worker int, claimed *atomic.Int64, mu *sync.Mutex, seen map[string]int) {
+	t.Helper()
+	for range 40 {
+		j, err := s.ClaimJob(ctx, core.JobClaim{Owner: fmt.Sprintf("w%d", worker), LeaseFor: time.Hour, Now: t0})
+		if err != nil {
+			t.Errorf("claim: %v", err)
+			return
+		}
+		if j == nil {
+			continue
+		}
+		claimed.Add(1)
+		mu.Lock()
+		seen[j.ID]++
+		mu.Unlock()
+	}
+}
+
 // Run executes the suite. build must return a fresh, empty store.
 func Run(t *testing.T, build func(t *testing.T) core.StateStore) {
 	ctx := context.Background()
@@ -383,20 +401,7 @@ func Run(t *testing.T, build func(t *testing.T) core.StateStore) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				for range 40 {
-					j, err := s.ClaimJob(ctx, core.JobClaim{Owner: fmt.Sprintf("w%d", w), LeaseFor: time.Hour, Now: t0})
-					if err != nil {
-						t.Errorf("claim: %v", err)
-						return
-					}
-					if j == nil {
-						continue
-					}
-					claimed.Add(1)
-					mu.Lock()
-					seen[j.ID]++
-					mu.Unlock()
-				}
+				claimJobs(ctx, t, s, w, &claimed, &mu, seen)
 			}()
 		}
 		wg.Wait()
