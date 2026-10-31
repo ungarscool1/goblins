@@ -173,6 +173,30 @@ func TestReadOnlyPolicyMountsWorkspaceReadOnly(t *testing.T) {
 	}
 }
 
+func TestPreflightWorkloadCarriesTheRequestLabels(t *testing.T) {
+	a, rt := setup(t, "ok")
+	if _, err := a.Run(ctx, request(rt, "ok", "labels"), func(core.AgentEvent) {}); err != nil {
+		t.Fatal(err)
+	}
+	preflight := rt.Specs[0]
+	if !strings.HasPrefix(preflight.Name, "goblins-preflight-") || preflight.Labels["goblins.scenario"] != "ok" {
+		t.Fatalf("name = %s, labels = %v", preflight.Name, preflight.Labels)
+	}
+}
+
+func TestRuntimeWithoutReadOnlyRootIsRefused(t *testing.T) {
+	a, _ := setup(t, "ok")
+	rt := fake.NewRuntime("r")
+	rt.Caps = []core.Capability{core.CapRuntimeVolumes, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress}
+	_, err := a.Run(ctx, request(rt, "ok", "no-root"), func(core.AgentEvent) {})
+	if !core.IsKind(err, core.KindUnsupported) {
+		t.Fatalf("err = %v, want unsupported", err)
+	}
+	if len(rt.Created) != 0 {
+		t.Fatalf("started despite the refusal: %+v", rt.Created)
+	}
+}
+
 func TestAPIKeysNeverReachTheCLI(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-from-orchestrator-env")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "tok-from-orchestrator-env")

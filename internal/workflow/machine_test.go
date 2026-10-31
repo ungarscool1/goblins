@@ -544,3 +544,85 @@ func TestEveryBlockCanBeResumed(t *testing.T) {
 		})
 	}
 }
+
+func TestEditWhilePausedTakesEffect(t *testing.T) {
+	p := DefaultPolicy()
+	edit := core.Event{Project: "p", Type: core.EventIssueEdited, Subject: subj, Actor: maintainer, Issue: &core.Issue{Title: "new", Body: "changed", Open: true}}
+	paused := func(pause, resume core.State, job core.JobKind) *core.Task {
+		tk := at(pause, job)
+		tk.ResumeState = resume
+		tk.Approval = &core.Approval{Revision: 2, Hash: tk.DesignHash}
+		if pause == core.StateQuotaPaused {
+			tk.PausedUntil = t0.Add(time.Minute)
+		}
+		return tk
+	}
+	timer := core.Event{Project: "p", Type: core.EventTimerFired, Subject: subj}
+	later := Facts{Now: t0.Add(time.Hour)}
+
+	// Approved work is replanned on resume, whichever way the pause ends.
+	for _, resume := range []core.State{core.StateAgentReady, core.StateImplementing} {
+		d := Decide(paused(core.StateBlocked, resume, JobImplement), edit, writeFacts(), p)
+		if d.Task == nil || d.Task.Approval != nil || d.Task.CurrentJob != nil {
+			t.Fatalf("%s: approval or old job survived the edit: %+v", resume, d.Task)
+		}
+		if !slices.Contains(d.CancelKinds, JobImplement) || !hasJob(d, JobComment) || hasJob(d, JobPlan) {
+			t.Fatalf("%s: decision = %+v", resume, d)
+		}
+		r := Decide(d.Task, comment(maintainer, "/goblins resume", t0), writeFacts(), p)
+		mustState(t, r, core.StateInvestigating)
+		if !hasJob(r, JobPlan) || hasJob(r, JobImplement) {
+			t.Fatalf("%s: resume enqueued %v", resume, kinds(r))
+		}
+
+		d = Decide(paused(core.StateQuotaPaused, resume, JobImplement), edit, writeFacts(), p)
+		r = Decide(d.Task, timer, later, p)
+		mustState(t, r, core.StateInvestigating)
+		if !hasJob(r, JobPlan) || hasJob(r, JobImplement) {
+			t.Fatalf("%s: timer enqueued %v", resume, kinds(r))
+		}
+	}
+
+	// A proposed design cannot be approved after it stops describing the request.
+	d := Decide(paused(core.StateBlocked, core.StateDesignProposed, ""), edit, writeFacts(), p)
+	r := Decide(d.Task, comment(maintainer, "/goblins resume", t0), writeFacts(), p)
+	mustState(t, r, core.StateInvestigating)
+	if !hasJob(r, JobPlan) {
+		t.Fatalf("resume enqueued %v", kinds(r))
+	}
+
+	// A planner that is already due runs again, and its result is treated as stale.
+	d = Decide(paused(core.StateBlocked, core.StateInvestigating, JobPlan), edit, writeFacts(), p)
+	if !d.Task.PendingInput || d.Task.CurrentJob == nil {
+		t.Fatalf("planning: %+v", d.Task)
+	}
+
+	// After a pull request exists this is a person's call, so the clock may not resume it.
+	d = Decide(paused(core.StateQuotaPaused, core.StateReviewing, JobReview), edit, writeFacts(), p)
+	mustState(t, d, core.StateBlocked)
+	if d.Task.Approval != nil || !d.Task.PausedUntil.IsZero() {
+		t.Fatalf("pull request: %+v", d.Task)
+	}
+	mustIgnore(t, Decide(d.Task, timer, later, p))
+
+	// Someone without permission still changes nothing.
+	mustIgnore(t, Decide(paused(core.StateBlocked, core.StateImplementing, JobImplement), edit, Facts{ActorPermission: core.PermissionRead, Now: t0}, p))
+}
+
+func TestOutcomeArrivingDuringPauseIsFenced(t *testing.T) {
+	p := DefaultPolicy()
+	running := at(core.StateImplementing, JobImplement)
+	done := finished(running, true, "", "", ImplementResult{Changed: true, HeadSHA: "abc"})
+
+	d := Decide(running, comment(maintainer, "/goblins pause", t0), writeFacts(), p)
+	mustState(t, d, core.StateBlocked)
+	mustIgnore(t, Decide(d.Task, done, writeFacts(), p))
+
+	// Resuming redoes the job; the old outcome cannot advance the task afterwards either.
+	r := Decide(d.Task, comment(maintainer, "/goblins resume", t0), writeFacts(), p)
+	mustState(t, r, core.StateImplementing)
+	if !hasJob(r, JobImplement) {
+		t.Fatalf("resume enqueued %v", kinds(r))
+	}
+	mustIgnore(t, Decide(r.Task, done, writeFacts(), p))
+}

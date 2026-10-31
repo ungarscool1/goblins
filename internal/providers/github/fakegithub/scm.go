@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -76,10 +77,18 @@ func (s *Server) routeSCM(w http.ResponseWriter, r *http.Request, repo string, s
 		writeJSON(w, 200, map[string]any{"sha": seg[1], "commit": map[string]any{"message": "commit " + seg[1], "author": map[string]string{"name": "someone"}}})
 	case seg[0] == "commits" && len(seg) == 3 && seg[2] == "check-runs":
 		runs := st.checks[seg[1]]
-		if runs == nil {
-			runs = []map[string]any{}
+		perPage, page := 30, 1
+		if v, err := strconv.Atoi(r.URL.Query().Get("per_page")); err == nil && v > 0 {
+			perPage = min(v, 100)
 		}
-		writeJSON(w, 200, map[string]any{"total_count": len(runs), "check_runs": runs})
+		if v, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && v > 0 {
+			page = v
+		}
+		from, to := min((page-1)*perPage, len(runs)), min(page*perPage, len(runs))
+		if to < len(runs) {
+			w.Header().Set("Link", fmt.Sprintf(`<http://%s%s?per_page=%d&page=%d>; rel="next"`, r.Host, r.URL.Path, perPage, page+1))
+		}
+		writeJSON(w, 200, map[string]any{"total_count": len(runs), "check_runs": append([]map[string]any{}, runs[from:to]...)})
 	case seg[0] == "pulls":
 		s.routePulls(w, r, repo, st, seg)
 	default:
@@ -185,11 +194,85 @@ func (s *Server) routePulls(w http.ResponseWriter, r *http.Request, repo string,
 					}
 				}
 			}
-			writeJSON(w, 200, out)
+			writeJSON(w, 200, append(out, st.replies[n]...))
 		default:
 			fail(w, 404, "unknown endpoint")
 		}
 	default:
 		fail(w, 404, "unknown endpoint")
 	}
+}
+
+// AddReviewReply answers a review comment, as a person would on GitHub.
+func (s *Server) AddReviewReply(repo string, n, id, replyTo int64, body string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.repo(repo)
+	if st.replies == nil {
+		st.replies = map[int64][]map[string]any{}
+	}
+	st.replies[n] = append(st.replies[n], map[string]any{"id": id, "in_reply_to_id": replyTo, "body": body, "user": BotUser})
+}
+
+// ResolveThread marks the review thread started by a comment as resolved.
+func (s *Server) ResolveThread(repo string, n, commentID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.repo(repo)
+	if st.resolved == nil {
+		st.resolved = map[string]bool{}
+	}
+	st.resolved[fmt.Sprintf("%d/%d", n, commentID)] = true
+}
+
+// serveGraphQL answers the one query Goblins sends, one thread per page so that a test
+// exercises pagination. A query not asking for the fields it reads is refused, as the
+// real schema would give it nothing.
+func (s *Server) serveGraphQL(w http.ResponseWriter, r *http.Request, bearer string) {
+	var req struct {
+		Query     string `json:"query"`
+		Variables struct {
+			Owner  string `json:"owner"`
+			Name   string `json:"name"`
+			Number int64  `json:"number"`
+			After  string `json:"after"`
+		} `json:"variables"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		fail(w, 400, "bad request")
+		return
+	}
+	info, ok := s.tokens[bearer]
+	if !ok || s.Now().After(info.expires) {
+		fail(w, 401, "bad credentials")
+		return
+	}
+	v := req.Variables
+	st, ok := s.repos[v.Owner+"/"+v.Name]
+	if !ok || !slices.Contains(info.repos, v.Name) {
+		writeJSON(w, 200, map[string]any{"errors": []map[string]string{{"type": "NOT_FOUND", "message": "Could not resolve to a Repository"}}})
+		return
+	}
+	if !strings.Contains(req.Query, "isResolved") || !strings.Contains(req.Query, "fullDatabaseId") {
+		writeJSON(w, 200, map[string]any{"errors": []map[string]string{{"message": "unexpected query"}}})
+		return
+	}
+	var ids []int
+	for _, rev := range st.reviews[v.Number] {
+		if cs, ok := rev["comments"].([]any); ok {
+			for i := range cs {
+				ids = append(ids, i+1)
+			}
+		}
+	}
+	at, _ := strconv.Atoi(v.After)
+	threads := map[string]any{"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""}, "nodes": []any{}}
+	if at < len(ids) {
+		threads["pageInfo"] = map[string]any{"hasNextPage": at+1 < len(ids), "endCursor": strconv.Itoa(at + 1)}
+		threads["nodes"] = []any{map[string]any{
+			"isResolved": st.resolved[fmt.Sprintf("%d/%d", v.Number, ids[at])],
+			"comments":   map[string]any{"nodes": []any{map[string]string{"fullDatabaseId": strconv.Itoa(ids[at])}}},
+		}}
+	}
+	writeJSON(w, 200, map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequest": map[string]any{"reviewThreads": threads}}}})
 }
