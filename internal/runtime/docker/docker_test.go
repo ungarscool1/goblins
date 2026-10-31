@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,9 @@ func TestCreateRequestIsConfined(t *testing.T) {
 	}
 	if len(hc.Mounts) != 1 || hc.Mounts[0].Type != "volume" || !hc.Mounts[0].ReadOnly {
 		t.Fatalf("mounts = %+v", hc.Mounts)
+	}
+	if tmp := strings.Split(hc.Tmpfs["/tmp"], ","); !slices.Contains(tmp, "exec") || !slices.Contains(tmp, "nosuid") || !slices.Contains(tmp, "nodev") {
+		t.Fatalf("tmpfs = %q", hc.Tmpfs["/tmp"])
 	}
 	raw, _ := json.Marshal(body)
 	if strings.Contains(string(raw), "Binds") || strings.Contains(string(raw), "docker.sock") {

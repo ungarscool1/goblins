@@ -96,6 +96,7 @@ id -u
 test -e /var/run/docker.sock && echo SOCKET-PRESENT
 touch /should-fail 2>/dev/null && echo ROOT-WRITABLE
 touch /tmp/ok && echo TMP-OK
+printf '#!/bin/sh\necho TMP-EXEC\n' > /tmp/run && chmod +x /tmp/run && /tmp/run
 touch /workspace/ok && echo WS-WRITABLE
 grep CapEff /proc/self/status
 grep NoNewPrivs /proc/self/status
@@ -125,7 +126,7 @@ echo done
 			t.Errorf("confinement broken, %s:\n%s", bad, out)
 		}
 	}
-	for _, want := range []string{"TMP-OK", "CapEff:\t0000000000000000", "NoNewPrivs:\t1", "done"} {
+	for _, want := range []string{"TMP-OK", "TMP-EXEC", "CapEff:\t0000000000000000", "NoNewPrivs:\t1", "done"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q:\n%s", want, out)
 		}
