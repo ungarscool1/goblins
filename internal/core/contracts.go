@@ -204,6 +204,39 @@ type WorkloadSpec struct {
 	Labels    map[string]string
 }
 
+// CheckWorkloadSpec rejects a spec needing capabilities rt does not advertise. All
+// runtimes share it so they refuse the same way, before starting anything.
+func CheckWorkloadSpec(rt ExecutionRuntime, spec WorkloadSpec) error {
+	var req []Capability
+	if spec.Security.Privileged {
+		req = append(req, CapRuntimePrivileged)
+	}
+	if spec.Security.GPU {
+		req = append(req, CapRuntimeGPU)
+	}
+	if spec.Security.KVM {
+		req = append(req, CapRuntimeKVM)
+	}
+	if spec.Security.ReadOnlyRoot {
+		req = append(req, CapRuntimeReadOnlyRoot)
+	}
+	if spec.Resources.DiskBytes > 0 {
+		req = append(req, CapRuntimeDiskLimits)
+	}
+	switch spec.Network {
+	case NetworkNone:
+		req = append(req, CapRuntimeNetworkNone)
+	case NetworkEgress:
+		req = append(req, CapRuntimeNetworkEgress)
+	default:
+		return Errorf(KindInvalid, "runtime.create", "workload %s has no network policy", spec.Name)
+	}
+	if len(spec.Mounts) > 0 {
+		req = append(req, CapRuntimeVolumes)
+	}
+	return Negotiate(rt, req...)
+}
+
 // WorkloadPhase is the lifecycle of a workload.
 type WorkloadPhase string
 

@@ -85,7 +85,7 @@ func (r *ProcessRuntime) Create(_ context.Context, spec core.WorkloadSpec) (core
 	if spec.Name == "" {
 		return core.WorkloadStatus{}, core.Errorf(core.KindInvalid, "process.create", "workload name required")
 	}
-	if err := CheckSpec(r, spec); err != nil {
+	if err := core.CheckWorkloadSpec(r, spec); err != nil {
 		return core.WorkloadStatus{}, err
 	}
 	r.mu.Lock()

@@ -7,6 +7,7 @@ import (
 	"github.com/ungarscool1/goblins/internal/providers/claude"
 	"github.com/ungarscool1/goblins/internal/providers/fake"
 	gh "github.com/ungarscool1/goblins/internal/providers/github"
+	"github.com/ungarscool1/goblins/internal/runtime/docker"
 )
 
 // Registry returns a registry with all built-in adapters.
@@ -15,5 +16,6 @@ func Registry() *providers.Registry {
 	fake.Register(r, fake.NewWorld())
 	gh.Register(r)
 	claude.Register(r)
+	docker.Register(r)
 	return r
 }
