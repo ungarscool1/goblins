@@ -89,6 +89,9 @@ type Task struct {
 	// so its result is superseded instead of being posted.
 	PendingInput bool `json:"pending_input,omitempty"`
 
+	// ManualInput holds replies given through the manual inbox, which trackers never saw,
+	// so that the planner can read them. Only the newest are kept.
+	ManualInput []Comment `json:"manual_input,omitempty"`
 	// ResumeState is the state to return to when leaving a pause or block.
 	ResumeState State     `json:"resume_state,omitempty"`
 	PausedUntil time.Time `json:"paused_until,omitzero"`

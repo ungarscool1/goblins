@@ -17,6 +17,7 @@ import (
 	"github.com/ungarscool1/goblins/internal/config"
 	"github.com/ungarscool1/goblins/internal/observability"
 	"github.com/ungarscool1/goblins/internal/providers/builtin"
+	"github.com/ungarscool1/goblins/internal/providers/fake"
 )
 
 const usage = `goblins - provider-agnostic autonomous software engineering orchestration
@@ -25,6 +26,10 @@ Usage:
   goblins serve [--config FILE | --mock]     Run the service
   goblins config check [--config FILE|--mock] Validate configuration
   goblins config render [--config FILE|--mock] Print effective configuration, secrets masked
+  goblins doctor [--config FILE|--mock]      Check providers and agent login, using no model
+  goblins status [--config FILE|--mock]      List tasks
+  goblins comment --task ID --as NAME --body TEXT [--config FILE|--mock]
+                                             Enter a comment by hand, for trackers without one
   goblins healthcheck [--url URL]            Probe a running instance (container health)
   goblins version                            Print the version
 `
@@ -45,7 +50,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 	switch args[0] {
 	case "serve":
-		cfg, err := loadFlags("serve", args[1:], stderr)
+		cfg, mock, err := loadFlags("serve", args[1:], stderr, nil)
 		if err != nil {
 			return err
 		}
@@ -53,12 +58,81 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		return app.Run(ctx, cfg, log)
+		return app.Run(ctx, cfg, log, appOptions(mock))
+	case "doctor":
+		cfg, mock, err := loadFlags("doctor", args[1:], stderr, nil)
+		if err != nil {
+			return err
+		}
+		log, err := observability.NewLogger(stderr, observability.LogOptions{Level: "warn", Format: "text"})
+		if err != nil {
+			return err
+		}
+		store, err := app.OpenStore(ctx, ensureDir(cfg))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = store.Close() }()
+		sys, err := app.Build(cfg, store, log, appOptions(mock))
+		if err != nil {
+			return err
+		}
+		if mock != nil {
+			for _, p := range cfg.Projects {
+				mock.SetBranch(p.Repository, "main", "1111111111111111111111111111111111111111")
+			}
+		}
+		if err := app.Doctor(ctx, sys, func(f string, a ...any) { _, _ = fmt.Fprintf(stdout, f, a...) }); err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintln(stdout, "ok")
+		return nil
+	case "status":
+		cfg, _, err := loadFlags("status", args[1:], stderr, nil)
+		if err != nil {
+			return err
+		}
+		store, err := app.OpenStore(ctx, ensureDir(cfg))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = store.Close() }()
+		tasks, err := store.ListTasks(ctx, "")
+		if err != nil {
+			return err
+		}
+		for _, t := range tasks {
+			_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s", t.ID, t.Project, t.State, t.Title)
+			if t.Reason != "" {
+				_, _ = fmt.Fprintf(stdout, "\t(%s)", t.Reason)
+			}
+			_, _ = fmt.Fprintln(stdout)
+		}
+		return nil
+	case "comment":
+		var task, as, body string
+		cfg, _, err := loadFlags("comment", args[1:], stderr, func(fs *flag.FlagSet) {
+			fs.StringVar(&task, "task", "", "task ID")
+			fs.StringVar(&as, "as", "", "your name, recorded as the author")
+			fs.StringVar(&body, "body", "", "comment text")
+		})
+		if err != nil {
+			return err
+		}
+		if task == "" || as == "" || body == "" {
+			return errors.New("--task, --as and --body are required")
+		}
+		store, err := app.OpenStore(ctx, ensureDir(cfg))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = store.Close() }()
+		return app.OperatorComment(ctx, store, task, as, body, time.Now().UTC())
 	case "config":
 		if len(args) < 2 {
 			return errors.New("usage: goblins config check|render")
 		}
-		cfg, err := loadFlags("config "+args[1], args[2:], stderr)
+		cfg, _, err := loadFlags("config "+args[1], args[2:], stderr, nil)
 		if err != nil {
 			return err
 		}
@@ -88,24 +162,48 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	return fmt.Errorf("unknown command %q", args[0])
 }
 
-func loadFlags(name string, args []string, stderr io.Writer) (config.Config, error) {
+// loadFlags returns the configuration, plus the fake world behind it in mock mode.
+func loadFlags(name string, args []string, stderr io.Writer, extra func(*flag.FlagSet)) (config.Config, *fake.World, error) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	path := fs.String("config", os.Getenv("GOBLINS_CONFIG"), "configuration file")
+	path := fs.String("config", "", "configuration file (or GOBLINS_CONFIG)")
 	mock := fs.Bool("mock", false, "use the built-in mock configuration")
+	if extra != nil {
+		extra(fs)
+	}
 	if err := fs.Parse(args); err != nil {
-		return config.Config{}, err
+		return config.Config{}, nil, err
 	}
-	reg := builtin.Registry()
+	if *mock && *path != "" {
+		return config.Config{}, nil, errors.New("--mock and --config are mutually exclusive")
+	}
+	world := fake.NewWorld()
+	reg := builtin.Registry(world)
 	switch {
-	case *mock && *path != "" && os.Getenv("GOBLINS_CONFIG") != *path:
-		return config.Config{}, errors.New("--mock and --config are mutually exclusive")
 	case *mock:
-		return config.LoadBytes(config.MockYAML, os.LookupEnv, reg.Known)
+		cfg, err := config.LoadBytes(config.MockYAML, os.LookupEnv, reg.Known)
+		return cfg, world, err
 	case *path == "":
-		return config.Config{}, errors.New("--config or --mock is required")
+		*path = os.Getenv("GOBLINS_CONFIG")
+		if *path == "" {
+			return config.Config{}, nil, errors.New("--config or --mock is required")
+		}
 	}
-	return config.Load(*path, os.LookupEnv, reg.Known)
+	cfg, err := config.Load(*path, os.LookupEnv, reg.Known)
+	return cfg, nil, err
+}
+
+// appOptions shares one world between mock mode's routes and its adapters.
+func appOptions(world *fake.World) app.Options {
+	if world == nil {
+		return app.Options{Registry: builtin.Registry(fake.NewWorld())}
+	}
+	return app.Options{Registry: builtin.Registry(world), Mock: world}
+}
+
+func ensureDir(cfg config.Config) config.Config {
+	_ = os.MkdirAll(cfg.Installation.DataDir, 0o700)
+	return cfg
 }
 
 func healthcheck(ctx context.Context, args []string, stderr io.Writer) error {

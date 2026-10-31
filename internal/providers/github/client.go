@@ -47,6 +47,7 @@ type Client struct {
 	now    func() time.Time
 	mu     sync.Mutex
 	tokens map[string]installationToken
+	login  string
 }
 
 type installationToken struct {
@@ -101,6 +102,34 @@ func parseKey(data []byte) (*rsa.PrivateKey, error) {
 		return nil, core.Errorf(core.KindInvalid, "github.client", "private key is not RSA")
 	}
 	return k, nil
+}
+
+// AppLogin returns the account the App's comments appear under. It never changes while
+// the App exists, so it is read once.
+func (c *Client) AppLogin(ctx context.Context) (string, error) {
+	c.mu.Lock()
+	login := c.login
+	c.mu.Unlock()
+	if login != "" {
+		return login, nil
+	}
+	jwt, err := c.appJWT()
+	if err != nil {
+		return "", core.Wrap(core.KindInternal, "github.app_login", err)
+	}
+	var app struct {
+		Slug string `json:"slug"`
+	}
+	if err := c.do(ctx, jwt, http.MethodGet, "/app", nil, &app); err != nil {
+		return "", err
+	}
+	if app.Slug == "" {
+		return "", core.Errorf(core.KindTransient, "github.app_login", "the App has no slug")
+	}
+	c.mu.Lock()
+	c.login = app.Slug + "[bot]"
+	c.mu.Unlock()
+	return app.Slug + "[bot]", nil
 }
 
 // appJWT signs a short-lived token identifying the App itself.

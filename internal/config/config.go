@@ -36,6 +36,7 @@ type Config struct {
 	Server        Server       `yaml:"server"`
 	Log           Log          `yaml:"log"`
 	Storage       Storage      `yaml:"storage"`
+	Scheduler     Scheduler    `yaml:"scheduler,omitempty"`
 	Trackers      ProviderSet  `yaml:"trackers,omitempty"`
 	SCMs          ProviderSet  `yaml:"scms,omitempty"`
 	EventSources  ProviderSet  `yaml:"event_sources,omitempty"`
@@ -74,10 +75,19 @@ type Storage struct {
 	DSNEnv string `yaml:"dsn_env,omitempty"`
 }
 
+// Scheduler limits how much runs at once. Zero means unlimited, except Workers.
+type Scheduler struct {
+	Workers       int `yaml:"workers,omitempty"`
+	MaxGlobal     int `yaml:"max_concurrent_agents,omitempty"`
+	MaxPerProject int `yaml:"max_agents_per_project,omitempty"`
+}
+
 // Provider is one named adapter instance.
 type Provider struct {
 	Type    string         `yaml:"type"`
 	Options map[string]any `yaml:"options,omitempty"`
+	// MaxConcurrent bounds simultaneous runs on one agent account. Other kinds ignore it.
+	MaxConcurrent int `yaml:"max_concurrent,omitempty"`
 }
 
 // ProviderSet maps instance names to provider definitions.
@@ -85,16 +95,48 @@ type ProviderSet map[string]Provider
 
 // Project binds one unit of work to its provider instances.
 type Project struct {
-	ID           string   `yaml:"id"`
-	Tracker      string   `yaml:"tracker"`
-	SCM          string   `yaml:"scm"`
-	EventSource  []string `yaml:"event_sources,omitempty"`
-	Repository   string   `yaml:"repository"`
-	BaseBranch   string   `yaml:"base_branch,omitempty"`
-	Validation   string   `yaml:"validation,omitempty"`
-	Review       string   `yaml:"review,omitempty"`
-	Notification string   `yaml:"notification,omitempty"`
-	Stages       Stages   `yaml:"stages"`
+	ID           string          `yaml:"id"`
+	Tracker      string          `yaml:"tracker"`
+	SCM          string          `yaml:"scm"`
+	EventSource  []string        `yaml:"event_sources,omitempty"`
+	Repository   string          `yaml:"repository"`
+	BaseBranch   string          `yaml:"base_branch,omitempty"`
+	Validation   string          `yaml:"validation,omitempty"`
+	Review       string          `yaml:"review,omitempty"`
+	Notification string          `yaml:"notification,omitempty"`
+	Stages       Stages          `yaml:"stages"`
+	Policy       Policy          `yaml:"policy,omitempty"`
+	Workspace    WorkspaceConfig `yaml:"workspace,omitempty"`
+	// PollInterval enables reconciliation polling on the project's event sources.
+	PollInterval time.Duration `yaml:"poll_interval,omitempty"`
+}
+
+// Policy overrides workflow rules. Unset fields keep safe defaults.
+type Policy struct {
+	ApproveCommand       string        `yaml:"approve_command,omitempty"`
+	MinApprovePermission string        `yaml:"min_approve_permission,omitempty"`
+	MinInputPermission   string        `yaml:"min_input_permission,omitempty"`
+	IntakeLabel          string        `yaml:"intake_label,omitempty"`
+	ReviewPullRequests   bool          `yaml:"review_pull_requests,omitempty"`
+	BotLogins            []string      `yaml:"bot_logins,omitempty"`
+	MaxPlanLoops         int           `yaml:"max_plan_loops,omitempty"`
+	MaxImplementLoops    int           `yaml:"max_implement_loops,omitempty"`
+	QuotaPause           time.Duration `yaml:"quota_pause,omitempty"`
+	AuthPause            time.Duration `yaml:"auth_pause,omitempty"`
+	WebResearch          bool          `yaml:"web_research,omitempty"`
+	// AllowUnvalidatedDraftPR lets a project without validation open draft pull requests
+	// from commits nothing has tested. Without it, such a project is refused.
+	AllowUnvalidatedDraftPR bool `yaml:"allow_unvalidated_draft_pr,omitempty"`
+	// AllowSkippedReview lets a project without a reviewer go on without independent review.
+	AllowSkippedReview bool `yaml:"allow_skipped_review,omitempty"`
+}
+
+// WorkspaceConfig configures Git workspaces.
+type WorkspaceConfig struct {
+	GitImage    string `yaml:"git_image,omitempty"`
+	CommitName  string `yaml:"commit_name,omitempty"`
+	CommitEmail string `yaml:"commit_email,omitempty"`
+	Signoff     bool   `yaml:"signoff,omitempty"`
 }
 
 // Stages chooses the agent and runtime per workflow stage.
@@ -105,10 +147,11 @@ type Stages struct {
 
 // Stage configures one agent role.
 type Stage struct {
-	Agent   string `yaml:"agent"`
-	Runtime string `yaml:"runtime"`
-	Model   string `yaml:"model,omitempty"`
-	Effort  string `yaml:"effort,omitempty"`
+	Agent   string        `yaml:"agent"`
+	Runtime string        `yaml:"runtime"`
+	Model   string        `yaml:"model,omitempty"`
+	Effort  string        `yaml:"effort,omitempty"`
+	Timeout time.Duration `yaml:"timeout,omitempty"`
 }
 
 // Default returns a configuration with defaults filled in.
@@ -240,6 +283,9 @@ func (c *Config) Validate(known TypeChecker) error {
 			if !nameRE.MatchString(name) {
 				add("%s: invalid instance name", path)
 			}
+			if name == "operator" || name == "engine" {
+				add("%s: this instance name is reserved", path)
+			}
 			if p.Type == "" {
 				add("%s.type: required", path)
 			} else if known != nil && !known(s.kind, p.Type) {
@@ -278,6 +324,12 @@ func (c *Config) Validate(known TypeChecker) error {
 		ref("validation", p.Validation, c.Validations, false)
 		ref("review", p.Review, c.Reviews, false)
 		ref("notification", p.Notification, c.Notifications, false)
+		if p.Validation == "" && !p.Policy.AllowUnvalidatedDraftPR {
+			add("projects[%d].validation: required, unless policy.allow_unvalidated_draft_pr accepts pull requests from untested commits", i)
+		}
+		if p.Review == "" && !p.Policy.AllowSkippedReview {
+			add("projects[%d].review: required, unless policy.allow_skipped_review accepts going without independent review", i)
+		}
 		for j, es := range p.EventSource {
 			ref(fmt.Sprintf("event_sources[%d]", j), es, c.EventSources, true)
 		}
@@ -285,6 +337,20 @@ func (c *Config) Validate(known TypeChecker) error {
 		ref("stages.planner.runtime", p.Stages.Planner.Runtime, c.Runtimes, true)
 		ref("stages.implementer.agent", p.Stages.Implementer.Agent, c.Agents, true)
 		ref("stages.implementer.runtime", p.Stages.Implementer.Runtime, c.Runtimes, true)
+		for _, perm := range []struct{ field, value string }{
+			{"policy.min_approve_permission", p.Policy.MinApprovePermission},
+			{"policy.min_input_permission", p.Policy.MinInputPermission},
+		} {
+			if perm.value != "" && core.ParsePermission(perm.value) < core.PermissionTriage {
+				add("%s.%s: must be triage, write or admin", path, perm.field)
+			}
+		}
+		if p.Policy.MinApprovePermission != "" && core.ParsePermission(p.Policy.MinApprovePermission) < core.PermissionWrite {
+			add("%s.policy.min_approve_permission: approval needs at least write access", path)
+		}
+		if c := p.Policy.ApproveCommand; c != "" && !strings.HasPrefix(c, "/") {
+			add("%s.policy.approve_command: must start with a slash", path)
+		}
 	}
 	if len(errs) > 0 {
 		return core.Errorf(core.KindInvalid, "config.validate", "%s", strings.Join(errs, "; "))

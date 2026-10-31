@@ -57,7 +57,7 @@ func goFiles(t *testing.T, root string) []string {
 }
 
 // corePackages may not know about any concrete product.
-var corePackages = []string{"internal/core", "internal/workflow", "internal/storage", "internal/api", "internal/observability", "internal/scheduler"}
+var corePackages = []string{"internal/core", "internal/workflow", "internal/storage", "internal/api", "internal/observability", "internal/scheduler", "internal/pipeline"}
 
 var productName = regexp.MustCompile(`(?i)\b(cloudforge|leocloud|github|gitlab|jira|claude|anthropic|codex|openai|docker|kubernetes|k8s)\b`)
 
@@ -101,9 +101,10 @@ var forbiddenImports = map[string][]string{
 	// Workflow logic only sees contracts, never concrete adapters.
 	"internal/workflow":  {module + "/internal/providers", module + "/internal/storage", module + "/internal/api", module + "/internal/app"},
 	"internal/scheduler": {module + "/internal/providers", module + "/internal/storage", module + "/internal/api", module + "/internal/app"},
+	"internal/pipeline":  {module + "/internal/providers", module + "/internal/storage", module + "/internal/api", module + "/internal/app"},
 	// Adapters cannot reach the state machine or storage, so they cannot drive
 	// workflow transitions directly.
-	"internal/providers": {module + "/internal/workflow", module + "/internal/storage", module + "/internal/scheduler", module + "/internal/app", module + "/internal/api"},
+	"internal/providers": {module + "/internal/workflow", module + "/internal/storage", module + "/internal/scheduler", module + "/internal/pipeline", module + "/internal/app", module + "/internal/api"},
 }
 
 func TestDependencyRules(t *testing.T) {
