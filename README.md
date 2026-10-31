@@ -8,48 +8,35 @@ coding agents in isolated workspaces and opens draft pull requests.
 The roadmap lives in [issue #1](https://github.com/ungarscool1/goblins/issues/1).
 Goblins never requires a model API key.
 
-## Quick start (mock mode)
+## Quick start
 
-Mock mode needs no tracker credentials and no agent subscription login.
-
-```bash
-make build
-```
+Mock mode needs Docker Compose and nothing else. The agent and tracker are fakes and no model is
+involved:
 
 ```bash
-./bin/goblins serve --mock
+cd deploy/compose && docker compose up -d --build
 ```
-
-```bash
-curl -s localhost:8080/readyz
-```
-
-Try the workflow by hand. The agent and tracker are fakes, and no model is involved:
 
 ```bash
 curl -s localhost:8080/mock/demo/issues -d '{"title":"Add a thing","body":"Please"}'
 ```
 
 ```bash
-./bin/goblins status --mock
+docker compose exec goblins goblins status --mock
 ```
 
 ```bash
 curl -s localhost:8080/mock/demo/issues/1/comments -d '{"body":"/approve-design 1"}'
 ```
 
-```bash
-curl -s localhost:8080/mock/demo/issues/1/comments
-```
+[docs/quickstart.md](docs/quickstart.md) continues from there to a real installation with a
+GitHub App and a Claude subscription login. Read the [threat model](docs/threat-model.md) first,
+including its known gaps.
 
-Or in a container:
-
-```bash
-make image
-```
+Without Docker:
 
 ```bash
-docker run --rm -p 127.0.0.1:8080:8080 goblins:dev
+make build && ./bin/goblins serve --mock
 ```
 
 ## Development
@@ -61,6 +48,7 @@ docker run --rm -p 127.0.0.1:8080:8080 goblins:dev
 | `make integration` | Integration tests against the built binary           |
 | `make docker-test` | Tests against a real Docker engine                   |
 | `make lint`        | `go vet` and golangci-lint, pinned by `go run`       |
+| `make compose-smoke` | Starts the Compose distribution and walks through it |
 | `make image`       | Builds the container image                           |
 
 CI runs the same commands, needs no repository secrets and consumes no LLM tokens.
@@ -102,6 +90,20 @@ The state machine, its invariants and comment commands are in [docs/workflow.md]
 
 `internal/archtest` fails the build if a core package mentions a concrete product
 or if an adapter imports the workflow engine or storage.
+
+## Documentation
+
+| Page                                      | Topic                                  |
+| ----------------------------------------- | -------------------------------------- |
+| [Quick start](docs/quickstart.md)         | Mock mode, real setup, operations      |
+| [Threat model](docs/threat-model.md)      | Controls and known gaps                |
+| [Workflow](docs/workflow.md)              | States, invariants, commands           |
+| [Providers](docs/providers.md)            | Contracts and how to add an adapter    |
+| [Configuration](docs/configuration.md)    | File format and environment            |
+| [GitHub](docs/github.md)                  | App registration and permissions       |
+| [Claude](docs/claude.md)                  | Login, restrictions, durability        |
+| [Docker runtime](docs/docker-runtime.md)  | Worker confinement and workspaces      |
+| [Decisions](docs/adr)                     | Architecture decision records          |
 
 ## License
 

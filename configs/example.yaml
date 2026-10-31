@@ -28,6 +28,8 @@ projects:
     event_sources: [main]
     repository: example/demo
     base_branch: main
+    # Refused without these, unless the project names a validation and a review.
+    policy: {allow_unvalidated_draft_pr: true, allow_skipped_review: true}
     stages:
       planner: {agent: main, runtime: main}
       implementer: {agent: main, runtime: main, effort: high}

@@ -49,6 +49,11 @@ jobs:
           go-version-file: go.mod
       - run: docker build -q -t goblins-git:dev deploy/images/git
       - run: make docker-test
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make compose-smoke
   image:
     runs-on: ubuntu-latest
     steps:

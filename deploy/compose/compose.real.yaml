@@ -1,0 +1,80 @@
+# Overlay for a real installation. Enable it through COMPOSE_FILE in .env.
+#
+# The orchestrator controls workers through a filtering proxy on an internal network, never
+# through the raw Docker socket. Workers get neither the proxy nor the socket: they run on
+# their own bridge, which is created by the runtime and joined to nothing else.
+services:
+  goblins:
+    command: ["serve", "--config", "/etc/goblins/goblins.yaml"]
+    environment:
+      GOBLINS_WEBHOOK_SECRET: ${GOBLINS_WEBHOOK_SECRET:-}
+      # Optional alternative to an interactive login; see docs/claude.md.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+    volumes:
+      - ./goblins.yaml:/etc/goblins/goblins.yaml:ro
+      - ./secrets:/run/secrets:ro
+    networks: [default, docker-api]
+    depends_on: [docker-proxy]
+
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:v0.4.1
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [SETGID, SETUID, CHOWN, NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/run:size=16m", "/var/lib/haproxy:size=16m", "/tmp:size=16m"]
+    restart: unless-stopped
+    environment:
+      # Only what the runtime uses. Build, swarm, secrets and starting an exec stay refused.
+      # The proxy filters by path, not by request body, so it cannot stop a compromised
+      # orchestrator from creating a privileged container; see docs/docker-runtime.md.
+      CONTAINERS: 1
+      IMAGES: 1
+      NETWORKS: 1
+      VOLUMES: 1
+      POST: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+      ALLOW_RESTARTS: 0
+      EXEC: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [docker-api]
+
+  # Interactive subscription login, stored in this installation's own volume:
+  #   docker compose run --rm -it agent-login
+  agent-login:
+    profiles: [login]
+    image: goblins-agent-claude:${GOBLINS_VERSION:-dev}
+    command: ["claude", "auth", "login"]
+    environment:
+      CLAUDE_CONFIG_DIR: /claude-config
+      HOME: /tmp
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - agent-config:/claude-config
+
+  # Worker images, built with: docker compose --profile images build
+  image-agent:
+    profiles: [images]
+    image: goblins-agent-claude:${GOBLINS_VERSION:-dev}
+    build: ../images/agent-claude
+    command: ["true"]
+  image-git:
+    profiles: [images]
+    image: goblins-git:${GOBLINS_VERSION:-dev}
+    build: ../images/git
+    command: ["true"]
+
+networks:
+  docker-api:
+    internal: true
+
+volumes:
+  agent-config:
+    # A fixed name, because the agent adapter asks the engine for it by name. It must match
+    # config_volume in goblins.yaml and differ between installations.
+    name: ${GOBLINS_AGENT_VOLUME:-goblins-claude-config}
