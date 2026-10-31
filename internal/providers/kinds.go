@@ -3,16 +3,18 @@
 // transitions.
 package providers
 
+import "github.com/ungarscool1/goblins/internal/core"
+
 // Kind identifies a family of interchangeable adapters.
-type Kind string
+type Kind = core.ProviderKind
 
 const (
-	KindTracker      Kind = "tracker"
-	KindSCM          Kind = "scm"
-	KindEventSource  Kind = "event_source"
-	KindAgent        Kind = "agent"
-	KindRuntime      Kind = "runtime"
-	KindReview       Kind = "review"
-	KindValidation   Kind = "validation"
-	KindNotification Kind = "notification"
+	KindTracker      = core.ProviderTracker
+	KindSCM          = core.ProviderSCM
+	KindEventSource  = core.ProviderEventSource
+	KindAgent        = core.ProviderAgent
+	KindRuntime      = core.ProviderRuntime
+	KindReview       = core.ProviderReview
+	KindValidation   = core.ProviderValidation
+	KindNotification = core.ProviderNotification
 )
