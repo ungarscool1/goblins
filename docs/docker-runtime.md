@@ -26,7 +26,7 @@ runtimes:
 | Capabilities       | All dropped, and `no-new-privileges`                         |
 | Privileged mode    | Never. A workload asking for it, GPUs or KVM is refused      |
 | Mounts             | Named volumes only: a host path, including the Docker socket, cannot be expressed |
-| Root filesystem    | Read-only for all Goblins workloads, with a memory-backed `/tmp` |
+| Root filesystem    | Read-only for all Goblins workloads, with a memory-backed `/tmp` that allows execution, since test runners such as `go test` run binaries from it |
 | Network            | `none`, or a bridge with inter-container traffic disabled    |
 | Limits             | Memory (no swap on top), CPU, PIDs; per-container deadline   |
 
