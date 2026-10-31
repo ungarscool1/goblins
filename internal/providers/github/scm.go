@@ -273,11 +273,11 @@ func (s *SCM) resolvedThreads(ctx context.Context, repo core.RepoRef, number str
 			}
 		}
 		if !threads.PageInfo.HasNextPage {
-			break
+			return out, nil
 		}
 		vars["after"] = threads.PageInfo.EndCursor
 	}
-	return out, nil
+	return nil, errListTruncated
 }
 
 // StatusChecks implements core.SourceControl.

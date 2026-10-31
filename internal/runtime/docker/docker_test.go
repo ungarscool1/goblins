@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -158,6 +159,82 @@ func TestCreatePullsMissingImageOnce(t *testing.T) {
 	st, err := r.Create(context.Background(), core.WorkloadSpec{Name: "w", Image: "registry:5000/img:v1", Command: []string{"c"}, Network: core.NetworkNone})
 	if err != nil || st.Phase != core.WorkloadRunning || pulls != 1 || creates != 2 {
 		t.Fatalf("st=%+v err=%v pulls=%d creates=%d", st, err, pulls, creates)
+	}
+}
+
+func TestRetriedCreateNeverRestartsAFinishedContainer(t *testing.T) {
+	cases := []struct {
+		state      string
+		exit       int
+		want       core.WorkloadPhase
+		wantStarts int
+	}{
+		{"exited", 0, core.WorkloadSucceeded, 0},
+		{"exited", 3, core.WorkloadFailed, 0},
+		{"running", 0, core.WorkloadRunning, 0},
+		{"created", 0, core.WorkloadPending, 1}, // created, but the first call died before starting it
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%s-%d", tc.state, tc.exit), func(t *testing.T) {
+			starts := 0
+			r := engineStub(t, func(w http.ResponseWriter, req *http.Request) {
+				switch {
+				case strings.HasPrefix(req.URL.Path, "/containers/create"):
+					w.WriteHeader(409)
+					_, _ = io.WriteString(w, `{"message":"name in use"}`)
+				case strings.HasSuffix(req.URL.Path, "/start"):
+					starts++
+					w.WriteHeader(204)
+				case strings.HasSuffix(req.URL.Path, "/json"):
+					_, _ = fmt.Fprintf(w, `{"State":{"Status":%q,"ExitCode":%d},"Config":{"Labels":{}}}`, tc.state, tc.exit)
+				}
+			})
+			st, err := r.Create(context.Background(), core.WorkloadSpec{Name: "w", Image: "i", Command: []string{"c"}, Network: core.NetworkNone})
+			if err != nil || st.Phase != tc.want || starts != tc.wantStarts {
+				t.Fatalf("st=%+v err=%v starts=%d", st, err, starts)
+			}
+		})
+	}
+}
+
+func TestPullQueryForImageReferences(t *testing.T) {
+	const digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	cases := []struct{ image, name, tag string }{
+		{"img", "img", "latest"},
+		{"img:v1", "img", "v1"},
+		{"registry:5000/img", "registry:5000/img", "latest"},
+		{"registry:5000/img:v1", "registry:5000/img", "v1"},
+		{"registry/img@" + digest, "registry/img", digest},
+		{"registry:5000/img@" + digest, "registry:5000/img", digest},
+		{"registry:5000/img:v1@" + digest, "registry:5000/img", digest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.image, func(t *testing.T) {
+			pulled := false
+			creates := 0
+			r := engineStub(t, func(w http.ResponseWriter, req *http.Request) {
+				switch {
+				case strings.HasPrefix(req.URL.Path, "/containers/create"):
+					creates++
+					if creates == 1 {
+						w.WriteHeader(404)
+						_, _ = io.WriteString(w, `{"message":"No such image"}`)
+					}
+				case req.URL.Path == "/images/create":
+					pulled = true
+					if q := req.URL.Query(); q.Get("fromImage") != tc.name || q.Get("tag") != tc.tag {
+						t.Errorf("pull query = %v", q)
+					}
+				case strings.HasSuffix(req.URL.Path, "/json"):
+					_, _ = io.WriteString(w, `{"State":{"Status":"running"},"Config":{"Labels":{}}}`)
+				default:
+					w.WriteHeader(204)
+				}
+			})
+			if _, err := r.Create(context.Background(), core.WorkloadSpec{Name: "w", Image: tc.image, Command: []string{"c"}, Network: core.NetworkNone}); err != nil || !pulled {
+				t.Fatalf("err=%v pulled=%v", err, pulled)
+			}
+		})
 	}
 }
 

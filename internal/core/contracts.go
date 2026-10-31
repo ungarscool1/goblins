@@ -223,6 +223,9 @@ func CheckWorkloadSpec(rt ExecutionRuntime, spec WorkloadSpec) error {
 	if spec.Resources.DiskBytes > 0 {
 		req = append(req, CapRuntimeDiskLimits)
 	}
+	if spec.Resources != (Resources{}) {
+		req = append(req, CapRuntimeResourceLimits)
+	}
 	switch spec.Network {
 	case NetworkNone:
 		req = append(req, CapRuntimeNetworkNone)

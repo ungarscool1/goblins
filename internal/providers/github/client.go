@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -170,6 +171,13 @@ func (c *Client) do(ctx context.Context, bearer, method, path string, in, out an
 
 var linkNext = regexp.MustCompile(`<([^>]+)>;\s*rel="next"`)
 
+// errListTruncated reports a listing longer than the page bound. Treating what was
+// read as complete could lose events and repeat comments, so callers must handle it.
+var errListTruncated = core.Errorf(core.KindTransient, "github.list", "the listing has more than %d pages", maxPages)
+
+// errStopList lets a visitor end a listing early, once the rest cannot matter.
+var errStopList = errors.New("stop listing")
+
 // list follows pagination up to a bound, appending decoded array items through add.
 func (c *Client) list(ctx context.Context, repo, path string, add func(json.RawMessage) error) error {
 	return c.pages(ctx, repo, path, func(raw json.RawMessage) error {
@@ -200,6 +208,9 @@ func (c *Client) pages(ctx context.Context, repo, path string, visit func(json.R
 			return err
 		}
 		if err := visit(page); err != nil {
+			if errors.Is(err, errStopList) {
+				return nil
+			}
 			return err
 		}
 		m := linkNext.FindStringSubmatch(hdr.Get("Link"))
@@ -212,7 +223,7 @@ func (c *Client) pages(ctx context.Context, repo, path string, visit func(json.R
 		}
 		next = m[1]
 	}
-	return nil
+	return errListTruncated
 }
 
 // graphql runs a query, for what the REST API does not expose. GitHub reports most

@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -351,6 +354,137 @@ func TestPollMatchesWebhookIdentity(t *testing.T) {
 	}
 	if _, err := newSource(nil).Poll(ctx, core.PollRequest{Container: repo}); !core.IsKind(err, core.KindUnsupported) {
 		t.Fatalf("no client: %v", err)
+	}
+}
+
+func pollKeys(t *testing.T, src *gh.Source, since time.Time) map[string]core.Event {
+	t.Helper()
+	res, err := src.Poll(ctx, core.PollRequest{Container: repo, Since: since})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]core.Event{}
+	for _, e := range res.Events {
+		keys[e.DedupKey] = e
+	}
+	return keys
+}
+
+// advancingClock gives each read of the time its own second, as if work took a while.
+func advancingClock(srv *fakegithub.Server) {
+	var mu sync.Mutex
+	at := time.Now().Add(-time.Hour)
+	srv.Now = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		at = at.Add(time.Second)
+		return at
+	}
+}
+
+func TestEditRestoringEarlierTextIsANewEvent(t *testing.T) {
+	srv, c := setup(t)
+	advancingClock(srv)
+	src := newSource(c)
+	start := srv.Now()
+	i := srv.AddIssue(repo, "T", "A", alice)
+	first := srv.EditIssue(repo, i.Number, "A again")
+	key := func() string {
+		for k, e := range pollKeys(t, src, start) {
+			if e.Type == core.EventIssueEdited {
+				return k
+			}
+		}
+		t.Fatal("no edit event")
+		return ""
+	}
+	seen := key()
+	srv.EditIssue(repo, i.Number, "B")
+	srv.EditIssue(repo, i.Number, first.Body)
+	if again := key(); again == seen {
+		t.Fatalf("the edit back to earlier text was deduplicated: %s", again)
+	}
+}
+
+func TestPollNeverReportsAnEditedCommentAsNew(t *testing.T) {
+	srv, c := setup(t)
+	advancingClock(srv)
+	src := newSource(c)
+	start := srv.Now()
+	i := srv.AddIssue(repo, "T", "B", alice)
+	cm := srv.AddComment(repo, i.Number, alice, "just a remark")
+	srv.EditComment(repo, i.Number, cm.ID, "/approve-design 1")
+	var found bool
+	for _, e := range pollKeys(t, src, start) {
+		if e.Type == core.EventCommentCreated {
+			t.Fatalf("edited text reported as a new comment: %+v", e.Comment)
+		}
+		found = found || e.Type == core.EventCommentEdited
+	}
+	if !found {
+		t.Fatal("the edit was lost")
+	}
+}
+
+func TestPollClassifiesPullRequestComments(t *testing.T) {
+	srv, c := setup(t)
+	src := newSource(c)
+	start := time.Now().Add(-time.Minute)
+	p := srv.AddPullRequest(repo, "PR", alice)
+	cm := srv.AddComment(repo, p.Number, alice, "/goblins cancel")
+	key := fmt.Sprintf("github:%s:comment:%d:created", repo, cm.ID)
+
+	e, ok := pollKeys(t, src, start)[key]
+	if !ok || e.Subject.Kind != core.SubjectPullRequest {
+		t.Fatalf("event = %+v, found %v", e, ok)
+	}
+	// Also when the parent falls outside the issue listing, which is filtered by its time.
+	srv.SetPullRequestUpdated(repo, p.Number, time.Now().Add(-time.Hour))
+	e, ok = pollKeys(t, src, start)[key]
+	if !ok || e.Subject.Kind != core.SubjectPullRequest {
+		t.Fatalf("event after lookup = %+v, found %v", e, ok)
+	}
+}
+
+func TestPollResumesAfterATruncatedListing(t *testing.T) {
+	srv, c := setup(t)
+	advancingClock(srv)
+	src := newSource(c)
+	start := srv.Now()
+	i := srv.AddIssue(repo, "T", "B", alice)
+	var last fakegithub.Comment
+	for range 2100 {
+		last = srv.AddComment(repo, i.Number, alice, "x")
+	}
+	res, err := src.Poll(ctx, core.PollRequest{Container: repo, Since: start})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor, err := time.Parse(time.RFC3339, res.NextCursor)
+	if err != nil || !cursor.Before(last.UpdatedAt) {
+		t.Fatalf("cursor %s passed comments it never read, up to %s (%v)", res.NextCursor, last.UpdatedAt, err)
+	}
+	// The next poll picks up from there and reaches the end.
+	res, err = src.Poll(ctx, core.PollRequest{Container: repo, Cursor: res.NextCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("github:%s:comment:%d:created", repo, last.ID)
+	if !slices.ContainsFunc(res.Events, func(e core.Event) bool { return e.DedupKey == want }) {
+		t.Fatalf("last comment not reached; %d events", len(res.Events))
+	}
+}
+
+func TestTruncatedCommentListingIsAnError(t *testing.T) {
+	srv, c := setup(t)
+	i := srv.AddIssue(repo, "T", "B", alice)
+	for range 2100 {
+		srv.AddComment(repo, i.Number, alice, "x")
+	}
+	tr := gh.NewTracker("t", c)
+	ref := core.IssueRef{Container: repo, ExternalID: strconv.FormatInt(i.Number, 10)}
+	if _, err := tr.ListComments(ctx, ref, time.Time{}); err == nil {
+		t.Fatal("an incomplete listing was reported as complete")
 	}
 }
 
