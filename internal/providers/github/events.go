@@ -217,7 +217,10 @@ func issueClosedEvent(repo string, i issue, actor core.Actor) core.Event {
 func issueLabeledEvent(repo string, i issue, name string, actor core.Actor, at time.Time) core.Event {
 	c := i.canonical(repo)
 	return core.Event{Type: core.EventIssueLabeled, Subject: issueSubject(repo, i.Number), Actor: actor, Issue: &c, Label: name, OccurredAt: at,
-		DedupKey: fmt.Sprintf("github:%s:issue:%d:labeled:%s", repo, i.Number, name)}
+		// The time tells apart removing and applying a label again, which can be what
+		// starts the work, if a person without access applied it first. Should a webhook
+		// and a poll disagree on the time, the second event finds nothing left to do.
+		DedupKey: fmt.Sprintf("github:%s:issue:%d:labeled:%s:%d", repo, i.Number, name, at.Unix())}
 }
 
 func commentEvent(repo string, n int64, isPR bool, c comment, edited bool) core.Event {

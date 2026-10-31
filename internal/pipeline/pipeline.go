@@ -52,6 +52,10 @@ type Project struct {
 	GitImage     string
 	Identity     workspace.Identity
 	WebResearch  bool
+	// AllowUnvalidated accepts pull requests from commits nothing tested, if no validation
+	// is configured. AllowSkippedReview likewise accepts having no independent reviewer.
+	AllowUnvalidated   bool
+	AllowSkippedReview bool
 	// MinInput is the access a commenter needs for their words to reach the planner.
 	MinInput core.Permission
 }
@@ -383,10 +387,13 @@ func (p *Pipeline) validate(ctx context.Context, jc scheduler.JobContext) (any, 
 		return nil, err
 	}
 	if payload.Reuse {
-		return workflow.ValidateResult{Report: core.ValidationReport{Status: core.ValidationPassed, Summary: "this exact commit already passed before publishing"}, Skipped: pr.Validation == nil}, nil
+		return workflow.ValidateResult{Report: core.ValidationReport{Status: core.ValidationPassed, Summary: "this exact commit already passed before publishing"}}, nil
 	}
 	if pr.Validation == nil {
-		return workflow.ValidateResult{Report: core.ValidationReport{Status: core.ValidationPassed, Summary: "no validation is configured for this project"}, Skipped: true}, nil
+		if !pr.AllowUnvalidated {
+			return nil, core.Errorf(core.KindForbidden, "pipeline.validate", "this project configures no validation and does not allow untested pull requests")
+		}
+		return workflow.ValidateResult{Report: core.ValidationReport{Status: core.ValidationSkipped, Summary: "no validation is configured for this project"}, Skipped: true}, nil
 	}
 	runtime := pr.Implementer.Runtime
 	scratch := p.volume(jc.Task, "scratch")
@@ -427,7 +434,7 @@ func (p *Pipeline) publish(ctx context.Context, jc scheduler.JobContext) (any, e
 	if _, err := p.approvedDesign(ctx, jc.Task, payload.Revision); err != nil {
 		return nil, err
 	}
-	if payload.SHA != jc.Task.ValidatedSHA {
+	if payload.SHA != jc.Task.ValidatedSHA && (pr.Validation != nil || !pr.AllowUnvalidated) {
 		return nil, core.Errorf(core.KindForbidden, "pipeline.publish", "commit %s was not validated", payload.SHA)
 	}
 	access, err := pr.SCM.GitAccess(ctx, pr.Repo, true)
@@ -479,6 +486,9 @@ func (p *Pipeline) review(ctx context.Context, jc scheduler.JobContext) (any, er
 		return nil, err
 	}
 	if pr.Review == nil {
+		if !pr.AllowSkippedReview {
+			return nil, core.Errorf(core.KindForbidden, "pipeline.review", "this project configures no reviewer and does not allow skipping review")
+		}
 		return workflow.ReviewResult{Result: core.ReviewResult{Verdict: core.VerdictSkipped, Summary: "no independent reviewer is configured"}}, nil
 	}
 	if jc.Task.PullRequest == nil {

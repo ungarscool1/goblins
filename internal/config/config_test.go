@@ -24,6 +24,7 @@ projects:
     tracker: t1
     scm: s1
     repository: acme/demo
+    policy: {allow_unvalidated_draft_pr: true, allow_skipped_review: true}
     stages:
       planner: {agent: a1, runtime: r1}
       implementer: {agent: a1, runtime: r1, model: big, effort: high}
@@ -72,6 +73,8 @@ func TestRejections(t *testing.T) {
 		{"inline secret in a sequence", "version: 1\ntrackers: {t: {type: fake, options: {accounts: [{password: abc}]}}}", "inline secrets"},
 		{"inline secrets as a sequence", "version: 1\ntrackers: {t: {type: fake, options: {tokens: [abc]}}}", "inline secrets"},
 		{"inline secret in nested sequences", "version: 1\ntrackers: {t: {type: fake, options: {a: [[{api_key: abc}]]}}}", "inline secrets"},
+		{"no validation, no opt-in", strings.Replace(valid, "allow_unvalidated_draft_pr: true, ", "", 1), "allow_unvalidated_draft_pr"},
+		{"no reviewer, no opt-in", strings.Replace(valid, ", allow_skipped_review: true", "", 1), "allow_skipped_review"},
 		{"bad storage", "version: 1\nstorage: {driver: mongo}", "unknown driver"},
 		{"postgres dsn", "version: 1\nstorage: {driver: postgres}", "dsn_env"},
 		{"bad level", "version: 1\nlog: {level: loud}", "invalid log level"},
