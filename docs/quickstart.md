@@ -26,7 +26,8 @@ task that needs them again after a restart becomes `blocked`.
 
 ## A real installation
 
-You need a machine running Docker with Docker Compose, a repository you control, and a paid
+You need a dedicated machine or VM running Docker with Docker Compose (see "Where to run it" under
+[Operations](#operations)), a repository you control, and a paid
 Claude subscription. **No model API key is used anywhere.** Kubernetes is not required.
 
 ### 1. Copy the configuration
@@ -126,6 +127,10 @@ cannot be configured.
   network. It can still create containers, including privileged ones, which is root-equivalent on
   that host, so treat the orchestrator accordingly. Workers never get access. See
   [docker-runtime.md](docker-runtime.md).
+- **Where to run it.** Use a dedicated, disposable host or VM, with nothing else on its Docker
+  engine. The proxy filters API paths, not what `/containers/create` asks for, so it does not
+  protect other services on the engine from a compromised orchestrator. Nothing enforces this
+  for you yet; a policy-enforcing boundary is tracked in #16.
 - **Backups.** Everything durable is in the `data` volume and the agent config volume.
 
   ```bash
