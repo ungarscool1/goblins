@@ -1,0 +1,10 @@
+/bin/
+/data/
+/dist/
+*.db
+*.db-wal
+*.db-shm
+coverage.out
+.env
+deploy/compose/.env
+.claude/
