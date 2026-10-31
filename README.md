@@ -61,6 +61,7 @@ Secrets are passed by reference, never inline.
 ```
 
 Adapters and how to add one are described in [docs/providers.md](docs/providers.md).
+The state machine, its invariants and comment commands are in [docs/workflow.md](docs/workflow.md).
 
 ## Layout
 

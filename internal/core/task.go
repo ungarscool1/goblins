@@ -82,9 +82,15 @@ type Task struct {
 	// Loops counts bounded iterations per loop name; the engine enforces limits.
 	Loops map[string]int `json:"loops,omitempty"`
 
+	// CurrentJob is the main job in flight. Only its outcome may advance the
+	// task, and leaving a pause re-enqueues it under a fresh key.
+	CurrentJob *JobDraft `json:"current_job,omitempty"`
+	// PendingInput records input that arrived while a planner job was running,
+	// so its result is superseded instead of being posted.
+	PendingInput bool `json:"pending_input,omitempty"`
+
 	// ResumeState is the state to return to when leaving a pause or block.
 	ResumeState State     `json:"resume_state,omitempty"`
-	ResumeJob   *JobDraft `json:"resume_job,omitempty"`
 	PausedUntil time.Time `json:"paused_until,omitzero"`
 	Reason      string    `json:"reason,omitempty"`
 
@@ -167,11 +173,15 @@ type StateCommit struct {
 	Transition      *Transition
 	Design          *Design
 	Jobs            []JobDraft
-	CancelJobs      bool // cancel pending and running jobs of Task first
-	Now             time.Time
+	// CancelKinds cancels pending and running jobs of Task with these kinds.
+	CancelKinds []JobKind
+	Now         time.Time
 }
 
 // JobClaim requests the next runnable job under concurrency limits.
+//
+// Limits apply to heavy jobs, those with a LimitKey. Light jobs such as posting a
+// comment are never starved by long agent runs. Zero means unlimited.
 type JobClaim struct {
 	Owner         string
 	LeaseFor      time.Duration
@@ -250,3 +260,6 @@ type StateStore interface {
 	Ping(ctx context.Context) error
 	Close() error
 }
+
+// IsWaiting reports whether the task is idle until a person replies.
+func (s State) IsWaiting() bool { return s == StateWaitingForUser || s == StateDesignProposed }
