@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
@@ -201,7 +203,9 @@ func issueOpenedEvent(repo string, i issue, actor core.Actor) core.Event {
 func issueEditedEvent(repo string, i issue, actor core.Actor) core.Event {
 	c := i.canonical(repo)
 	return core.Event{Type: core.EventIssueEdited, Subject: issueSubject(repo, i.Number), Actor: actor, Issue: &c, OccurredAt: i.UpdatedAt,
-		DedupKey: fmt.Sprintf("github:%s:issue:%d:edited:%s", repo, i.Number, core.Digest(c.RequirementsHash())[:16])}
+		// The time tells apart separate edits that restore earlier text, which must
+		// not be dropped as duplicates; the hash, edits within the same second.
+		DedupKey: fmt.Sprintf("github:%s:issue:%d:edited:%d:%s", repo, i.Number, i.UpdatedAt.Unix(), core.Digest(c.RequirementsHash())[:16])}
 }
 
 func issueClosedEvent(repo string, i issue, actor core.Actor) core.Event {
@@ -332,6 +336,19 @@ func (s *Source) Poll(ctx context.Context, req core.PollRequest) (core.PollResul
 			latest = t
 		}
 	}
+	// A listing sorted oldest first that is cut short can continue from where it stopped,
+	// so long as the cursor does not pass that point.
+	var hold time.Time
+	resumeFrom := func(err error, last time.Time) error {
+		if !errors.Is(err, errListTruncated) || !last.After(since) {
+			return err
+		}
+		if hold.IsZero() || last.Before(hold) {
+			hold = last
+		}
+		return nil
+	}
+	isPR := map[int64]bool{}
 	evs := []core.Event{}
 	q := url.Values{"per_page": {"100"}, "sort": {"updated"}, "direction": {"asc"}, "since": {since.UTC().Format(time.RFC3339)}}
 
@@ -339,12 +356,15 @@ func (s *Source) Poll(ctx context.Context, req core.PollRequest) (core.PollResul
 	for k, v := range q {
 		stateAll[k] = v
 	}
+	var lastIssue time.Time
 	err := s.c.list(ctx, repo, "/repos/"+repo+"/issues?"+stateAll.Encode(), func(raw json.RawMessage) error {
 		var i issue
 		if err := json.Unmarshal(raw, &i); err != nil {
 			return core.Wrap(core.KindTransient, "github.poll", err)
 		}
 		seen(i.UpdatedAt)
+		lastIssue = i.UpdatedAt
+		isPR[i.Number] = i.PullRequest != nil
 		if i.PullRequest != nil {
 			return nil
 		}
@@ -362,27 +382,41 @@ func (s *Source) Poll(ctx context.Context, req core.PollRequest) (core.PollResul
 		}
 		return nil
 	})
-	if err != nil {
+	if err := resumeFrom(err, lastIssue); err != nil {
 		return core.PollResult{}, err
 	}
 
+	var lastComment time.Time
 	err = s.c.list(ctx, repo, "/repos/"+repo+"/issues/comments?"+q.Encode(), func(raw json.RawMessage) error {
 		var c comment
 		if err := json.Unmarshal(raw, &c); err != nil {
 			return core.Wrap(core.KindTransient, "github.poll", err)
 		}
 		seen(c.UpdatedAt)
+		lastComment = c.UpdatedAt
 		n, err := strconv.ParseInt(c.IssueURL[strings.LastIndex(c.IssueURL, "/")+1:], 10, 64)
 		if err != nil {
 			return nil //nolint:nilerr // a comment we cannot attribute is not actionable
 		}
-		evs = append(evs, commentEvent(repo, n, false, c, false))
+		pr, known := isPR[n]
+		if !known {
+			if pr, err = s.parentIsPR(ctx, repo, n); core.IsKind(err, core.KindNotFound) {
+				return nil // the parent is gone, so there is nothing to act on
+			} else if err != nil {
+				return err
+			}
+			isPR[n] = pr
+		}
+		// The text at creation cannot be recovered once edited. Reporting today's text as
+		// a new comment would let an edit pass as an approval or a command.
 		if c.UpdatedAt.After(c.CreatedAt) {
-			evs = append(evs, commentEvent(repo, n, false, c, true))
+			evs = append(evs, commentEvent(repo, n, pr, c, true))
+		} else {
+			evs = append(evs, commentEvent(repo, n, pr, c, false))
 		}
 		return nil
 	})
-	if err != nil {
+	if err := resumeFrom(err, lastComment); err != nil {
 		return core.PollResult{}, err
 	}
 
@@ -397,7 +431,10 @@ func (s *Source) Poll(ctx context.Context, req core.PollRequest) (core.PollResul
 		if err := json.Unmarshal(raw, &e); err != nil {
 			return core.Wrap(core.KindTransient, "github.poll", err)
 		}
-		if e.Event == "labeled" && e.Issue != nil && e.Issue.PullRequest == nil && !e.CreatedAt.Before(since) {
+		if e.CreatedAt.Before(since) {
+			return errStopList // newest first, so nothing further can be relevant
+		}
+		if e.Event == "labeled" && e.Issue != nil && e.Issue.PullRequest == nil {
 			seen(e.CreatedAt)
 			evs = append(evs, issueLabeledEvent(repo, *e.Issue, e.Label.Name, actorOf(e.Actor), e.CreatedAt))
 		}
@@ -412,10 +449,11 @@ func (s *Source) Poll(ctx context.Context, req core.PollRequest) (core.PollResul
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return core.Wrap(core.KindTransient, "github.poll", err)
 		}
-		if !p.UpdatedAt.Before(since) {
-			seen(p.UpdatedAt)
-			evs = append(evs, prEvent(repo, core.EventPROpened, p, actorOf(p.User)))
+		if p.UpdatedAt.Before(since) {
+			return errStopList // newest first, so nothing further can be relevant
 		}
+		seen(p.UpdatedAt)
+		evs = append(evs, prEvent(repo, core.EventPROpened, p, actorOf(p.User)))
 		return nil
 	})
 	if err != nil {
@@ -424,5 +462,17 @@ func (s *Source) Poll(ctx context.Context, req core.PollRequest) (core.PollResul
 	for i := range evs {
 		evs[i].Source = s.name
 	}
+	if !hold.IsZero() && hold.Before(latest) {
+		latest = hold
+	}
 	return core.PollResult{Events: evs, NextCursor: latest.UTC().Format(time.RFC3339)}, nil
+}
+
+// parentIsPR looks up what a comment belongs to, as the comment itself does not say.
+func (s *Source) parentIsPR(ctx context.Context, repo string, n int64) (bool, error) {
+	var i issue
+	if err := s.c.repoCall(ctx, repo, http.MethodGet, fmt.Sprintf("/repos/%s/issues/%d", repo, n), nil, &i); err != nil {
+		return false, err
+	}
+	return i.PullRequest != nil, nil
 }
