@@ -5,9 +5,15 @@ import (
 	"strings"
 
 	"github.com/ungarscool1/goblins/internal/core"
+	"github.com/ungarscool1/goblins/internal/observability"
 )
 
-const maxFeedback = 16 * 1024
+const (
+	maxFeedback = 16 * 1024
+	// A ticket comment has to stay readable and well under trackers' size limits.
+	maxTicketCheckOutput = 4 * 1024
+	maxTicketOutput      = 32 * 1024
+)
 
 func tail(s string, n int) string {
 	if len(s) <= n {
@@ -46,6 +52,43 @@ func RenderFailure(rep core.ValidationReport) string {
 		fmt.Fprintf(&b, "\n### %s (exit %d)\n%s\n", c.Name, c.ExitCode, c.Output)
 	}
 	return tail(b.String(), maxFeedback)
+}
+
+// RenderFailedChecks formats failed checks for a person reading the ticket, who has no
+// other way to see why validation failed once the containers are gone. The ticket can be
+// public and the output is repository-controlled, so it is redacted first (a cut can
+// remove the delimiter that makes a secret recognizable), fenced so that it cannot format
+// the comment or mention anyone, and kept from carrying a comment marker.
+func RenderFailedChecks(rep core.ValidationReport) string {
+	var b strings.Builder
+	for _, c := range rep.Checks {
+		if c.Status == core.ValidationPassed {
+			continue
+		}
+		if b.Len() >= maxTicketOutput {
+			b.WriteString("Output of further failed checks is omitted.\n\n")
+			break
+		}
+		output := tail(observability.RedactText(c.Output), maxTicketCheckOutput)
+		output = strings.ReplaceAll(strings.ToValidUTF8(output, "\uFFFD"), "<!--", "<! --")
+		fmt.Fprintf(&b, "**%s** (exit %d):\n\n%s\n\n", c.Name, c.ExitCode, fenced(strings.TrimSpace(output)))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// fenced wraps text in a code fence longer than any run of backticks inside it.
+func fenced(s string) string {
+	longest, run := 2, 0
+	for _, r := range s {
+		if r != '`' {
+			run = 0
+			continue
+		}
+		run++
+		longest = max(longest, run)
+	}
+	fence := strings.Repeat("`", longest+1)
+	return fence + "\n" + s + "\n" + fence
 }
 
 func prLink(pr core.PullRequest) string {
