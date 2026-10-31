@@ -164,6 +164,9 @@ func CheckSpec(rt core.ExecutionRuntime, spec core.WorkloadSpec) error {
 	if spec.Security.Privileged {
 		req = append(req, core.CapRuntimePrivileged)
 	}
+	if spec.Security.ReadOnlyRoot {
+		req = append(req, core.CapRuntimeReadOnlyRoot)
+	}
 	if spec.Security.GPU {
 		req = append(req, core.CapRuntimeGPU)
 	}
