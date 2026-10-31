@@ -626,3 +626,18 @@ func TestOutcomeArrivingDuringPauseIsFenced(t *testing.T) {
 	}
 	mustIgnore(t, Decide(r.Task, done, writeFacts(), p))
 }
+
+func TestOnlyAPassRecordsACommitAsValidated(t *testing.T) {
+	p := DefaultPolicy()
+	skipped := at(core.StateImplementing, JobValidate)
+	d := Decide(skipped, finished(skipped, true, "", "", ValidateResult{Report: core.ValidationReport{Status: core.ValidationSkipped}, Skipped: true}), writeFacts(), p)
+	if d.Task == nil || !hasJob(d, JobPublish) || d.Task.ValidatedSHA != "" {
+		t.Fatalf("allowed skip: %+v", d.Task)
+	}
+	// Only the pipeline's own skip counts: a provider reporting "skipped" did not pass.
+	claimed := at(core.StateImplementing, JobValidate)
+	d = Decide(claimed, finished(claimed, true, "", "", ValidateResult{Report: core.ValidationReport{Status: core.ValidationSkipped}}), writeFacts(), p)
+	if d.Task == nil || hasJob(d, JobPublish) || d.Task.ValidatedSHA != "" {
+		t.Fatalf("provider's skip: %+v, jobs %v", d.Task, kinds(d))
+	}
+}

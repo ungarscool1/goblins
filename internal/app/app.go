@@ -133,7 +133,7 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 	for _, pc := range cfg.Projects {
 		pr := &pipeline.Project{ID: pc.ID, Repo: core.RepoRef{Slug: pc.Repository}, BaseBranch: pc.BaseBranch, GitImage: pc.Workspace.GitImage,
 			Identity:    workspace.Identity{Name: pc.Workspace.CommitName, Email: pc.Workspace.CommitEmail, Signoff: pc.Workspace.Signoff},
-			WebResearch: pc.Policy.WebResearch}
+			WebResearch: pc.Policy.WebResearch, AllowUnvalidated: pc.Policy.AllowUnvalidatedDraftPR, AllowSkippedReview: pc.Policy.AllowSkippedReview}
 		if pr.BaseBranch == "" {
 			pr.BaseBranch = "main"
 		}

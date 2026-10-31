@@ -89,7 +89,7 @@ func setup(t *testing.T) *world {
 		ID: "p", Repo: core.RepoRef{Slug: repo}, BaseBranch: "main", Tracker: fake.NewTracker(w.w, "t"), SCM: fake.NewSCM(w.w, "s"),
 		Planner:     pipeline.Stage{Agent: w.agent, Runtime: w.rt, Model: "plan-model"},
 		Implementer: pipeline.Stage{Agent: w.impl, Runtime: w.rt, Model: "big-model", Effort: "high"},
-		Validation:  w.val, MinInput: core.PermissionWrite, WebResearch: true,
+		Validation:  w.val, MinInput: core.PermissionWrite, WebResearch: true, AllowSkippedReview: true,
 	}
 	pipe := &pipeline.Pipeline{Installation: "inst", Projects: map[string]*pipeline.Project{"p": w.project}, Designs: store, Log: discard}
 	policy := workflow.DefaultPolicy()
@@ -493,6 +493,49 @@ func TestPlannerGarbageRetriesThenBlocks(t *testing.T) {
 	task := w.want(core.StateBlocked)
 	if !strings.Contains(task.Reason, "unusable") || w.agent.RunCount() != 2 {
 		t.Fatalf("task = %+v, runs = %d", task, w.agent.RunCount())
+	}
+}
+
+func TestNoValidationNeedsAnExplicitOptIn(t *testing.T) {
+	w := setup(t)
+	w.agent.Script(fake.AgentStep{Output: designJSON("d")})
+	w.project.Validation = nil
+	w.open()
+	w.say(maintainer, "/approve-design 1")
+	task := w.want(core.StateBlocked)
+	if !strings.Contains(task.Reason, "no validation") || len(w.w.PullRequests()) != 0 {
+		t.Fatalf("reason = %q, pull requests = %d", task.Reason, len(w.w.PullRequests()))
+	}
+}
+
+func TestAllowedSkippedValidationIsNeverAPass(t *testing.T) {
+	w := setup(t)
+	w.agent.Script(fake.AgentStep{Output: designJSON("d")})
+	w.project.Validation = nil
+	w.project.AllowUnvalidated = true
+	w.open()
+	w.say(maintainer, "/approve-design 1")
+	task := w.want(core.StateCompleted)
+	if len(w.w.PullRequests()) != 1 {
+		t.Fatalf("pull requests = %d", len(w.w.PullRequests()))
+	}
+	if task.ValidatedSHA != "" {
+		t.Fatalf("an untested commit is recorded as validated: %s", task.ValidatedSHA)
+	}
+	posted := w.posted()
+	if !strings.Contains(posted, "Validation: skipped") || !strings.Contains(posted, "nothing was tested") {
+		t.Fatalf("not reported as skipped:\n%s", posted)
+	}
+}
+
+func TestNoReviewerNeedsAnExplicitOptIn(t *testing.T) {
+	w := setup(t)
+	w.agent.Script(fake.AgentStep{Output: designJSON("d")})
+	w.project.AllowSkippedReview = false
+	w.open()
+	w.say(maintainer, "/approve-design 1")
+	if task := w.want(core.StateBlocked); !strings.Contains(task.Reason, "no reviewer") {
+		t.Fatalf("reason = %q", task.Reason)
 	}
 }
 
