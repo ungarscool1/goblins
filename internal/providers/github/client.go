@@ -178,26 +178,40 @@ var errListTruncated = core.Errorf(core.KindTransient, "github.list", "the listi
 // errStopList lets a visitor end a listing early, once the rest cannot matter.
 var errStopList = errors.New("stop listing")
 
-// list follows pagination up to a bound, appending decoded pages through add.
+// list follows pagination up to a bound, appending decoded array items through add.
 func (c *Client) list(ctx context.Context, repo, path string, add func(json.RawMessage) error) error {
+	return c.pages(ctx, repo, path, func(raw json.RawMessage) error {
+		var page []json.RawMessage
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return core.Wrap(core.KindTransient, "github.list", err)
+		}
+		for _, item := range page {
+			if err := add(item); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// pages follows pagination up to a bound, handing over each page as it came.
+func (c *Client) pages(ctx context.Context, repo, path string, visit func(json.RawMessage) error) error {
 	tok, _, err := c.Token(ctx, repo)
 	if err != nil {
 		return err
 	}
 	next := c.api + path
 	for range maxPages {
-		var page []json.RawMessage
+		var page json.RawMessage
 		hdr, err := c.request(ctx, tok.Reveal(), http.MethodGet, next, nil, &page)
 		if err != nil {
 			return err
 		}
-		for _, item := range page {
-			if err := add(item); err != nil {
-				if errors.Is(err, errStopList) {
-					return nil
-				}
-				return err
+		if err := visit(page); err != nil {
+			if errors.Is(err, errStopList) {
+				return nil
 			}
+			return err
 		}
 		m := linkNext.FindStringSubmatch(hdr.Get("Link"))
 		if m == nil {
@@ -210,6 +224,43 @@ func (c *Client) list(ctx context.Context, repo, path string, add func(json.RawM
 		next = m[1]
 	}
 	return errListTruncated
+}
+
+// graphql runs a query, for what the REST API does not expose. GitHub reports most
+// failures here with status 200 and an errors list, so those are checked too.
+func (c *Client) graphql(ctx context.Context, repo, query string, vars map[string]any, out any) error {
+	tok, _, err := c.Token(ctx, repo)
+	if err != nil {
+		return err
+	}
+	var res struct {
+		Data   json.RawMessage `json:"data"`
+		Errors []struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	// api.github.com/graphql, or <host>/api/graphql next to Enterprise's /api/v3.
+	target := strings.TrimSuffix(c.api, "/v3") + "/graphql"
+	in := map[string]any{"query": query, "variables": vars}
+	if _, err := c.request(ctx, tok.Reveal(), http.MethodPost, target, in, &res); err != nil {
+		return err
+	}
+	if len(res.Errors) > 0 {
+		e := res.Errors[0]
+		kind := core.KindTransient
+		switch e.Type {
+		case "FORBIDDEN":
+			kind = core.KindForbidden
+		case "NOT_FOUND":
+			kind = core.KindNotFound
+		}
+		return core.Errorf(kind, "github.graphql", "%s", e.Message)
+	}
+	if err := json.Unmarshal(res.Data, out); err != nil {
+		return core.Wrap(core.KindTransient, "github.graphql", err)
+	}
+	return nil
 }
 
 func (c *Client) request(ctx context.Context, bearer, method, target string, in, out any) (http.Header, error) {
@@ -315,6 +366,13 @@ func Register(r *providers.Registry) {
 			return nil, err
 		}
 		return NewTracker(name, c), nil
+	})
+	r.Register(providers.KindSCM, typeName, func(name string, deps providers.Deps, opts providers.Options) (any, error) {
+		c, err := clientFromOptions(deps, opts)
+		if err != nil {
+			return nil, err
+		}
+		return NewSCM(name, c, opts.String("git_url")), nil
 	})
 	r.Register(providers.KindEventSource, typeName, func(name string, deps providers.Deps, opts providers.Options) (any, error) {
 		return sourceFromOptions(name, deps, opts)
