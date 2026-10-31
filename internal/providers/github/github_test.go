@@ -16,6 +16,7 @@ import (
 	"github.com/ungarscool1/goblins/internal/providers/contract"
 	gh "github.com/ungarscool1/goblins/internal/providers/github"
 	"github.com/ungarscool1/goblins/internal/providers/github/fakegithub"
+	"github.com/ungarscool1/goblins/internal/workflow"
 )
 
 const (
@@ -326,7 +327,7 @@ func TestPollMatchesWebhookIdentity(t *testing.T) {
 	}
 	opened := fmt.Sprintf("github:%s:issue:%d:opened", repo, i.Number)
 	commented := fmt.Sprintf("github:%s:comment:%d:created", repo, cm.ID)
-	labeled := fmt.Sprintf("github:%s:issue:%d:labeled:goblins", repo, i.Number)
+	labeled := fmt.Sprintf("github:%s:issue:%d:labeled:goblins:%d", repo, i.Number, srv.GetIssue(repo, i.Number).UpdatedAt.Unix())
 	for _, k := range []string{opened, commented, labeled} {
 		if _, ok := keys[k]; !ok {
 			t.Errorf("missing %s in %v", k, res.Events)
@@ -379,6 +380,78 @@ func advancingClock(srv *fakegithub.Server) {
 		defer mu.Unlock()
 		at = at.Add(time.Second)
 		return at
+	}
+}
+
+// pollInto feeds what a poll finds through the workflow, as the service would.
+func pollInto(t *testing.T, src *gh.Source, task *core.Task, since time.Time, p workflow.Policy) *core.Task {
+	t.Helper()
+	res, err := src.Poll(ctx, core.PollRequest{Container: repo, Since: since})
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := workflow.Facts{ActorPermission: core.PermissionWrite, Now: time.Now()}
+	for _, e := range res.Events {
+		if d := workflow.Decide(task, e, facts, p); d.Task != nil {
+			task = d.Task
+		}
+	}
+	return task
+}
+
+func TestPollingAloneStartsWorkFromAnIntakeLabel(t *testing.T) {
+	p := workflow.DefaultPolicy()
+	p.IntakeLabel = "goblins"
+	maintainer := fakegithub.Human(3, "maintainer")
+
+	t.Run("applied when the issue was created", func(t *testing.T) {
+		srv, c := setup(t)
+		src := newSource(c)
+		start := time.Now().Add(-time.Minute)
+		i := srv.AddIssue(repo, "T", "B", alice)
+		srv.AddLabel(repo, i.Number, "goblins", maintainer)
+		if task := pollInto(t, src, nil, start, p); task == nil || task.State != core.StateInvestigating {
+			t.Fatalf("task = %+v", task)
+		}
+	})
+	t.Run("applied later", func(t *testing.T) {
+		srv, c := setup(t)
+		src := newSource(c)
+		start := time.Now().Add(-time.Minute)
+		i := srv.AddIssue(repo, "T", "B", alice)
+		if task := pollInto(t, src, nil, start, p); task != nil {
+			t.Fatalf("started without the label: %+v", task)
+		}
+		srv.AddLabel(repo, i.Number, "goblins", maintainer)
+		if task := pollInto(t, src, nil, start, p); task == nil || task.State != core.StateInvestigating {
+			t.Fatalf("task = %+v", task)
+		}
+	})
+}
+
+func TestApplyingALabelAgainIsANewEvent(t *testing.T) {
+	srv, c := setup(t)
+	advancingClock(srv)
+	src := newSource(c)
+	start := srv.Now()
+	i := srv.AddIssue(repo, "T", "B", alice)
+	srv.AddLabel(repo, i.Number, "goblins", alice)
+	srv.AddLabel(repo, i.Number, "goblins", fakegithub.Human(3, "maintainer"))
+	var labeled []core.Event
+	for _, e := range pollKeys(t, src, start) {
+		if e.Type == core.EventIssueLabeled {
+			labeled = append(labeled, e)
+		}
+	}
+	if len(labeled) != 2 {
+		t.Fatalf("labeled events = %+v", labeled)
+	}
+	// The same fact seen again still has one identity.
+	again := pollKeys(t, src, start)
+	for _, e := range labeled {
+		if _, ok := again[e.DedupKey]; !ok {
+			t.Fatalf("key changed between polls: %s", e.DedupKey)
+		}
 	}
 }
 
