@@ -26,7 +26,9 @@ event_sources:
     options:
       app_id: 123456   # CHANGE ME
       private_key_file: /run/secrets/github-app.pem
-      webhook_secret_env: GOBLINS_WEBHOOK_SECRET
+      # Uncomment to receive webhooks, with GOBLINS_WEBHOOK_SECRET set in .env. A reference
+      # to an empty variable is refused at startup. Without this line, Goblins polls.
+      # webhook_secret_env: GOBLINS_WEBHOOK_SECRET
       repositories: [your-name/your-repo]   # CHANGE ME
 
 agents:

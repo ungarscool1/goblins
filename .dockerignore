@@ -5,3 +5,8 @@ bin
 data
 docs
 *.md
+# Local installation files. They hold credentials, and never belong in an image.
+**/.env
+**/secrets
+**/*.pem
+deploy/compose/goblins.yaml
