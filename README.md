@@ -24,6 +24,24 @@ make build
 curl -s localhost:8080/readyz
 ```
 
+Try the workflow by hand. The agent and tracker are fakes, and no model is involved:
+
+```bash
+curl -s localhost:8080/mock/demo/issues -d '{"title":"Add a thing","body":"Please"}'
+```
+
+```bash
+./bin/goblins status --mock
+```
+
+```bash
+curl -s localhost:8080/mock/demo/issues/1/comments -d '{"body":"/approve-design 1"}'
+```
+
+```bash
+curl -s localhost:8080/mock/demo/issues/1/comments
+```
+
 Or in a container:
 
 ```bash
@@ -71,6 +89,8 @@ The state machine, its invariants and comment commands are in [docs/workflow.md]
 | `cmd/goblins`            | CLI entry point                                             |
 | `internal/core`          | Provider-neutral domain model, errors and contracts         |
 | `internal/workflow`      | Deterministic workflow state machine                        |
+| `internal/scheduler`     | Inbox, polling, job dispatch and orphan cleanup             |
+| `internal/pipeline`      | Job handlers connecting the workflow to providers           |
 | `internal/providers`     | Adapter registry and adapters                               |
 | `internal/runtime`       | Docker runtime, workspace scripts and shared helpers        |
 | `internal/storage`       | Persistence                                                 |

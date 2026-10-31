@@ -8,6 +8,12 @@ import (
 	"github.com/ungarscool1/goblins/internal/core"
 )
 
+// SourceOperator marks events entered by someone with shell access to the installation.
+// That access is itself the proof of permission. The inbox overwrites the source of
+// everything it accepts, and configuration refuses this name for event sources, so no
+// inbound signal can claim it.
+const SourceOperator = "operator"
+
 // Authorizer looks up an actor's access on the tracker of a project.
 type Authorizer interface {
 	Permission(ctx context.Context, project string, subject core.Subject, actor core.Actor) (core.Permission, error)
@@ -101,7 +107,10 @@ func (e *Engine) process(ctx context.Context, ev core.Event, now time.Time) erro
 	}
 
 	facts := Facts{Now: now}
-	if needsPermission(ev) && (current == nil || !Terminal(current.State)) {
+	switch {
+	case ev.Source == SourceOperator:
+		facts.ActorPermission = core.PermissionAdmin
+	case needsPermission(ev) && (current == nil || !Terminal(current.State)):
 		perm, err := e.Auth.Permission(ctx, ev.Project, ev.Subject, ev.Actor)
 		switch {
 		case err == nil:

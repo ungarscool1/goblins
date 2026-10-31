@@ -488,3 +488,59 @@ func TestCheckTransitionTable(t *testing.T) {
 		t.Error("resume must only return to the recorded state")
 	}
 }
+
+// Every way of getting blocked must leave a resumable task: returning to a working state
+// without a job would hang silently forever.
+func TestEveryBlockCanBeResumed(t *testing.T) {
+	p := DefaultPolicy()
+	p.MaxPlanLoops = 1
+	fail := core.ValidationReport{Status: core.ValidationFailed, Summary: "red"}
+	final := func(s core.State, job core.JobKind) *core.Task {
+		tk := at(s, job)
+		tk.CurrentJob.Payload = mustJSON(ValidatePayload{Stage: StageFinal, SHA: "x"})
+		return tk
+	}
+	exhausted := at(core.StateImplementing, JobValidate)
+	exhausted.Loops["implement"] = p.MaxImplementLoops
+	planLimit := at(core.StateInvestigating, JobPlan)
+	planLimit.PendingInput = true
+	planLimit.Loops["plan"] = 1
+	cases := []struct {
+		name string
+		task *core.Task
+		res  any
+		kind core.ErrorKind
+	}{
+		{"planner garbage", at(core.StateInvestigating, JobPlan), PlanResult{}, ""},
+		{"planner limit with pending input", planLimit, PlanResult{Design: "x"}, ""},
+		{"no changes", at(core.StateImplementing, JobImplement), ImplementResult{}, ""},
+		{"validation error", at(core.StateImplementing, JobValidate), ValidateResult{Report: core.ValidationReport{Status: core.ValidationError}}, ""},
+		{"implementation loops exhausted", exhausted, ValidateResult{Report: fail}, ""},
+		{"final validation failed", final(core.StateTesting, JobValidate), ValidateResult{Report: fail}, ""},
+		{"no pull request", at(core.StateImplementing, JobPublish), PublishResult{}, ""},
+		{"no verdict", at(core.StateReviewing, JobReview), ReviewResult{}, ""},
+		{"changes requested", at(core.StateReviewing, JobReview), ReviewResult{Result: core.ReviewResult{Verdict: core.VerdictChangesRequested}}, ""},
+		{"forbidden", at(core.StateImplementing, JobPublish), nil, core.KindForbidden},
+		{"unsupported", at(core.StateImplementing, JobPublish), nil, core.KindUnsupported},
+		{"invalid", at(core.StateInvestigating, JobPlan), nil, core.KindInvalid},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := Decide(tc.task, finished(tc.task, tc.kind == "", tc.kind, "why", tc.res), writeFacts(), p)
+			mustState(t, d, core.StateBlocked)
+			if d.Task.Reason == "" {
+				t.Fatal("blocked without a reason")
+			}
+			r := Decide(d.Task, comment(maintainer, "/goblins resume", t0), writeFacts(), p)
+			if r.Task == nil || r.Task.State == core.StateBlocked {
+				t.Fatalf("resume had no effect: %+v", r)
+			}
+			if !r.Task.State.IsWaiting() && r.Task.CurrentJob == nil {
+				t.Fatalf("resumed into %s with no job", r.Task.State)
+			}
+			if !r.Task.State.IsWaiting() && len(r.Jobs) == 0 {
+				t.Fatalf("resumed into %s, enqueuing nothing", r.Task.State)
+			}
+		})
+	}
+}

@@ -332,13 +332,22 @@ func (m *machine) resume(reason string) {
 	m.t.ResumeState = ""
 	m.t.PausedUntil = time.Time{}
 	m.t.Reason = ""
-	if cur := m.t.CurrentJob; cur != nil {
+	switch cur := m.t.CurrentJob; {
+	case cur != nil:
 		// A fresh key, because the interrupted job's key is already used. The job
 		// handler resumes from the stored session rather than starting over.
 		d := *cur
 		d.IdempotencyKey = m.nextKey(d.Kind)
 		m.t.CurrentJob = &d
 		m.jobs = append(m.jobs, d)
+	case to == core.StateInvestigating:
+		m.enqueuePlan(reason)
+	case to.IsWaiting():
+		// Idle by nature: the next step is a person's.
+	default:
+		// A working state with no work would hang silently forever.
+		m.fail("there is nothing to resume in state " + string(to))
+		return
 	}
 	m.moveTo(to, reason)
 }
@@ -645,7 +654,6 @@ func (m *machine) onImplementDone(o *core.JobOutcome) {
 	m.t.Workspace, m.t.Branch, m.t.BaseSHA = res.Workspace, res.Branch, res.BaseSHA
 	m.t.HeadSHA = res.HeadSHA
 	if !res.Changed {
-		m.t.CurrentJob = nil
 		m.block("the implementer finished without changing anything")
 		return
 	}
@@ -664,7 +672,6 @@ func (m *machine) onValidateDone(o *core.JobOutcome) {
 	}
 	rep := res.Report
 	if rep.Status == core.ValidationError {
-		m.t.CurrentJob = nil
 		m.block("validation could not run: " + rep.Summary)
 		return
 	}
@@ -691,24 +698,24 @@ func (m *machine) onValidateDone(o *core.JobOutcome) {
 
 func (m *machine) onValidationFailed(p ValidatePayload, rep core.ValidationReport) {
 	if p.Stage != StagePrePR {
-		m.t.CurrentJob = nil
 		m.block("validation failed on the pull request: " + rep.Summary)
 		return
 	}
+	retry := ImplementPayload{Revision: m.t.DesignRevision, Hash: m.t.DesignHash, Feedback: RenderFailure(rep)}
 	if m.t.Loops["implement"] >= m.p.MaxImplementLoops {
-		m.t.CurrentJob = nil
+		// Not enqueued, but recorded: if a person resumes, this is the work to do.
+		m.t.CurrentJob = &core.JobDraft{Kind: JobImplement, IdempotencyKey: m.nextKey(JobImplement), Payload: mustJSON(retry), LimitKey: m.p.ImplementerLimitKey, MaxAttempts: 3}
 		m.block(fmt.Sprintf("validation still fails after %d implementation rounds: %s", m.p.MaxImplementLoops, rep.Summary))
 		return
 	}
 	m.t.Loops["implement"]++
-	m.enqueueMain(JobImplement, ImplementPayload{Revision: m.t.DesignRevision, Hash: m.t.DesignHash, Feedback: RenderFailure(rep)}, m.p.ImplementerLimitKey, 3)
+	m.enqueueMain(JobImplement, retry, m.p.ImplementerLimitKey, 3)
 	m.reason = "validation failed, another implementation round"
 }
 
 func (m *machine) onPublishDone(o *core.JobOutcome) {
 	res, ok := decode[PublishResult](o)
 	if !ok || res.PullRequest.Number == "" {
-		m.t.CurrentJob = nil
 		m.block("publishing returned no pull request")
 		return
 	}
@@ -725,12 +732,10 @@ func (m *machine) onPublishDone(o *core.JobOutcome) {
 func (m *machine) onReviewDone(o *core.JobOutcome) {
 	res, ok := decode[ReviewResult](o)
 	if !ok || res.Result.Verdict == "" {
-		m.t.CurrentJob = nil
 		m.block("the review returned no verdict")
 		return
 	}
 	if res.Result.Verdict == core.VerdictChangesRequested {
-		m.t.CurrentJob = nil
 		m.block("review requested changes: " + res.Result.Summary)
 		return
 	}
