@@ -35,7 +35,10 @@ const (
 	labelDeadline  = "goblins.deadline"
 	defaultUser    = "10001:10001"
 	defaultNetwork = "goblins-workers"
-	tmpfsOptions   = "rw,nosuid,nodev,size=1g"
+	// exec because Docker otherwise defaults a tmpfs to noexec, and test runners such as
+	// `go test` build a binary in /tmp and then run it. The writable workspace can already
+	// hold executables, so noexec here would stop nothing.
+	tmpfsOptions = "rw,exec,nosuid,nodev,size=1g"
 )
 
 // volumeName only admits Docker volume names, so a host path can never be mounted.
