@@ -104,3 +104,40 @@ the same conformance suite (`internal/storage/storetest`), and the PostgreSQL ru
 refuse a database newer than the binary. See `internal/storage/migrations`.
 
 Back up by copying the SQLite file while stopped, or with `pg_dump`.
+
+## Scheduler
+
+`internal/scheduler` runs the loop that connects everything:
+
+1. **Inbox.** Webhooks and polls produce events. The inbox stores those whose source
+   and container have a route, which makes routes the allow-list. Storing an event
+   never starts work; it must still pass through the workflow.
+2. **Reconciliation.** Each source can be polled at its own interval, resuming from a
+   stored cursor. Events are stored before the cursor moves, so a crash re-reads and
+   dedup absorbs it. This also serves deployments with no inbound connectivity.
+3. **Engine.** Events are processed in order, per subject.
+4. **Dispatch.** Jobs are claimed under leases and limits, then run with heartbeats.
+
+### Limits
+
+Limits apply to heavy jobs, which are those with a limit key such as an agent account.
+Comments and notifications never wait for a long agent run.
+
+### Failure handling
+
+| Handler result                                | Effect                                    |
+| --------------------------------------------- | ----------------------------------------- |
+| Success                                       | Outcome event, workflow continues         |
+| `transient`, `timeout` or `internal`          | Backoff and retry, then the task fails    |
+| `quota_exhausted`, `auth_required`            | Task moves to `quota-paused`              |
+| `unsupported`, `forbidden`, `invalid`, others | Task moves to `blocked` with the reason   |
+| Lease lost or job cancelled                   | Attempt stops, its result is discarded    |
+| Process shutting down                         | Job requeues at once, no failure recorded |
+
+`JobTimeout` catches work that still heartbeats but never finishes. Orphan workloads are
+removed at startup and periodically: a workload labelled with this installation's name
+survives only while its exact job attempt holds a valid lease. Workloads of other
+installations are never touched.
+
+Worker output goes to a per-task transcript that is bounded per job and per line, and is
+redacted before it is stored.

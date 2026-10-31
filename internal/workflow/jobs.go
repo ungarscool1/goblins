@@ -114,3 +114,9 @@ func mustJSON(v any) json.RawMessage {
 	}
 	return b
 }
+
+// EmitsStart reports whether a job's start matters to the state machine.
+func EmitsStart(k core.JobKind) bool { return k == JobImplement || k == JobReview }
+
+// SideJob reports whether a job only performs an effect and never advances a task.
+func SideJob(k core.JobKind) bool { return k == JobComment || k == JobNotify || k == JobCleanup }
