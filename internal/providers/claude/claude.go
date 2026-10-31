@@ -246,7 +246,7 @@ func (a *Agent) preflight(ctx context.Context, req core.AgentRequest) error {
 	if ok {
 		return nil
 	}
-	out, _, err := a.runShort(ctx, req.Runtime, "goblins-preflight-"+core.Digest(req.WorkloadName, req.IdempotencyKey)[:16], []string{"--help"})
+	out, _, err := a.runShort(ctx, req.Runtime, "goblins-preflight-"+core.Digest(req.WorkloadName, req.IdempotencyKey)[:16], req.Labels, []string{"--help"})
 	if err != nil {
 		return err
 	}
@@ -265,9 +265,10 @@ func (a *Agent) preflight(ctx context.Context, req core.AgentRequest) error {
 	return nil
 }
 
-func (a *Agent) runShort(ctx context.Context, rt core.ExecutionRuntime, name string, cliArgs []string) (string, core.WorkloadStatus, error) {
+func (a *Agent) runShort(ctx context.Context, rt core.ExecutionRuntime, name string, labels map[string]string, cliArgs []string) (string, core.WorkloadStatus, error) {
 	spec := a.baseSpec(name, []string{"sh", "-c", a.shellScript(cliArgs)})
 	spec.Timeout = preflightWindow
+	spec.Labels = labels // so that a crash here leaves nothing reconciliation cannot find
 	if _, err := rt.Create(ctx, spec); err != nil {
 		return "", core.WorkloadStatus{}, err
 	}
@@ -289,7 +290,7 @@ func (a *Agent) runShort(ctx context.Context, rt core.ExecutionRuntime, name str
 // reported as unusable, because using it would bill an API account.
 func (a *Agent) AuthStatus(ctx context.Context, rt core.ExecutionRuntime) (core.AuthStatus, error) {
 	name := fmt.Sprintf("goblins-auth-%s-%d", a.name, time.Now().UnixNano())
-	out, st, err := a.runShort(ctx, rt, name, []string{"auth", "status", "--json"})
+	out, st, err := a.runShort(ctx, rt, name, nil, []string{"auth", "status", "--json"})
 	if err != nil {
 		return core.AuthStatus{State: core.AuthUnknown, Detail: core.UserMessage(err)}, err
 	}

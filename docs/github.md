@@ -27,6 +27,9 @@ These are the minimum Goblins uses:
 | Administration  | Read         | Reading collaborator permission for approvals |
 | Checks          | Read         | Optional: reading CI results               |
 
+Whether a review thread is resolved comes from the GraphQL API, which the Pull requests
+permission also covers.
+
 Do not grant **Workflows**. Without it GitHub refuses a push that changes
 `.github/workflows`, which is a useful limit on what an agent's work can do.
 
