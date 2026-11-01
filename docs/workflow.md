@@ -150,7 +150,8 @@ ignored. Remarks by anyone below `min_input_permission`, or by automation not li
 `trusted_review_bots`, are withheld at this point, so they reach neither the workflow nor a prompt.
 
 **Findings** are normalized (path, line, severity, confidence, provenance, commit) and keep a stable
-ID, so seeing one again changes nothing. A remark on lines the head no longer has becomes `stale`.
+ID, so seeing one again changes nothing. A remark on lines the head no longer has becomes `stale`: it is no longer work to do, but it holds up
+the merge gate until its reviewer resolves it.
 
 | What the reconcile finds                | What happens                                                    |
 | --------------------------------------- | --------------------------------------------------------------- |
