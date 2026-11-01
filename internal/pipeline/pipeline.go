@@ -13,7 +13,6 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ungarscool1/goblins/internal/core"
@@ -436,7 +435,8 @@ func (p *Pipeline) publish(ctx context.Context, jc scheduler.JobContext) (any, e
 	if err != nil {
 		return nil, err
 	}
-	if _, err := p.approvedDesign(ctx, jc.Task, payload.Revision); err != nil {
+	design, err := p.approvedDesign(ctx, jc.Task, payload.Revision)
+	if err != nil {
 		return nil, err
 	}
 	if payload.SHA != jc.Task.ValidatedSHA && (pr.Validation != nil || !pr.AllowUnvalidated) {
@@ -464,25 +464,12 @@ func (p *Pipeline) publish(ctx context.Context, jc scheduler.JobContext) (any, e
 	}
 	pull, created, err := pr.SCM.EnsurePullRequest(ctx, core.PullRequestDraft{
 		IdempotencyKey: jc.Task.ID + "/pr", Repo: pr.Repo, Head: branch, Base: pr.BaseBranch, Draft: true,
-		Title: jc.Task.Title, Body: pullRequestBody(jc.Task, issue, payload),
+		Title: jc.Task.Title, Body: pullRequestBody(jc.Task, design.Body, issue, payload),
 	})
 	if err != nil {
 		return nil, err
 	}
 	return workflow.PublishResult{PullRequest: pull, Created: created}, nil
-}
-
-func pullRequestBody(task core.Task, issue core.Issue, payload workflow.PublishPayload) string {
-	var b strings.Builder
-	link := issue.URL
-	if link == "" {
-		link = issue.Ref.ExternalID
-	}
-	fmt.Fprintf(&b, "Goblins opened this draft for %s.\n\n", link)
-	fmt.Fprintf(&b, "- Design: revision %d (`%s`), approved by @%s\n", payload.Revision, task.Approval.Hash[:12], task.Approval.Approver.Login)
-	fmt.Fprintf(&b, "- Validated commit: `%s`\n\n", payload.SHA)
-	b.WriteString("It was written by an automated agent and has not been reviewed by a person. Goblins does not merge pull requests.")
-	return b.String()
 }
 
 // comment posts to the conversation. If the tracker cannot take comments, the message goes
