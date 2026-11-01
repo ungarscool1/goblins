@@ -704,3 +704,31 @@ func TestPublishingGoesOnWithoutADescription(t *testing.T) {
 		t.Fatalf("the design should stand in:\n%s", body)
 	}
 }
+
+func TestPublishingTitlesThePullRequestFromTheDiff(t *testing.T) {
+	w, _ := describing(t, "```goblins-description\n"+
+		`{"title":"feat(api): add a thing","summary":"Added a thing."}`+"\n```")
+	if got := w.w.PullRequests()[0].Title; got != "feat(api): add a thing" {
+		t.Fatal(got)
+	}
+}
+
+func TestCommitsAreWordedByTheImplementer(t *testing.T) {
+	w := setup(t)
+	var message string
+	inner := w.rt.Behavior
+	w.rt.Behavior = func(s core.WorkloadSpec) fake.WorkloadResult {
+		if m, ok := s.Env["GOBLINS_MESSAGE"]; ok {
+			message = m
+		}
+		return inner(s)
+	}
+	w.agent.Script(fake.AgentStep{Output: designJSON("the design")})
+	w.impl.Script(fake.AgentStep{Output: "Done.\n```goblins-commit\nfix(api): handle nil\n```"})
+	w.open()
+	w.say(maintainer, "/approve-design 1")
+	w.want(core.StateCompleted)
+	if !strings.HasPrefix(message, "fix(api): handle nil\n\nImplements design revision 1") {
+		t.Fatal(message)
+	}
+}

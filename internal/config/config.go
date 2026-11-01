@@ -126,6 +126,8 @@ type Policy struct {
 	QuotaPause           time.Duration `yaml:"quota_pause,omitempty"`
 	AuthPause            time.Duration `yaml:"auth_pause,omitempty"`
 	WebResearch          bool          `yaml:"web_research,omitempty"`
+	// CommitStyle words commits and pull request titles: conventional, the default, or plain.
+	CommitStyle string `yaml:"commit_style,omitempty"`
 	// StopAtReport ends a task at its report and leaves the pull request to people entirely.
 	StopAtReport bool `yaml:"stop_at_report,omitempty"`
 	// TrustedReviewBots lists automated reviewers whose remarks count as review input.
@@ -390,6 +392,9 @@ func (c *Config) Validate(known TypeChecker) error {
 			if d.Runtime != p.Stages.Implementer.Runtime {
 				add("%s.stages.describer.runtime: must be the implementer's runtime", path)
 			}
+		}
+		if s := p.Policy.CommitStyle; s != "" && s != "conventional" && s != "plain" {
+			add("%s.policy.commit_style: must be conventional or plain", path)
 		}
 		switch p.Policy.ReviewMinSeverity {
 		case "", string(core.ReviewCritical), string(core.ReviewHigh), string(core.ReviewMedium),

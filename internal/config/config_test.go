@@ -78,6 +78,8 @@ func TestRejections(t *testing.T) {
 		{"no validation, no opt-in", strings.Replace(valid, "allow_unvalidated_draft_pr: true, ", "", 1), "allow_unvalidated_draft_pr"},
 		{"reviewer on another runtime", strings.Replace(valid, "implementer: {", "reviewers: [{agent: a, runtime: elsewhere}]\n      implementer: {", 1), "must be the implementer's runtime"},
 		{"bad review severity", strings.Replace(valid, "allow_skipped_review: true", "allow_skipped_review: true, review_min_severity: urgent", 1), "review_min_severity"},
+		{"bad commit style", strings.Replace(valid, "allow_skipped_review: true",
+			"allow_skipped_review: true, commit_style: gitmoji", 1), "commit_style"},
 		{"no reviewer, no opt-in", strings.Replace(valid, ", allow_skipped_review: true", "", 1), "allow_skipped_review"},
 		{"bad storage", "version: 1\nstorage: {driver: mongo}", "unknown driver"},
 		{"postgres dsn", "version: 1\nstorage: {driver: postgres}", "dsn_env"},
