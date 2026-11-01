@@ -7,6 +7,12 @@ import (
 	"github.com/ungarscool1/goblins/internal/core"
 )
 
+// enqueuePublish takes an agent's slot, as publishing has an agent describe the change.
+func (m *machine) enqueuePublish(sha string) {
+	m.enqueueMain(JobPublish, PublishPayload{SHA: sha, Revision: m.t.DesignRevision},
+		m.p.ImplementerLimitKey, 5)
+}
+
 func (m *machine) onPublishDone(o *core.JobOutcome) {
 	res, ok := decode[PublishResult](o)
 	if !ok || res.PullRequest.Number == "" {
