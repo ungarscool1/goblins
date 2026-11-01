@@ -45,8 +45,11 @@ type Project struct {
 	SCM         core.SourceControl
 	Planner     Stage
 	Implementer Stage
-	Validation  core.ValidationProvider
-	Review      core.ReviewProvider
+	// Describer writes pull request descriptions from their diff. Without an agent, a
+	// description comes from the approved design.
+	Describer  Stage
+	Validation core.ValidationProvider
+	Review     core.ReviewProvider
 	// ReviewFallbacks are tried in order when the reviewer before them is unavailable.
 	ReviewFallbacks []core.ReviewProvider
 	Notification    core.NotificationProvider
@@ -474,9 +477,10 @@ func (p *Pipeline) publish(ctx context.Context, jc scheduler.JobContext) (any, e
 	if err != nil {
 		return nil, err
 	}
+	change := p.describeChange(ctx, jc, pr, design.Body, payload.SHA, branch)
 	pull, created, err := pr.SCM.EnsurePullRequest(ctx, core.PullRequestDraft{
 		IdempotencyKey: jc.Task.ID + "/pr", Repo: pr.Repo, Head: branch, Base: pr.BaseBranch, Draft: true,
-		Title: jc.Task.Title, Body: pullRequestBody(jc.Task, design.Body, issue, payload),
+		Title: jc.Task.Title, Body: pullRequestBody(jc.Task, design.Body, change, issue, payload),
 	})
 	if err != nil {
 		return nil, err

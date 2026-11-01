@@ -156,6 +156,14 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 		if pr.Implementer, err = stage(pc.Stages.Implementer); err != nil {
 			return nil, err
 		}
+		describer := config.Stage{Agent: pc.Stages.Implementer.Agent,
+			Runtime: pc.Stages.Implementer.Runtime}
+		if pc.Stages.Describer != nil {
+			describer = *pc.Stages.Describer
+		}
+		if pr.Describer, err = stage(describer); err != nil {
+			return nil, err
+		}
 		if pc.Validation != "" {
 			if pr.Validation, err = build[core.ValidationProvider](b, providers.KindValidation, cfg.Validations, pc.Validation); err != nil {
 				return nil, err
