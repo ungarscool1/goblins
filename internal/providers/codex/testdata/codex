@@ -1,0 +1,73 @@
+#!/bin/sh
+# A fake Codex CLI: same subcommands and JSONL stream, no network, no tokens. FAKE_SCENARIO
+# picks the behavior. Every invocation appends its arguments and the billing-related
+# environment to $CODEX_HOME/invocations, for assertions.
+mkdir -p "$CODEX_HOME"
+{
+  printf 'ARGS %s\n' "$*"
+  printf 'ENV OPENAI_API_KEY=[%s] CODEX_API_KEY=[%s]\n' "${OPENAI_API_KEY:-}" "${CODEX_API_KEY:-}"
+} >> "$CODEX_HOME/invocations"
+
+case "$1 $2" in
+  "exec --help")
+    if [ "$FAKE_SCENARIO" = old_cli ]; then echo "Usage: codex exec --json --disable"; else
+      echo "Usage: codex exec --json --ignore-user-config --ignore-rules --disable --skip-git-repo-check"; fi
+    exit 0 ;;
+  "features list")
+    if [ "$FAKE_SCENARIO" = no_feature ]; then echo "something stable true"; exit 0; fi
+    printf 'shell_tool  stable  true\nunified_exec  stable  true\nbrowser_use  stable  true\nnew_tool  experimental  true\nitem_ids  removed  true\nmemories  stable  false\n'
+    exit 0 ;;
+  "debug models")
+    echo '{"models":[{"slug":"gpt-fake","display_name":"GPT Fake","supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}]}]}'
+    exit 0 ;;
+  "login status")
+    case "$FAKE_SCENARIO" in
+      logged_out) echo "Not logged in" >&2; exit 1 ;;
+      api_key) echo "Logged in using an API key - sk-proj-***"; exit 0 ;;
+      *) echo "Logged in using ChatGPT"; exit 0 ;;
+    esac ;;
+esac
+
+prompt=$(cat)
+session="fake-thread-1"
+prev=""
+for a in "$@"; do
+  [ "$prev" = "resume" ] && case "$a" in -*) ;; *) session="$a" ;; esac
+  [ "$a" = "resume" ] && prev="resume"
+done
+# The session ID is the argument right before the final "-".
+if [ "$2" = "resume" ]; then
+  n=$#; i=1
+  for a in "$@"; do [ "$i" = "$((n - 1))" ] && session="$a"; i=$((i + 1)); done
+fi
+printf '{"type":"thread.started","thread_id":"%s"}\n' "$session"
+printf '{"type":"turn.started"}\n'
+
+case "$FAKE_SCENARIO" in
+  rate_limit)
+    printf '{"type":"error","message":"You have hit your usage limit. Try again later."}\n'
+    printf '{"type":"turn.failed","error":{"message":"You have hit your usage limit."}}\n'
+    exit 1 ;;
+  expired)
+    printf '{"type":"turn.failed","error":{"message":"401 Unauthorized: your refresh token has expired, please log in again"}}\n'
+    exit 1 ;;
+  gone)
+    echo "Error: no rollout found for thread id $session" >&2
+    exit 1 ;;
+  crash)
+    printf '{"type":"item.completed","item":{"id":"i0","type":"agent_message","text":"working"}}\n'
+    echo "segfault" >&2
+    exit 139 ;;
+  no_result)
+    exit 0 ;;
+  ran_command)
+    printf '{"type":"item.started","item":{"id":"i0","type":"command_execution","command":"cat auth.json","status":"in_progress"}}\n' ;;
+  hang)
+    sleep 300 ;;
+esac
+
+printf '{"type":"item.started","item":{"id":"i1","type":"file_change"}}\n'
+printf 'this line is not JSON and must be tolerated\n'
+printf '{"type":"item.completed","item":{"id":"i2","type":"reasoning","text":"secret thoughts"}}\n'
+printf '{"type":"item.completed","item":{"id":"i3","type":"agent_message","text":"echo: %s"}}\n' "$prompt"
+printf '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n'

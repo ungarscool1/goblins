@@ -35,7 +35,7 @@ can be combined freely. See [`configs/example.yaml`](../configs/example.yaml).
 ## Skipping checks is an explicit choice
 
 A project must name a `validation`, or set `policy.allow_unvalidated_draft_pr: true`. It must
-name a `review`, or set `policy.allow_skipped_review: true`. Without these, the configuration
+name a `review` or list `stages.reviewers`, or set `policy.allow_skipped_review: true`. Without these, the configuration
 is refused at startup, and a task that still reaches such a step blocks.
 
 With the opt-in, the step reports `skipped`, never a pass: the commit is not recorded as

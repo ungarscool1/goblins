@@ -74,12 +74,17 @@ type Task struct {
 
 	Sessions map[AgentRole]string `json:"sessions,omitempty"`
 
-	Branch       string       `json:"branch,omitempty"`
-	BaseSHA      string       `json:"base_sha,omitempty"`
-	HeadSHA      string       `json:"head_sha,omitempty"`
-	ValidatedSHA string       `json:"validated_sha,omitempty"`
-	PullRequest  *PullRequest `json:"pull_request,omitempty"`
-	Workspace    string       `json:"workspace,omitempty"`
+	Branch       string `json:"branch,omitempty"`
+	BaseSHA      string `json:"base_sha,omitempty"`
+	HeadSHA      string `json:"head_sha,omitempty"`
+	ValidatedSHA string `json:"validated_sha,omitempty"`
+	// ReviewedKey identifies the commit and review prompt version last reviewed, so that
+	// nothing reviews the same thing twice.
+	ReviewedKey string `json:"reviewed_key,omitempty"`
+	// CorrectionFeedback is what the review asked of the implementer in the current round.
+	CorrectionFeedback string       `json:"correction_feedback,omitempty"`
+	PullRequest        *PullRequest `json:"pull_request,omitempty"`
+	Workspace          string       `json:"workspace,omitempty"`
 
 	// Loops counts bounded iterations per loop name; the engine enforces limits.
 	Loops map[string]int `json:"loops,omitempty"`

@@ -751,3 +751,90 @@ func TestFailedChecksStopAtTheCommentBudget(t *testing.T) {
 		t.Fatalf("%d bytes: ...%s", len(got), got[len(got)-80:])
 	}
 }
+
+func reviewDone(f ...core.ReviewFinding) ReviewResult {
+	return ReviewResult{SHA: "sha1", Result: core.ReviewResult{Verdict: core.VerdictComment, Provider: "reviewer", Findings: f}}
+}
+
+func TestReviewOutcomes(t *testing.T) {
+	p := DefaultPolicy()
+	high := core.ReviewFinding{Path: "a", Line: 1, Severity: core.ReviewHigh, Confidence: core.ConfidenceHigh, Body: "bug"}
+	reviewing := func() *core.Task {
+		tk := at(core.StateReviewing, JobReview)
+		tk.HeadSHA = "sha1"
+		tk.Approval = &core.Approval{Revision: 2, Hash: tk.DesignHash}
+		return tk
+	}
+
+	t.Run("a finding goes back to the implementer with the design still approved", func(t *testing.T) {
+		tk := reviewing()
+		d := Decide(tk, finished(tk, true, "", "", reviewDone(high)), writeFacts(), p)
+		mustState(t, d, core.StateImplementing)
+		if !hasJob(d, JobImplement) || d.Task.Loops["review_fix"] != 1 || d.Task.ReviewedKey != reviewKey("sha1") {
+			t.Fatalf("decision = %+v", d)
+		}
+		var pl ImplementPayload
+		_ = json.Unmarshal(d.Task.CurrentJob.Payload, &pl)
+		if pl.Revision != 2 || !strings.Contains(pl.ReviewFeedback, "bug") {
+			t.Fatalf("payload = %+v", pl)
+		}
+	})
+	t.Run("the loop is bounded and can be resumed", func(t *testing.T) {
+		tk := reviewing()
+		tk.Loops["review_fix"] = p.MaxReviewFixLoops
+		d := Decide(tk, finished(tk, true, "", "", reviewDone(high)), writeFacts(), p)
+		mustState(t, d, core.StateBlocked)
+		if hasJob(d, JobImplement) {
+			t.Fatal("over the limit, yet another round")
+		}
+		r := Decide(d.Task, comment(maintainer, "/goblins resume", t0), writeFacts(), p)
+		if !hasJob(r, JobImplement) || r.Task.Loops["review_fix"] != 0 {
+			t.Fatalf("resume = %+v", r)
+		}
+	})
+	t.Run("without an approval there is nothing to correct against", func(t *testing.T) {
+		tk := reviewing()
+		tk.Approval = nil
+		d := Decide(tk, finished(tk, true, "", "", reviewDone(high)), writeFacts(), p)
+		mustState(t, d, core.StateBlocked)
+	})
+	t.Run("an implementer changing nothing in a correction blocks", func(t *testing.T) {
+		tk := at(core.StateImplementing, JobImplement)
+		tk.HeadSHA = "sha1"
+		tk.CurrentJob.Payload = mustJSON(ImplementPayload{ReviewFeedback: "x"})
+		d := Decide(tk, finished(tk, true, "", "", ImplementResult{HeadSHA: "sha1", Changed: true}), writeFacts(), p)
+		mustState(t, d, core.StateBlocked)
+	})
+	t.Run("publishing a commit reviewed already does not review it again", func(t *testing.T) {
+		tk := at(core.StateImplementing, JobPublish)
+		tk.HeadSHA = "sha1"
+		tk.ReviewedKey = reviewKey("sha1")
+		d := Decide(tk, finished(tk, true, "", "", PublishResult{PullRequest: core.PullRequest{Number: "1", HeadSHA: "sha1"}}), writeFacts(), p)
+		mustState(t, d, core.StateTesting)
+		if hasJob(d, JobReview) || !hasJob(d, JobValidate) {
+			t.Fatalf("jobs = %v", kinds(d))
+		}
+	})
+	t.Run("a new prompt version reviews the same commit again", func(t *testing.T) {
+		tk := at(core.StateImplementing, JobPublish)
+		tk.HeadSHA = "sha1"
+		tk.ReviewedKey = "sha1|an-older-version"
+		d := Decide(tk, finished(tk, true, "", "", PublishResult{PullRequest: core.PullRequest{Number: "1", HeadSHA: "sha1"}}), writeFacts(), p)
+		if !hasJob(d, JobReview) {
+			t.Fatalf("jobs = %v", kinds(d))
+		}
+	})
+	t.Run("updating a pull request says so, and does not claim to open one", func(t *testing.T) {
+		tk := at(core.StateImplementing, JobPublish)
+		d := Decide(tk, finished(tk, true, "", "", PublishResult{PullRequest: core.PullRequest{Number: "1", HeadSHA: "sha2"}}), writeFacts(), p)
+		var c CommentPayload
+		for _, j := range d.Jobs {
+			if j.Kind == JobComment {
+				_ = json.Unmarshal(j.Payload, &c)
+			}
+		}
+		if !strings.Contains(c.Body, "updated") {
+			t.Fatalf("comment = %q", c.Body)
+		}
+	})
+}

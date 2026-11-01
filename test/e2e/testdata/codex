@@ -1,0 +1,29 @@
+#!/bin/sh
+# Fake Codex CLI for the acceptance test: same subcommands and stream format, no network, no
+# tokens. It reviews the checkout it is given: a feature.txt that does not say "reviewed" gets
+# a finding. A file named `scenario` in its home can make it misbehave.
+mkdir -p "$CODEX_HOME"
+scenario=$(cat "$CODEX_HOME/scenario" 2>/dev/null || true)
+printf 'ARGS %s\nENV API_KEY=[%s] GITPW=[%s]\n' "$*" "${OPENAI_API_KEY:-}" "${GIT_PASSWORD:-}" >> "$CODEX_HOME/invocations"
+case "$1 $2" in
+  "exec --help") echo "--json --ignore-user-config --ignore-rules --disable --skip-git-repo-check"; exit 0 ;;
+  "features list") printf 'shell_tool stable true\nunified_exec stable true\n'; exit 0 ;;
+  "debug models") echo '{"models":[]}'; exit 0 ;;
+  "login status")
+    if [ "$scenario" = logged_out ]; then echo "Not logged in" >&2; exit 1; fi
+    echo "Logged in using ChatGPT"; exit 0 ;;
+esac
+prompt=$(cat)
+printf '=== %s\n' "$prompt" >> "$CODEX_HOME/prompts"
+printf '{"type":"thread.started","thread_id":"thread-%s"}\n' "$$"
+if [ "$scenario" = quota ]; then
+  printf '{"type":"turn.failed","error":{"message":"You have hit your usage limit."}}\n'
+  exit 1
+fi
+if grep -q reviewed feature.txt 2>/dev/null; then
+  review='{\"verdict\":\"approve\",\"summary\":\"good\",\"findings\":[]}'
+else
+  review='{\"verdict\":\"changes_requested\",\"summary\":\"needs a fix\",\"findings\":[{\"path\":\"feature.txt\",\"line\":1,\"severity\":\"high\",\"confidence\":\"high\",\"body\":\"the feature is not reviewed\"}]}'
+fi
+printf '{"type":"item.completed","item":{"type":"agent_message","text":"```goblins-review\\n%s\\n```"}}\n' "$review"
+printf '{"type":"turn.completed","usage":{}}\n'

@@ -606,7 +606,7 @@ func TestNoChannelToTheUserBlocksInsteadOfWaitingForever(t *testing.T) {
 func TestReviewProviderResultIsPublished(t *testing.T) {
 	w := setup(t)
 	w.agent.Script(fake.AgentStep{Output: designJSON("d")})
-	w.project.Review = &fake.Review{Name: "r", Result: core.ReviewResult{Verdict: core.VerdictComment, Summary: "looks fine", Findings: []core.InlineComment{{Path: "a", Line: 1, Body: "nit"}}}}
+	w.project.Review = &fake.Review{Name: "r", Result: core.ReviewResult{Verdict: core.VerdictComment, Summary: "looks fine", Findings: []core.ReviewFinding{{Path: "a", Line: 1, Body: "nit", Severity: core.ReviewLow, Confidence: core.ConfidenceHigh}}}}
 	w.open()
 	w.say(maintainer, "/approve-design 1")
 	w.want(core.StateCompleted)

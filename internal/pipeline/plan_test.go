@@ -89,7 +89,7 @@ func TestPlannerPromptMarksAuthors(t *testing.T) {
 }
 
 func TestImplementerPromptFeedbackForbidsWeakeningTests(t *testing.T) {
-	p := ImplementerPrompt(core.Issue{Title: "the ticket"}, core.Design{Body: "the design"}, "FAIL: x")
+	p := ImplementerPrompt(core.Issue{Title: "the ticket"}, core.Design{Body: "the design"}, "FAIL: x", "")
 	// All of it: after a lost session, this prompt is all a new session has to go on.
 	for _, want := range []string{"FAIL: x", "Do not weaken", "the ticket", "the design"} {
 		if !strings.Contains(p, want) {
@@ -127,13 +127,22 @@ func TestSizeLimitsHold(t *testing.T) {
 	if rendered := workflow.RenderDesign(1, strings.Repeat("a", 64), design, "/approve-design"); len(rendered) > 65536 {
 		t.Fatalf("design comment = %d bytes, trackers allow 65536", len(rendered))
 	}
-	impl := ImplementerPrompt(core.Issue{Title: "t", Body: huge}, core.Design{Body: design}, "")
+	impl := ImplementerPrompt(core.Issue{Title: "t", Body: huge}, core.Design{Body: design}, "", "")
 	if len(impl) > maxPromptBytes {
 		t.Fatalf("implementer prompt = %d bytes", len(impl))
 	}
 	// A feedback round carries everything else too, so it has to fit as well.
-	withFeedback := ImplementerPrompt(core.Issue{Title: "t", Body: strings.Repeat("b", 10*maxTicketBytes)}, core.Design{Body: strings.Repeat("d", 8*maxDesignField)}, strings.Repeat("f", 16<<10))
+	withFeedback := ImplementerPrompt(core.Issue{Title: "t", Body: strings.Repeat("b", 10*maxTicketBytes)}, core.Design{Body: strings.Repeat("d", 8*maxDesignField)}, strings.Repeat("f", 16<<10), strings.Repeat("r", 16<<10))
 	if len(withFeedback) > maxPromptBytes {
 		t.Fatalf("prompt with feedback is %d bytes", len(withFeedback))
+	}
+}
+
+// A published review says which prompt version produced it, so that version has to change
+// with the prompt. When this fails, bump workflow.ReviewPromptVersion and update both values.
+func TestReviewPromptIsPinnedToItsVersion(t *testing.T) {
+	const wantVersion, wantDigest = "2026-11-01.1", "59d0856455d4f236b75fc8756a624ba80ad31d2856d35289deddf84ea554bd55"
+	if workflow.ReviewPromptVersion != wantVersion || reviewerSystemDigest() != wantDigest {
+		t.Fatalf("version %s, digest %s", workflow.ReviewPromptVersion, reviewerSystemDigest())
 	}
 }

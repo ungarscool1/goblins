@@ -67,7 +67,8 @@ projects:
     validation: checks
     poll_interval: 10m
     policy:
-      # Goblins ships no independent reviewer yet, so you are the review: it only opens drafts.
+      # No reviewer is configured, so you are the review: it only opens drafts. To add one, see
+      # docs/codex.md, and list it under stages.reviewers.
       allow_skipped_review: true
     workspace:
       git_image: goblins-git:dev

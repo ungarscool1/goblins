@@ -368,6 +368,13 @@ func (s *SCM) PostReview(_ context.Context, repo core.RepoRef, number string, d 
 	return nil
 }
 
+// ReviewsOn lists reviews posted on a pull request.
+func (w *World) ReviewsOn(repo, number string) []core.ReviewDraft {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.reviews[repo+"#"+number])
+}
+
 func (s *SCM) ReviewThreads(_ context.Context, repo core.RepoRef, number string) ([]core.ReviewThread, error) {
 	s.W.mu.Lock()
 	defer s.W.mu.Unlock()

@@ -12,7 +12,7 @@ workflow or storage packages.
 | `event_source` | `EventSource`          | Normalizes webhooks and polling into canonical events    |
 | `agent`        | `AgentProvider`        | Launch and resume conversations, auth state, models      |
 | `runtime`      | `ExecutionRuntime`     | Isolated workloads and volumes                           |
-| `review`       | `ReviewProvider`       | Independent review of a pull request                     |
+| `review`       | `ReviewProvider`       | Independent review of one exact commit of a pull request |
 | `validation`   | `ValidationProvider`   | Deterministic checks gating the workflow                 |
 | `notification` | `NotificationProvider` | Operator messages outside the ticket                     |
 

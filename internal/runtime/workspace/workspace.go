@@ -162,6 +162,84 @@ result "{\"prepared\":true,\"base_sha\":\"$GOBLINS_BASE_SHA\",\"head_sha\":\"$GO
 	return s, nil
 }
 
+// ReviewTarget is what a reviewer's checkout shows. FetchRef may be empty, and is tried first.
+type ReviewTarget struct {
+	BaseBranch string
+	HeadBranch string
+	FetchRef   string
+	SHA        string
+}
+
+func (t ReviewTarget) valid() error {
+	if err := validBranch(t.BaseBranch); err != nil {
+		return err
+	}
+	if err := validBranch(t.HeadBranch); err != nil {
+		return err
+	}
+	if !shaRE.MatchString(t.SHA) {
+		return core.Errorf(core.KindInvalid, "workspace.review", "invalid commit")
+	}
+	if t.FetchRef != "" && (!strings.HasPrefix(t.FetchRef,
+		"refs/") || validBranch(t.FetchRef) != nil) {
+		return core.Errorf(core.KindInvalid, "workspace.review", "invalid fetch reference")
+	}
+	return nil
+}
+
+// ReviewPrepareSpec fetches a pull request into an empty workspace and checks out one exact
+// commit, for a reviewer to read. Like Prepare, it holds a read token, wipes the directory
+// first, and executes nothing from the repository.
+func ReviewPrepareSpec(name, image, volume string, labels map[string]string, access core.GitAccess,
+	t ReviewTarget) (core.WorkloadSpec, error) {
+	if err := t.valid(); err != nil {
+		return core.WorkloadSpec{}, err
+	}
+	script := preamble + askpass + `
+cd /workspace
+find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+mkdir repo
+cd repo
+git init -q
+` + git + ` config core.symlinks false
+` + git + ` fetch -q --no-tags "$GOBLINS_REMOTE" "refs/heads/$GOBLINS_BASE_BRANCH"
+base=$(` + git + ` rev-parse FETCH_HEAD)
+if [ -z "$GOBLINS_FETCH_REF" ] || ! ` + git + ` fetch -q --no-tags "$GOBLINS_REMOTE" "$GOBLINS_FETCH_REF"; then
+  ` + git + ` fetch -q --no-tags "$GOBLINS_REMOTE" "refs/heads/$GOBLINS_BRANCH"
+fi
+` + git + ` checkout -q --detach "$GOBLINS_SHA"
+printf '%s' "$base" > /workspace/.goblins-base
+result "{\"prepared\":true,\"base_sha\":\"$base\",\"head_sha\":\"$GOBLINS_SHA\"}"
+`
+	s := base(name, image, volume, labels, core.NetworkEgress, script, false)
+	s.Env["GOBLINS_REMOTE"] = access.RemoteURL
+	s.Env["GOBLINS_BASE_BRANCH"] = t.BaseBranch
+	s.Env["GOBLINS_BRANCH"] = t.HeadBranch
+	s.Env["GOBLINS_FETCH_REF"] = t.FetchRef
+	s.Env["GOBLINS_SHA"] = t.SHA
+	s.Env["GIT_USERNAME"] = access.Username
+	s.Secrets = map[string]core.Secret{"GIT_PASSWORD": access.Password}
+	return s, nil
+}
+
+// DiffSpec prints what a pull request changes, without credentials or network. External
+// diff drivers and text conversions are off, so the repository's attributes run nothing.
+func DiffSpec(name, image, volume string, labels map[string]string, sha string,
+	maxBytes int) (core.WorkloadSpec, error) {
+	if !shaRE.MatchString(sha) {
+		return core.WorkloadSpec{}, core.Errorf(core.KindInvalid, "workspace.diff",
+			"invalid commit")
+	}
+	script := preamble + `
+cd /workspace/repo
+base=$(cat /workspace/.goblins-base)
+GIT_OPTIONAL_LOCKS=0 git -c safe.directory='*' diff --no-ext-diff --no-textconv --no-color "$base...$GOBLINS_SHA" | head -c ` + fmt.Sprint(maxBytes) + `
+`
+	s := base(name, image, volume, labels, core.NetworkNone, script, true)
+	s.Env["GOBLINS_SHA"] = sha
+	return s, nil
+}
+
 // CommitSpec snapshots the agent's changes and writes a bundle of the branch. It has no
 // credentials and no network.
 func CommitSpec(name, image, volume string, labels map[string]string, id Identity, branch, message string) (core.WorkloadSpec, error) {

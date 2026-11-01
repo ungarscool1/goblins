@@ -121,6 +121,8 @@ type Policy struct {
 	BotLogins            []string      `yaml:"bot_logins,omitempty"`
 	MaxPlanLoops         int           `yaml:"max_plan_loops,omitempty"`
 	MaxImplementLoops    int           `yaml:"max_implement_loops,omitempty"`
+	MaxReviewFixLoops    int           `yaml:"max_review_fix_loops,omitempty"`
+	ReviewMinSeverity    string        `yaml:"review_min_severity,omitempty"`
 	QuotaPause           time.Duration `yaml:"quota_pause,omitempty"`
 	AuthPause            time.Duration `yaml:"auth_pause,omitempty"`
 	WebResearch          bool          `yaml:"web_research,omitempty"`
@@ -143,6 +145,9 @@ type WorkspaceConfig struct {
 type Stages struct {
 	Planner     Stage `yaml:"planner"`
 	Implementer Stage `yaml:"implementer"`
+	// Reviewers are agents that review pull requests, each used when those before it, and
+	// the project's review provider, are unavailable.
+	Reviewers []Stage `yaml:"reviewers,omitempty"`
 }
 
 // Stage configures one agent role.
@@ -328,8 +333,18 @@ func (c *Config) Validate(known TypeChecker) error {
 		if p.Validation == "" && !p.Policy.AllowUnvalidatedDraftPR {
 			add("projects[%d].validation: required, unless policy.allow_unvalidated_draft_pr accepts pull requests from untested commits", i)
 		}
-		if p.Review == "" && !p.Policy.AllowSkippedReview {
-			add("projects[%d].review: required, unless policy.allow_skipped_review accepts going without independent review", i)
+		if p.Review == "" && len(p.Stages.Reviewers) == 0 && !p.Policy.AllowSkippedReview {
+			add("projects[%d].review: a review provider or stages.reviewers is required, unless policy.allow_skipped_review accepts going without independent review", i)
+		}
+		for j, r := range p.Stages.Reviewers {
+			ref(fmt.Sprintf("stages.reviewers[%d].agent", j), r.Agent, c.Agents, true)
+			ref(fmt.Sprintf("stages.reviewers[%d].runtime", j), r.Runtime, c.Runtimes, true)
+		}
+		switch p.Policy.ReviewMinSeverity {
+		case "", string(core.ReviewCritical), string(core.ReviewHigh), string(core.ReviewMedium),
+			string(core.ReviewLow):
+		default:
+			add("%s.policy.review_min_severity: must be critical, high, medium or low", path)
 		}
 		for j, es := range p.EventSource {
 			ref(fmt.Sprintf("event_sources[%d]", j), es, c.EventSources, true)

@@ -47,6 +47,9 @@ const (
 	CapAgentStreaming Capability = "agent.streaming"
 	CapAgentEffort    Capability = "agent.effort"
 
+	// CapReviewWorkspace asks the orchestrator for a pinned checkout and diff.
+	CapReviewWorkspace Capability = "review.workspace"
+
 	CapRuntimeVolumes        Capability = "runtime.volumes"
 	CapRuntimeNetworkNone    Capability = "runtime.network.none"
 	CapRuntimeNetworkEgress  Capability = "runtime.network.egress"

@@ -11,7 +11,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"regexp"
 	"strings"
 	"sync"
@@ -19,12 +18,13 @@ import (
 
 	"github.com/ungarscool1/goblins/internal/core"
 	"github.com/ungarscool1/goblins/internal/providers"
+	"github.com/ungarscool1/goblins/internal/providers/agentcli"
+	rt "github.com/ungarscool1/goblins/internal/runtime"
 )
 
 const (
 	typeName        = "claude-cli"
 	configMount     = "/claude-config"
-	maxLine         = 32 << 20
 	maxStderr       = 64 << 10
 	preflightWindow = 2 * time.Minute
 )
@@ -100,23 +100,8 @@ func (a *Agent) Info() core.ProviderInfo {
 // aliases change over time, so the configured value is passed through unverified.
 func (a *Agent) Models(context.Context) ([]core.Model, error) { return []core.Model{}, nil }
 
-// shellScript wraps the CLI: it clears billing variables, then runs the command
-// with the prompt on stdin, which keeps the prompt out of the process listing.
 func (a *Agent) shellScript(args []string) string {
-	var b strings.Builder
-	b.WriteString("unset " + strings.Join(billingEnv, " ") + "; ")
-	b.WriteString(`if [ -n "$GOBLINS_PROMPT" ]; then printf '%s' "$GOBLINS_PROMPT" | `)
-	cmd := shellQuote(append([]string{a.opts.Executable}, args...))
-	b.WriteString(cmd + "; else " + cmd + " </dev/null; fi")
-	return b.String()
-}
-
-func shellQuote(args []string) string {
-	out := make([]string, len(args))
-	for i, a := range args {
-		out[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
-	}
-	return strings.Join(out, " ")
+	return agentcli.Script(billingEnv, append([]string{a.opts.Executable}, args...))
 }
 
 func (a *Agent) baseSpec(name string, cmd []string) core.WorkloadSpec {
@@ -190,51 +175,28 @@ func (a *Agent) Run(ctx context.Context, req core.AgentRequest, sink func(core.A
 		spec.Mounts = append(spec.Mounts, w)
 	}
 
-	defer cleanup(ctx, req.Runtime, name) // first: an error from Create does not prove nothing started
+	defer agentcli.Cleanup(ctx, req.Runtime,
+		name) // first: an error from Create does not prove nothing started
 	if _, err := req.Runtime.Create(ctx, spec); err != nil {
 		return core.AgentResult{}, err
 	}
 
 	parser := newStreamParser(sink)
-	stderr := &tailBuffer{max: maxStderr}
-	lines := &lineWriter{fn: parser.line}
+	stderr := &rt.Tail{Max: maxStderr}
+	lines := &agentcli.LineWriter{Fn: parser.line}
 	logErr := req.Runtime.Logs(ctx, name, true, lines, stderr)
-	lines.flush()
+	lines.Flush()
 	if err := ctx.Err(); err != nil {
 		return core.AgentResult{SessionID: parser.session}, core.Wrap(core.KindCancelled, "claude.run", err)
 	}
 	if logErr != nil {
 		return core.AgentResult{SessionID: parser.session}, core.Wrap(core.KindTransient, "claude.logs", logErr)
 	}
-	st, err := waitDone(ctx, req.Runtime, name)
+	st, err := agentcli.WaitDone(ctx, req.Runtime, name)
 	if err != nil {
 		return core.AgentResult{SessionID: parser.session}, err
 	}
 	return parser.finish(st, stderr.String())
-}
-
-func cleanup(ctx context.Context, rt core.ExecutionRuntime, name string) {
-	bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer cancel()
-	_ = rt.Cancel(bg, name)
-	_ = rt.Cleanup(bg, name)
-}
-
-func waitDone(ctx context.Context, rt core.ExecutionRuntime, name string) (core.WorkloadStatus, error) {
-	for {
-		st, err := rt.Status(ctx, name)
-		if err != nil {
-			return st, err
-		}
-		if st.Phase.Terminal() {
-			return st, nil
-		}
-		select {
-		case <-ctx.Done():
-			return st, core.Wrap(core.KindCancelled, "claude.wait", ctx.Err())
-		case <-time.After(50 * time.Millisecond):
-		}
-	}
 }
 
 // preflight verifies once per image that the installed CLI supports every flag the
@@ -265,20 +227,21 @@ func (a *Agent) preflight(ctx context.Context, req core.AgentRequest) error {
 	return nil
 }
 
-func (a *Agent) runShort(ctx context.Context, rt core.ExecutionRuntime, name string, labels map[string]string, cliArgs []string) (string, core.WorkloadStatus, error) {
+func (a *Agent) runShort(ctx context.Context, runtime core.ExecutionRuntime, name string,
+	labels map[string]string, cliArgs []string) (string, core.WorkloadStatus, error) {
 	spec := a.baseSpec(name, []string{"sh", "-c", a.shellScript(cliArgs)})
 	spec.Timeout = preflightWindow
-	spec.Labels = labels         // so that a crash here leaves nothing reconciliation cannot find
-	defer cleanup(ctx, rt, name) // first: an error from Create does not prove nothing started
-	if _, err := rt.Create(ctx, spec); err != nil {
+	spec.Labels = labels // so that a crash here leaves nothing reconciliation cannot find
+	defer agentcli.Cleanup(ctx, runtime,
+		name) // first: an error from Create does not prove nothing started
+	if _, err := runtime.Create(ctx, spec); err != nil {
 		return "", core.WorkloadStatus{}, err
 	}
-	var out, errb tailBuffer
-	out.max, errb.max = maxStderr, maxStderr
-	if err := rt.Logs(ctx, name, true, &out, &errb); err != nil {
+	out, errb := &rt.Tail{Max: maxStderr}, &rt.Tail{Max: maxStderr}
+	if err := runtime.Logs(ctx, name, true, out, errb); err != nil {
 		return "", core.WorkloadStatus{}, core.Wrap(core.KindTransient, "claude.short", err)
 	}
-	st, err := waitDone(ctx, rt, name)
+	st, err := agentcli.WaitDone(ctx, runtime, name)
 	if err != nil {
 		return "", st, err
 	}
@@ -288,9 +251,10 @@ func (a *Agent) runShort(ctx context.Context, rt core.ExecutionRuntime, name str
 // AuthStatus implements core.AgentProvider. It runs no model call, so it can back
 // health checks without spending anything. A login that is not a subscription is
 // reported as unusable, because using it would bill an API account.
-func (a *Agent) AuthStatus(ctx context.Context, rt core.ExecutionRuntime) (core.AuthStatus, error) {
+func (a *Agent) AuthStatus(ctx context.Context, runtime core.ExecutionRuntime) (core.AuthStatus,
+	error) {
 	name := fmt.Sprintf("goblins-auth-%s-%d", a.name, time.Now().UnixNano())
-	out, st, err := a.runShort(ctx, rt, name, nil, []string{"auth", "status", "--json"})
+	out, st, err := a.runShort(ctx, runtime, name, nil, []string{"auth", "status", "--json"})
 	if err != nil {
 		return core.AuthStatus{State: core.AuthUnknown, Detail: core.UserMessage(err)}, err
 	}
@@ -456,62 +420,3 @@ func classify(status int, text string, st core.WorkloadStatus) error {
 	}
 	return core.Errorf(core.KindTransient, "claude.run", "the agent exited unexpectedly (exit %d)", st.ExitCode)
 }
-
-// lineWriter splits a byte stream into lines, dropping absurdly long ones.
-type lineWriter struct {
-	fn   func([]byte)
-	buf  bytes.Buffer
-	skip bool
-}
-
-func (l *lineWriter) Write(p []byte) (int, error) {
-	n := len(p)
-	for len(p) > 0 {
-		i := bytes.IndexByte(p, '\n')
-		if i < 0 {
-			if !l.skip {
-				l.buf.Write(p)
-				if l.buf.Len() > maxLine {
-					l.buf.Reset()
-					l.skip = true
-				}
-			}
-			return n, nil
-		}
-		if !l.skip {
-			l.buf.Write(p[:i])
-			l.fn(l.buf.Bytes())
-		}
-		l.buf.Reset()
-		l.skip = false
-		p = p[i+1:]
-	}
-	return n, nil
-}
-
-func (l *lineWriter) flush() {
-	if l.buf.Len() > 0 && !l.skip {
-		l.fn(l.buf.Bytes())
-	}
-	l.buf.Reset()
-}
-
-// tailBuffer keeps the last max bytes written.
-type tailBuffer struct {
-	max int
-	b   []byte
-}
-
-func (t *tailBuffer) Write(p []byte) (int, error) {
-	t.b = append(t.b, p...)
-	if len(t.b) > t.max {
-		t.b = t.b[len(t.b)-t.max:]
-	}
-	return len(p), nil
-}
-
-func (t *tailBuffer) String() string { return string(t.b) }
-
-var (
-	_ io.Writer = (*lineWriter)(nil)
-)
