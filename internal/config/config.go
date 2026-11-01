@@ -363,6 +363,10 @@ func (c *Config) Validate(known TypeChecker) error {
 		for j, r := range p.Stages.Reviewers {
 			ref(fmt.Sprintf("stages.reviewers[%d].agent", j), r.Agent, c.Agents, true)
 			ref(fmt.Sprintf("stages.reviewers[%d].runtime", j), r.Runtime, c.Runtimes, true)
+			// The reviewer's checkout is a volume, which only exists on one runtime.
+			if r.Runtime != p.Stages.Implementer.Runtime {
+				add("%s.stages.reviewers[%d].runtime: must be the implementer's runtime", path, j)
+			}
 		}
 		for j, r := range p.Policy.Merge.AutoMerge {
 			if r.Name == "" || len(r.Paths) == 0 {
