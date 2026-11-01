@@ -139,6 +139,9 @@ nothing about safety. Goblins' own reviews do not trigger anything, as they come
 A task follows its pull request until someone merges or closes it, which ends the task and removes
 its volumes. `policy.stop_at_report: true` ends it at the report instead.
 
+Each commit gets one status comment on the ticket: the pull request, the commit, the validation result
+and what stands between it and a merge. Later comments only come when that verdict changes.
+
 **Signals only prompt a look.** Any webhook or poll about the pull request, once deduplicated, queues
 one `reconcile` job. It asks the SCM where things stand now: head, reviews, threads, checks, changed
 files and branch protection. It runs no model. So a late, replayed or forged-looking delivery can do
