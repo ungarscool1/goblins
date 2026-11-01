@@ -285,7 +285,7 @@ func (s *Server) AddReview(repo string, n int64, author User, commit, state, bod
 		comments[i] = c
 	}
 	st.reviews[n] = append(st.reviews[n], map[string]any{"user": author, "commit_id": commit,
-		"state": state, "body": body, "comments": comments})
+		"state": state, "body": body, "comments": comments, "submitted_at": s.Now().UTC()})
 }
 
 // SetFiles seeds what a pull request changes.
