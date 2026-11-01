@@ -170,9 +170,16 @@ func reviewReasons(in GateInput, sha string) []string {
 		}
 	}
 	if open > 0 {
-		why = append(why, fmt.Sprintf("%d remarks by people are unresolved", open))
+		why = append(why, unresolvedRemarks(open))
 	}
 	return why
+}
+
+func unresolvedRemarks(n int) string {
+	if n == 1 {
+		return "1 remark by a person is unresolved"
+	}
+	return fmt.Sprintf("%d remarks by people are unresolved", n)
 }
 
 func countsAsApproval(r core.Review, in GateInput, sha string) bool {

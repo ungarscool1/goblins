@@ -90,10 +90,10 @@ func TestGate(t *testing.T) {
 		{"an unvalidated commit", func(i *GateInput) { i.Task.ValidatedSHA = "old" }, core.GateWaiting, "validation"},
 		{"an open remark by a person", func(i *GateInput) {
 			i.Task.Findings = []core.ReviewFinding{{ThreadID: "t", Author: bob, Status: core.FindingOpen}}
-		}, core.GateWaiting, "1 remarks"},
+		}, core.GateWaiting, "1 remark by"},
 		{"a remark sent to the implementer is still not resolved", func(i *GateInput) {
 			i.Task.Findings = []core.ReviewFinding{{ThreadID: "t", Author: bob, Status: core.FindingAddressed}}
-		}, core.GateWaiting, "1 remarks"},
+		}, core.GateWaiting, "1 remark by"},
 		{"resolved and stale remarks do not count", func(i *GateInput) {
 			i.Task.Findings = []core.ReviewFinding{{ThreadID: "t", Author: bob, Status: core.FindingResolved}, {ThreadID: "u", Author: bob, Status: core.FindingStale}}
 		}, core.GateReady, ""},
@@ -204,5 +204,14 @@ func TestMergeFindings(t *testing.T) {
 	}
 	if got := mergeFindings(nil, many); len(got) != maxFindings {
 		t.Fatalf("unbounded: %d", len(got))
+	}
+}
+
+func TestUnresolvedRemarksReadNaturally(t *testing.T) {
+	if got := unresolvedRemarks(1); got != "1 remark by a person is unresolved" {
+		t.Error(got)
+	}
+	if got := unresolvedRemarks(2); got != "2 remarks by people are unresolved" {
+		t.Error(got)
 	}
 }

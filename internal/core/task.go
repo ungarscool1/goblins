@@ -87,6 +87,8 @@ type Task struct {
 	// Gate is the merge policy's latest verdict; GateDigest what was last told to people.
 	Gate       *MergeGate `json:"gate,omitempty"`
 	GateDigest string     `json:"gate_digest,omitempty"`
+	// PendingReport is a report that goes out with the merge policy's next verdict.
+	PendingReport string `json:"pending_report,omitempty"`
 	// ChecksHandledSHA is the commit whose failed CI was already sent to the implementer.
 	ChecksHandledSHA string `json:"checks_handled_sha,omitempty"`
 	// CorrectionFeedback is what the review asked of the implementer in the current round.

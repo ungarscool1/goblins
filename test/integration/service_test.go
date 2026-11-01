@@ -221,7 +221,7 @@ func TestMockWorkflowToCompletion(t *testing.T) {
 	for _, c := range comments {
 		all.WriteString(c.Body + "\n")
 	}
-	for _, want := range []string{"Proposed design, revision 1", "approved by @operator", "Draft pull request opened", "Status report", "nothing was tested"} {
+	for _, want := range []string{"Proposed design, revision 1", "approved by @operator", "Pull request:", "Status report", "nothing was tested"} {
 		if !strings.Contains(all.String(), want) {
 			t.Errorf("missing %q in:\n%s", want, all.String())
 		}
