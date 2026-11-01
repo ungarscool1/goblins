@@ -290,7 +290,7 @@ func (m *machine) blockWithDetail(reason, detail string) {
 	if detail != "" {
 		detail += "\n\n"
 	}
-	m.comment("Goblins is blocked: " + reason + "\n\n" + detail + "Fix the cause, then a maintainer can comment `/goblins resume`.")
+	m.comment(m.pullRequestLine() + "Goblins is blocked: " + reason + "\n\n" + detail + "Fix the cause, then a maintainer can comment `/goblins resume`.")
 	m.notify(core.SeverityAction, "Task blocked", reason)
 }
 
@@ -805,8 +805,7 @@ func (m *machine) onValidateDone(o *core.JobOutcome) {
 	if res.Skipped {
 		note = "\n\nNote: this project configures no validation, so nothing was tested."
 	}
-	m.comment(RenderReport(&m.t, rep) + note)
-	m.afterReport("validation passed")
+	m.afterReport("validation passed", RenderReport(&m.t, rep)+note)
 }
 
 func (m *machine) onValidationFailed(p ValidatePayload, rep core.ValidationReport) {

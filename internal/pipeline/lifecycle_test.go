@@ -59,6 +59,46 @@ func (w *world) remark(number, sha string, by core.Actor, body string) core.Revi
 	return th
 }
 
+// A commit gets one comment: where it is, whether it passed, and what stands in its way.
+func TestEachCommitGetsOneStatusComment(t *testing.T) {
+	w, number := live(t)
+	first := w.want(core.StateAwaitingReview).HeadSHA
+	posted := w.posted()
+	for _, want := range []string{"Pull request:", "Status report", first, "This commit is not ready to merge"} {
+		if !strings.Contains(posted, want) {
+			t.Fatalf("%q is missing from:\n%s", want, posted)
+		}
+	}
+	for _, gone := range []string{"Draft pull request opened", "`" + first + "` is not ready"} {
+		if strings.Contains(posted, gone) {
+			t.Fatalf("%q is back in:\n%s", gone, posted)
+		}
+	}
+	if strings.Count(posted, "Status report") != 1 || strings.Count(posted, "not ready to merge") != 1 {
+		t.Fatalf("more than one status:\n%s", posted)
+	}
+
+	// Looking again says nothing new, and a correction gets one comment of its own.
+	w.pr(number, core.Event{Type: core.EventPRSynchronized, DedupKey: "again", OccurredAt: w.clock()})
+	if got := w.posted(); got != posted {
+		t.Fatalf("looking again posted:\n%s", strings.TrimPrefix(got, posted))
+	}
+	w.w.SubmitReview(repo, number, core.Review{ID: "r1", Author: alice, CommitSHA: first,
+		Verdict: core.VerdictChangesRequested, Body: "please rework", Permission: core.PermissionWrite})
+	w.pr(number, core.Event{Type: core.EventPRReviewed, DedupKey: "r1", Actor: alice, OccurredAt: w.clock()})
+	second := w.want(core.StateAwaitingReview).HeadSHA
+	got := strings.TrimPrefix(w.posted(), posted)
+	if second == first || strings.Contains(got, "Pull request updated") {
+		t.Fatalf("head %s:\n%s", second, got)
+	}
+	if strings.Count(got, "Status report") != 1 || !strings.Contains(got, second) {
+		t.Fatalf("no single status for %s:\n%s", second, got)
+	}
+	if !strings.Contains(got, "Feedback from") || !strings.Contains(got, "Pull request: ") {
+		t.Fatalf("the correction is not linked:\n%s", got)
+	}
+}
+
 func TestTaskWaitsForPeopleAfterItsReportAndEndsWithThePullRequest(t *testing.T) {
 	w, number := live(t)
 	task := w.want(core.StateAwaitingReview)
@@ -107,7 +147,7 @@ func TestReviewCommentDrivesACorrectionOnTheSamePullRequest(t *testing.T) {
 		t.Fatalf("findings = %+v", f)
 	}
 	// Sent to the implementer is not fixed: only the reviewer can say so.
-	if !strings.Contains(strings.Join(task.Gate.Reasons, "\n"), "1 remarks by people are unresolved") {
+	if !strings.Contains(strings.Join(task.Gate.Reasons, "\n"), "1 remark by a person is unresolved") {
 		t.Fatalf("gate = %+v", task.Gate)
 	}
 }

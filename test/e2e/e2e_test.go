@@ -444,7 +444,7 @@ func TestIssueToDraftPullRequest(t *testing.T) {
 
 	// The report went back to the ticket, without claiming a merge.
 	comments := e.botComments()
-	for _, want := range []string{"approved by @" + maintainerID, "Draft pull request opened", "Status report", "passed", "not merged"} {
+	for _, want := range []string{"approved by @" + maintainerID, "Pull request:", "Status report", "passed", "not merged"} {
 		if !strings.Contains(comments, want) {
 			t.Errorf("ticket lacks %q:\n%s", want, comments)
 		}

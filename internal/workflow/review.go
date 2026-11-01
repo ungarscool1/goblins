@@ -18,12 +18,6 @@ func (m *machine) onPublishDone(o *core.JobOutcome) {
 	if pr.HeadSHA != "" {
 		m.t.HeadSHA = pr.HeadSHA
 	}
-	if res.Created {
-		m.comment(fmt.Sprintf("Draft pull request opened: %s", prLink(pr)))
-	} else {
-		m.comment(fmt.Sprintf("Pull request updated: %s, now at commit `%s`.", prLink(pr),
-			m.t.HeadSHA))
-	}
 	m.moveTo(core.StatePROpen, "pull request "+pr.Number+" open")
 	if m.t.ReviewedKey == reviewKey(m.t.HeadSHA) {
 		m.startFinalValidation("this commit was already reviewed")
@@ -91,6 +85,7 @@ func (m *machine) correct(res core.ReviewResult, findings []core.ReviewFinding, 
 
 // sendBack queues a correction round from a source that a person can recognize.
 func (m *machine) sendBack(source, feedback string, findings []core.ReviewFinding, sha string) {
+	m.t.PendingReport = "" // it describes the commit being replaced
 	retry := ImplementPayload{Revision: m.t.DesignRevision, Hash: m.t.DesignHash,
 		ReviewFeedback: feedback}
 	if m.t.Approval == nil {
@@ -111,7 +106,7 @@ func (m *machine) sendBack(source, feedback string, findings []core.ReviewFindin
 	m.t.CorrectionFeedback = feedback
 	m.enqueueMain(JobImplement, retry, m.p.ImplementerLimitKey, 3)
 	m.moveTo(core.StateImplementing, fmt.Sprintf("feedback on %s from %s", sha, source))
-	m.comment(fmt.Sprintf("Feedback from %s on `%s`: %d findings. Correction round %d of %d is queued.",
+	m.comment(m.pullRequestLine() + fmt.Sprintf("Feedback from %s on `%s`: %d findings. Correction round %d of %d is queued.",
 		source, sha, len(findings), m.t.Loops["review_fix"], m.p.MaxReviewFixLoops))
 }
 

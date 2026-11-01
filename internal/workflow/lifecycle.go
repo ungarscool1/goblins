@@ -12,14 +12,26 @@ import (
 const maxFindings = 200
 
 // afterReport is where a task stops being driven by Goblins and starts following what happens
-// to its pull request, until someone merges or closes it.
-func (m *machine) afterReport(reason string) {
+// to its pull request, until someone merges or closes it. The report then waits for the merge
+// policy's verdict, a moment later, so that people get one comment about the commit.
+func (m *machine) afterReport(reason, report string) {
 	if m.p.StopAtReport || m.t.PullRequest == nil {
+		m.comment(report)
 		m.finish(reason)
 		return
 	}
+	m.t.PendingReport = report
 	m.moveTo(core.StateAwaitingReview, reason)
 	m.enqueueReconcile()
+}
+
+// pullRequestLine opens a comment about a task whose pull request may not have been mentioned
+// on the ticket yet, as that happens in the report.
+func (m *machine) pullRequestLine() string {
+	if m.t.PullRequest == nil {
+		return ""
+	}
+	return "Pull request: " + prLink(*m.t.PullRequest) + "\n\n"
 }
 
 func (m *machine) enqueueReconcile() {
@@ -223,10 +235,14 @@ func (m *machine) applyGate(res ReconcileResult) {
 	m.t.Gate = &gate
 	m.reason = "merge policy evaluated: " + string(gate.State)
 	digest := core.Digest(string(gate.State), gate.SHA, strings.Join(gate.Reasons, "\n"))
-	if digest != m.t.GateDigest {
-		m.t.GateDigest = digest
+	switch {
+	case m.t.PendingReport != "":
+		m.comment(strings.TrimSpace(m.t.PendingReport) + "\n\n" + renderGate(gate, "This commit"))
+		m.t.PendingReport = ""
+	case digest != m.t.GateDigest:
 		m.comment(RenderGate(gate))
 	}
+	m.t.GateDigest = digest
 	if gate.State == core.GateAutoMerge {
 		m.enqueueMain(JobMerge, MergePayload{SHA: gate.SHA, Rule: gate.Rule}, "", 3)
 		m.reason = "merging under rule " + gate.Rule
@@ -235,18 +251,20 @@ func (m *machine) applyGate(res ReconcileResult) {
 
 // RenderGate tells people where a pull request stands, and is clear that nothing an automated
 // reviewer said is part of why.
-func RenderGate(g core.MergeGate) string {
+func RenderGate(g core.MergeGate) string { return renderGate(g, "`"+g.SHA+"`") }
+
+func renderGate(g core.MergeGate, subject string) string {
 	var b strings.Builder
 	switch g.State {
 	case core.GateAutoMerge:
 		fmt.Fprintf(&b,
-			"`%s` meets everything required, and rule `%s` allows merging it. Goblins is merging this exact commit.\n", g.SHA, g.Rule)
+			"%s meets everything required, and rule `%s` allows merging it. Goblins is merging this exact commit.\n", subject, g.Rule)
 	case core.GateReady:
 		fmt.Fprintf(&b,
-			"`%s` meets the requirements that can be checked. It awaits a person to merge it.\n",
-			g.SHA)
+			"%s meets the requirements that can be checked. It awaits a person to merge it.\n",
+			subject)
 	default:
-		fmt.Fprintf(&b, "`%s` is not ready to merge:\n", g.SHA)
+		fmt.Fprintf(&b, "%s is not ready to merge:\n", subject)
 	}
 	for _, r := range g.Reasons {
 		b.WriteString("\n- " + r)
