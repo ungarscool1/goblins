@@ -139,6 +139,8 @@ type AuthStatus struct {
 type Model struct {
 	ID          string
 	Description string
+	// Efforts lists the efforts the model accepts, when the agent can tell.
+	Efforts []string
 }
 
 // AgentProvider runs a coding agent conversation.
@@ -286,19 +288,34 @@ type ExecutionRuntime interface {
 	RemoveVolume(ctx context.Context, name string) error
 }
 
-// ReviewRequest asks for an independent review of a pull request.
+// ReviewRequest asks for an independent review of a pull request at one exact commit.
+// The workspace fields are set only for providers advertising CapReviewWorkspace: a
+// read-only checkout of HeadSHA, and the diff against the base as data.
 type ReviewRequest struct {
 	IdempotencyKey string
 	Repo           RepoRef
 	PullRequest    PullRequest
+	HeadSHA        string
 	Design         string
+	Diff           string
+	Runtime        ExecutionRuntime
+	Workspace      Mount
+	WorkDir        string
+	WorkloadName   string
+	Labels         map[string]string
 }
 
-// ReviewResult reports a review. VerdictSkipped must say why in Summary.
+// ReviewResult reports a review. VerdictSkipped must say why in Summary. It is an opinion:
+// nothing about it proves that a change is safe, and the workflow never treats it so.
 type ReviewResult struct {
 	Verdict  ReviewVerdict   `json:"verdict"`
 	Summary  string          `json:"summary"`
-	Findings []InlineComment `json:"findings,omitempty"`
+	Findings []ReviewFinding `json:"findings,omitempty"`
+	// Provider and PromptVersion say what produced this, for provenance.
+	Provider      string `json:"provider,omitempty"`
+	PromptVersion string `json:"prompt_version,omitempty"`
+	// Published means the reviewer has already put it on the pull request itself.
+	Published bool `json:"published,omitempty"`
 }
 
 // ReviewProvider reviews pull requests independently of the implementer.

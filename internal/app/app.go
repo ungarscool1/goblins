@@ -156,6 +156,14 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 		if pr.Implementer, err = stage(pc.Stages.Implementer); err != nil {
 			return nil, err
 		}
+		describer := config.Stage{Agent: pc.Stages.Implementer.Agent,
+			Runtime: pc.Stages.Implementer.Runtime}
+		if pc.Stages.Describer != nil {
+			describer = *pc.Stages.Describer
+		}
+		if pr.Describer, err = stage(describer); err != nil {
+			return nil, err
+		}
 		if pc.Validation != "" {
 			if pr.Validation, err = build[core.ValidationProvider](b, providers.KindValidation, cfg.Validations, pc.Validation); err != nil {
 				return nil, err
@@ -165,6 +173,15 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 			if pr.Review, err = build[core.ReviewProvider](b, providers.KindReview, cfg.Reviews, pc.Review); err != nil {
 				return nil, err
 			}
+		}
+		for i, s := range pc.Stages.Reviewers {
+			st, err := stage(s)
+			if err != nil {
+				return nil, err
+			}
+			pr.ReviewFallbacks = append(pr.ReviewFallbacks,
+				&pipeline.AgentReviewer{Name: fmt.Sprintf("%s-%s-%d", pc.ID, s.Agent, i),
+					Stage: st})
 		}
 		if pc.Notification != "" {
 			if pr.Notification, err = build[core.NotificationProvider](b, providers.KindNotification, cfg.Notifications, pc.Notification); err != nil {
@@ -240,6 +257,15 @@ func policyFor(pc config.Project) workflow.Policy {
 	}
 	if c.AuthPause > 0 {
 		p.AuthPause = c.AuthPause
+	}
+	if c.MaxReviewFixLoops > 0 {
+		p.MaxReviewFixLoops = c.MaxReviewFixLoops
+	}
+	if c.ReviewMinSeverity != "" {
+		p.ReviewMinSeverity = core.ReviewSeverity(c.ReviewMinSeverity)
+	}
+	if len(pc.Stages.Reviewers) > 0 {
+		p.ReviewerLimitKey = limitKey(pc.Stages.Reviewers[0].Agent)
 	}
 	p.PlannerLimitKey = limitKey(pc.Stages.Planner.Agent)
 	p.ImplementerLimitKey = limitKey(pc.Stages.Implementer.Agent)
@@ -459,6 +485,18 @@ func Doctor(ctx context.Context, sys *System, out func(format string, args ...an
 			out("agent %s: %s %s\n", role.Agent.Info().Name, st.State, st.Detail)
 			if st.State != core.AuthOK {
 				problems = append(problems, fmt.Errorf("agent %s: %s", role.Agent.Info().Name, st.Detail))
+			}
+		}
+		// A reviewer that cannot run is not a problem: the next one takes over.
+		for _, r := range pr.ReviewFallbacks {
+			if a, ok := r.(*pipeline.AgentReviewer); ok {
+				st, err := a.Stage.Agent.AuthStatus(ctx, a.Stage.Runtime)
+				if err != nil {
+					out("reviewer %s: unavailable, review falls back: %s\n",
+						a.Stage.Agent.Info().Name, core.UserMessage(err))
+				} else {
+					out("reviewer %s: %s %s\n", a.Stage.Agent.Info().Name, st.State, st.Detail)
+				}
 			}
 		}
 	}

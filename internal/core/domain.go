@@ -177,6 +177,9 @@ type PullRequest struct {
 	Draft   bool    `json:"draft"`
 	Open    bool    `json:"open"`
 	Author  Actor   `json:"author"`
+	// FetchRef is where Git finds the head, when it lives somewhere other than a branch
+	// of this repository, as for a pull request from a fork.
+	FetchRef string `json:"fetch_ref,omitempty"`
 }
 
 // ReviewVerdict is the outcome of a review.
@@ -196,12 +199,61 @@ type InlineComment struct {
 	Body string `json:"body"`
 }
 
-// ReviewDraft is a review to publish on a pull request.
+// ReviewSeverity grades a review finding.
+type ReviewSeverity string
+
+const (
+	ReviewCritical ReviewSeverity = "critical"
+	ReviewHigh     ReviewSeverity = "high"
+	ReviewMedium   ReviewSeverity = "medium"
+	ReviewLow      ReviewSeverity = "low"
+	ReviewInfo     ReviewSeverity = "info"
+)
+
+// Rank orders severities; an unknown one ranks lowest.
+func (s ReviewSeverity) Rank() int {
+	switch s {
+	case ReviewCritical:
+		return 4
+	case ReviewHigh:
+		return 3
+	case ReviewMedium:
+		return 2
+	case ReviewLow:
+		return 1
+	}
+	return 0
+}
+
+// ReviewConfidence is how sure a reviewer says it is.
+type ReviewConfidence string
+
+const (
+	ConfidenceHigh   ReviewConfidence = "high"
+	ConfidenceMedium ReviewConfidence = "medium"
+	ConfidenceLow    ReviewConfidence = "low"
+)
+
+// ReviewFinding is one normalized remark of a reviewer on one exact commit.
+type ReviewFinding struct {
+	Path       string           `json:"path,omitempty"`
+	Line       int              `json:"line,omitempty"`
+	Severity   ReviewSeverity   `json:"severity"`
+	Confidence ReviewConfidence `json:"confidence"`
+	Body       string           `json:"body"`
+	HeadSHA    string           `json:"head_sha,omitempty"`
+	// Provenance names what raised it: the provider and its prompt version, or a person.
+	Provenance string `json:"provenance,omitempty"`
+}
+
+// ReviewDraft is a review to publish on a pull request. CommitSHA pins it to the commit
+// that was reviewed, so it cannot appear to be about a newer one.
 type ReviewDraft struct {
 	IdempotencyKey string
 	Verdict        ReviewVerdict
 	Body           string
 	Comments       []InlineComment
+	CommitSHA      string
 }
 
 // ReviewThread is a remark found on a pull request.

@@ -37,7 +37,9 @@ fi
 
 case "$*" in
   *Edit,Write*)
-    if [ "$scenario" = never_fixes ] || ! printf '%s' "$prompt" | grep -q 'checks failed'; then
+    if printf '%s' "$prompt" | grep -q 'independent review raised'; then
+      echo fixed and reviewed > feature.txt
+    elif [ "$scenario" = never_fixes ] || ! printf '%s' "$prompt" | grep -q 'checks failed'; then
       echo buggy > feature.txt
     else
       echo fixed > feature.txt

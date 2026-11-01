@@ -2,6 +2,8 @@ package github_test
 
 import (
 	"fmt"
+	"maps"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -224,4 +226,81 @@ func TestSCMFactory(t *testing.T) {
 	if err != nil || a.RemoteURL != "file:///git/acme/app.git" {
 		t.Fatalf("access = %+v, %v", a, err)
 	}
+}
+
+func TestNativeReviewReadsOnlyTheExactCommit(t *testing.T) {
+	const sha, older = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	bot := fakegithub.User{ID: 9, Login: "reviewer[bot]", Type: "Bot"}
+	build := func(t *testing.T, opts providers.Options) (*fakegithub.Server, core.ReviewProvider, core.ReviewRequest) {
+		t.Helper()
+		srv := fakegithub.New(t)
+		srv.AddRepo("acme/app")
+		pr := srv.AddPullRequest("acme/app", "t", fakegithub.Human(1, "alice"))
+		r := providers.NewRegistry()
+		gh.Register(r)
+		all := providers.Options{"app_id": 42, "private_key_env": "K", "api_url": srv.URL, "reviewer_login": bot.Login, "trigger_comment": "@reviewer review", "wait_seconds": 0}
+		maps.Copy(all, opts)
+		deps := providers.Deps{Getenv: func(string) (string, bool) { return string(srv.KeyPEM()), true }}
+		p, err := providers.As[core.ReviewProvider](r, providers.KindReview, "github-native-review", "native", deps, all)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return srv, p, core.ReviewRequest{Repo: core.RepoRef{Slug: "acme/app"}, PullRequest: core.PullRequest{Number: strconv.FormatInt(pr.Number, 10)}, HeadSHA: sha}
+	}
+
+	t.Run("unverified does nothing and is unavailable", func(t *testing.T) {
+		srv, p, req := build(t, nil)
+		_, err := p.Review(ctx, req)
+		if !core.IsKind(err, core.KindUnsupported) {
+			t.Fatalf("err = %v", err)
+		}
+		if n, _ := strconv.ParseInt(req.PullRequest.Number, 10, 64); len(srv.Comments("acme/app", n)) != 0 {
+			t.Fatal("asked for a review without having been told that works")
+		}
+	})
+	t.Run("a silent reviewer is unavailable, after asking once per commit", func(t *testing.T) {
+		srv, p, req := build(t, providers.Options{"verified": true})
+		for range 2 {
+			if _, err := p.Review(ctx, req); !core.IsKind(err, core.KindUnsupported) {
+				t.Fatalf("err = %v", err)
+			}
+		}
+		n, _ := strconv.ParseInt(req.PullRequest.Number, 10, 64)
+		if got := srv.Comments("acme/app", n); len(got) != 1 || !strings.Contains(got[0].Body, "@reviewer review") {
+			t.Fatalf("comments = %+v", got)
+		}
+	})
+	t.Run("only its review of this commit counts, and approval means nothing", func(t *testing.T) {
+		srv, p, req := build(t, providers.Options{"verified": true})
+		n, _ := strconv.ParseInt(req.PullRequest.Number, 10, 64)
+		srv.AddReview("acme/app", n, bot, older, "CHANGES_REQUESTED", "old")
+		srv.AddReview("acme/app", n, fakegithub.Human(2, "bob"), sha, "CHANGES_REQUESTED", "a person")
+		srv.AddReview("acme/app", n, bot, sha, "APPROVED", "fine", map[string]any{"path": "a.go", "line": 4, "body": "**P1** this breaks\nmore"}, map[string]any{"path": "b.go", "line": 1, "body": "no tag"})
+		res, err := p.Review(ctx, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Verdict != core.VerdictComment || !res.Published || len(res.Findings) != 2 {
+			t.Fatalf("res = %+v", res)
+		}
+		if f := res.Findings[0]; f.Severity != core.ReviewHigh || f.HeadSHA != sha || f.Provenance != bot.Login || f.Path != "a.go" {
+			t.Fatalf("finding = %+v", f)
+		}
+		if res.Findings[1].Severity != core.ReviewMedium {
+			t.Fatalf("finding = %+v", res.Findings[1])
+		}
+		if got := srv.Comments("acme/app", n); len(got) != 0 {
+			t.Fatalf("asked although a review exists: %+v", got)
+		}
+	})
+	t.Run("configuration is checked", func(t *testing.T) {
+		r := providers.NewRegistry()
+		gh.Register(r)
+		srv := fakegithub.New(t)
+		deps := providers.Deps{Getenv: func(string) (string, bool) { return string(srv.KeyPEM()), true }}
+		_, err := providers.As[core.ReviewProvider](r, providers.KindReview, "github-native-review", "n", deps, providers.Options{"app_id": 42, "private_key_env": "K", "api_url": srv.URL})
+		if !core.IsKind(err, core.KindInvalid) {
+			t.Fatalf("err = %v", err)
+		}
+	})
 }

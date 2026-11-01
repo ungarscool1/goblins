@@ -176,6 +176,9 @@ func (s *SCM) PostReview(ctx context.Context, repo core.RepoRef, number string, 
 		event = "REQUEST_CHANGES"
 	}
 	in := map[string]any{"event": event, "body": body}
+	if d.CommitSHA != "" {
+		in["commit_id"] = d.CommitSHA
+	}
 	if len(d.Comments) > 0 {
 		comments := make([]map[string]any, 0, len(d.Comments))
 		for _, c := range d.Comments {

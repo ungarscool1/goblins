@@ -76,6 +76,8 @@ func TestRejections(t *testing.T) {
 		{"inline secrets as a sequence", "version: 1\ntrackers: {t: {type: fake, options: {tokens: [abc]}}}", "inline secrets"},
 		{"inline secret in nested sequences", "version: 1\ntrackers: {t: {type: fake, options: {a: [[{api_key: abc}]]}}}", "inline secrets"},
 		{"no validation, no opt-in", strings.Replace(valid, "allow_unvalidated_draft_pr: true, ", "", 1), "allow_unvalidated_draft_pr"},
+		{"reviewer on another runtime", strings.Replace(valid, "implementer: {", "reviewers: [{agent: a, runtime: elsewhere}]\n      implementer: {", 1), "must be the implementer's runtime"},
+		{"bad review severity", strings.Replace(valid, "allow_skipped_review: true", "allow_skipped_review: true, review_min_severity: urgent", 1), "review_min_severity"},
 		{"no reviewer, no opt-in", strings.Replace(valid, ", allow_skipped_review: true", "", 1), "allow_skipped_review"},
 		{"bad storage", "version: 1\nstorage: {driver: mongo}", "unknown driver"},
 		{"postgres dsn", "version: 1\nstorage: {driver: postgres}", "dsn_env"},

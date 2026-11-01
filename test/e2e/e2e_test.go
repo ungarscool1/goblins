@@ -28,6 +28,7 @@ import (
 	"github.com/ungarscool1/goblins/internal/core"
 	"github.com/ungarscool1/goblins/internal/providers"
 	"github.com/ungarscool1/goblins/internal/providers/claude"
+	"github.com/ungarscool1/goblins/internal/providers/codex"
 	"github.com/ungarscool1/goblins/internal/providers/command"
 	"github.com/ungarscool1/goblins/internal/providers/fake"
 	gh "github.com/ungarscool1/goblins/internal/providers/github"
@@ -165,6 +166,7 @@ func (e *env) registry() *providers.Registry {
 	r := providers.NewRegistry()
 	gh.Register(r)
 	claude.Register(r)
+	codex.Register(r)
 	command.Register(r)
 	r.Register(providers.KindRuntime, "test-process", func(string, providers.Deps, providers.Options) (any, error) { return e.rt, nil })
 	return r
@@ -497,7 +499,8 @@ func (e *env) assertCredentialBoundary(t *testing.T) {
 	for _, s := range e.rt.Specs {
 		name := s.Name
 		_, hasGit := s.Secrets["GIT_PASSWORD"]
-		isGitStep := strings.Contains(name, "-prepare-") || strings.Contains(name, "-publish-")
+		isGitStep := strings.Contains(name, "-prepare-") || strings.Contains(name, "-publish-") ||
+			strings.Contains(name, "-review-fetch-")
 		if hasGit != isGitStep {
 			t.Errorf("%s: GIT_PASSWORD present = %v", name, hasGit)
 		}
@@ -521,6 +524,13 @@ func (e *env) assertCredentialBoundary(t *testing.T) {
 		}
 		if s.Security.Privileged {
 			t.Errorf("%s: privileged", name)
+		}
+		if strings.Contains(name, "-describe-agent-") {
+			for _, m := range s.Mounts {
+				if m.Volume != "claude-config" && !m.ReadOnly {
+					t.Errorf("%s: can write to %s", name, m.Volume)
+				}
+			}
 		}
 	}
 	inv := e.invocations()

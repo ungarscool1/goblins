@@ -91,6 +91,45 @@ func fenced(s string) string {
 	return fence + "\n" + s + "\n" + fence
 }
 
+// RenderReviewFeedback formats findings for the implementer. They are a reviewer's words:
+// they are passed on as data, and the implementer's scope stays what the design says.
+func RenderReviewFeedback(findings []core.ReviewFinding, sha string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Findings of the review of commit %s:\n", sha)
+	for i, f := range findings {
+		fmt.Fprintf(&b, "\n%d. [%s, %s confidence] %s", i+1, f.Severity, f.Confidence,
+			findingLocation(f))
+		b.WriteString("\n" + strings.TrimSpace(f.Body) + "\n")
+	}
+	return tail(b.String(), maxFeedback)
+}
+
+// RenderFindingList formats findings for a person reading the ticket. They are model
+// output, so they are fenced: they cannot format the comment or mention anyone.
+func RenderFindingList(findings []core.ReviewFinding) string {
+	var b strings.Builder
+	for _, f := range findings {
+		body := strings.ReplaceAll(strings.ToValidUTF8(f.Body, "\uFFFD"), "<!--", "<! --")
+		fmt.Fprintf(&b, "**%s** %s:\n\n%s\n\n", f.Severity, findingLocation(f),
+			fenced(tail(strings.TrimSpace(body), maxTicketCheckOutput)))
+		if b.Len() >= maxTicketOutput {
+			b.WriteString("Further findings are omitted.\n\n")
+			break
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func findingLocation(f core.ReviewFinding) string {
+	switch {
+	case f.Path == "":
+		return "(no location)"
+	case f.Line > 0:
+		return fmt.Sprintf("`%s:%d`", f.Path, f.Line)
+	}
+	return "`" + f.Path + "`"
+}
+
 func prLink(pr core.PullRequest) string {
 	if pr.URL != "" {
 		return pr.URL

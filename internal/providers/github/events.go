@@ -149,6 +149,7 @@ func (p pullRequest) canonical(repo string) core.PullRequest {
 	return core.PullRequest{
 		Repo: core.RepoRef{Slug: repo}, Number: strconv.FormatInt(p.Number, 10), URL: p.HTMLURL, Title: p.Title, Head: p.Head.Ref, HeadSHA: p.Head.SHA,
 		Base: p.Base.Ref, Draft: p.Draft, Open: p.State == "open", Author: actorOf(p.User),
+		FetchRef: "refs/pull/" + strconv.FormatInt(p.Number, 10) + "/head",
 	}
 }
 

@@ -57,11 +57,32 @@ services:
     volumes:
       - agent-config:/claude-config
 
+  # Optional second agent, with its own login in its own volume. Device login needs no browser here:
+  #   docker compose --profile codex run --rm -it codex-login
+  codex-login:
+    profiles: [codex]
+    image: goblins-agent-codex:${GOBLINS_VERSION:-dev}
+    command: ["codex", "login", "--device-auth", "-c", 'cli_auth_credentials_store="file"']
+    environment:
+      CODEX_HOME: /codex-home
+      HOME: /tmp
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - codex-home:/codex-home
+
   # Worker images, built with: docker compose --profile images build
   image-agent:
     profiles: [images]
     image: goblins-agent-claude:${GOBLINS_VERSION:-dev}
     build: ../images/agent-claude
+    command: ["true"]
+  image-agent-codex:
+    profiles: [codex]
+    image: goblins-agent-codex:${GOBLINS_VERSION:-dev}
+    build: ../images/agent-codex
     command: ["true"]
   image-git:
     profiles: [images]
@@ -78,3 +99,6 @@ volumes:
     # A fixed name, because the agent adapter asks the engine for it by name. It must match
     # config_volume in goblins.yaml and differ between installations.
     name: ${GOBLINS_AGENT_VOLUME:-goblins-claude-config}
+  codex-home:
+    # The same, for home_volume of a codex-cli agent. Only created if you use that profile.
+    name: ${GOBLINS_CODEX_VOLUME:-goblins-codex-home}

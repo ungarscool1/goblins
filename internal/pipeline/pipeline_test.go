@@ -606,7 +606,7 @@ func TestNoChannelToTheUserBlocksInsteadOfWaitingForever(t *testing.T) {
 func TestReviewProviderResultIsPublished(t *testing.T) {
 	w := setup(t)
 	w.agent.Script(fake.AgentStep{Output: designJSON("d")})
-	w.project.Review = &fake.Review{Name: "r", Result: core.ReviewResult{Verdict: core.VerdictComment, Summary: "looks fine", Findings: []core.InlineComment{{Path: "a", Line: 1, Body: "nit"}}}}
+	w.project.Review = &fake.Review{Name: "r", Result: core.ReviewResult{Verdict: core.VerdictComment, Summary: "looks fine", Findings: []core.ReviewFinding{{Path: "a", Line: 1, Body: "nit", Severity: core.ReviewLow, Confidence: core.ConfidenceHigh}}}}
 	w.open()
 	w.say(maintainer, "/approve-design 1")
 	w.want(core.StateCompleted)
@@ -641,5 +641,55 @@ func TestWorkloadLabelsLetReconciliationFindThem(t *testing.T) {
 		if spec.Labels[k] == "" {
 			t.Fatalf("label %s missing: %+v", k, spec.Labels)
 		}
+	}
+}
+
+// describing is a world where publishing reads the pushed diff, and an agent describes it.
+func describing(t *testing.T, output string) (*world, *core.AgentRequest) {
+	t.Helper()
+	w := setup(t)
+	seen := &core.AgentRequest{}
+	d := fake.NewAgent("describer", fake.AgentStep{Run: func(_ context.Context,
+		req core.AgentRequest) (string, error) {
+		*seen = req
+		return output, nil
+	}})
+	w.project.Describer = pipeline.Stage{Agent: d, Runtime: w.rt}
+	inner := w.rt.Behavior
+	w.rt.Behavior = func(s core.WorkloadSpec) fake.WorkloadResult {
+		if strings.Contains(s.Name, "review-diff") {
+			return fake.WorkloadResult{Stdout: "diff --git a/a.go b/a.go\n+new\n"}
+		}
+		return inner(s)
+	}
+	w.agent.Script(fake.AgentStep{Output: designJSON("from the design")})
+	w.open()
+	w.say(maintainer, "/approve-design 1")
+	w.want(core.StateCompleted)
+	return w, seen
+}
+
+func TestPublishingDescribesThePushedDiff(t *testing.T) {
+	w, req := describing(t, "```goblins-description\n"+
+		`{"summary":"Added a thing.","changes":["New handler"],"testing":"A new test."}`+"\n```")
+	body := w.w.PullRequestBody(w.w.PullRequests()[0].Head)
+	for _, want := range []string{"## Summary\n\nAdded a thing.", "- New handler", "- `a.go`", headSHA} {
+		if !strings.Contains(body, want) {
+			t.Errorf("%q is missing from:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "from the design") {
+		t.Errorf("the design should only stand in:\n%s", body)
+	}
+	if !strings.Contains(req.Prompt, "+new") || !req.Workspace.ReadOnly || req.Policy.WriteFiles {
+		t.Fatalf("request = %+v", req)
+	}
+}
+
+func TestPublishingGoesOnWithoutADescription(t *testing.T) {
+	w, _ := describing(t, "not what was asked for")
+	body := w.w.PullRequestBody(w.w.PullRequests()[0].Head)
+	if !strings.Contains(body, "from the design") {
+		t.Fatalf("the design should stand in:\n%s", body)
 	}
 }

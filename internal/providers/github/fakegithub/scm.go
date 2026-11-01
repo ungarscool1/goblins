@@ -190,7 +190,16 @@ func (s *Server) routePulls(w http.ResponseWriter, r *http.Request, repo string,
 		case len(seg) == 3 && seg[2] == "reviews" && r.Method == http.MethodGet:
 			out := []map[string]any{}
 			for i, rev := range st.reviews[n] {
-				out = append(out, map[string]any{"id": i + 1, "body": rev["body"], "user": BotUser, "state": "COMMENTED"})
+				author, ok := rev["user"]
+				if !ok {
+					author = BotUser
+				}
+				state, ok := rev["state"]
+				if !ok {
+					state = "COMMENTED"
+				}
+				out = append(out, map[string]any{"id": i + 1, "body": rev["body"], "user": author,
+					"state": state, "commit_id": rev["commit_id"]})
 			}
 			writeJSON(w, 200, out)
 		case len(seg) == 3 && seg[2] == "comments" && r.Method == http.MethodGet:
@@ -205,7 +214,7 @@ func (s *Server) routePulls(w http.ResponseWriter, r *http.Request, repo string,
 
 func reviewComments(reviews []map[string]any) []map[string]any {
 	out := []map[string]any{}
-	for _, rev := range reviews {
+	for r, rev := range reviews {
 		comments, ok := rev["comments"].([]any)
 		if !ok {
 			continue
@@ -218,10 +227,26 @@ func reviewComments(reviews []map[string]any) []map[string]any {
 				"line": m["line"],
 				"body": m["body"],
 				"user": BotUser,
+
+				"pull_request_review_id": r + 1,
 			})
 		}
 	}
 	return out
+}
+
+// AddReview submits a review as someone else, with inline comments of the form path, line, body.
+func (s *Server) AddReview(repo string, n int64, author User, commit, state, body string,
+	inline ...map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.repo(repo)
+	comments := make([]any, len(inline))
+	for i, c := range inline {
+		comments[i] = c
+	}
+	st.reviews[n] = append(st.reviews[n], map[string]any{"user": author, "commit_id": commit,
+		"state": state, "body": body, "comments": comments})
 }
 
 // AddReviewReply answers a review comment, as a person would on GitHub.

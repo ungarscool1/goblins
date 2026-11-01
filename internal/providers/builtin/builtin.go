@@ -5,6 +5,7 @@ package builtin
 import (
 	"github.com/ungarscool1/goblins/internal/providers"
 	"github.com/ungarscool1/goblins/internal/providers/claude"
+	"github.com/ungarscool1/goblins/internal/providers/codex"
 	"github.com/ungarscool1/goblins/internal/providers/command"
 	"github.com/ungarscool1/goblins/internal/providers/fake"
 	gh "github.com/ungarscool1/goblins/internal/providers/github"
@@ -18,6 +19,7 @@ func Registry(world *fake.World) *providers.Registry {
 	fake.Register(r, world)
 	gh.Register(r)
 	claude.Register(r)
+	codex.Register(r)
 	docker.Register(r)
 	command.Register(r)
 	return r
