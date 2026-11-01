@@ -42,7 +42,8 @@ func pullRequestBody(task core.Task, design string, issue core.Issue,
 	}
 	fmt.Fprintf(&b, "---\n\nFor %s. Design revision %d (`%s`), approved by @%s. ", link,
 		payload.Revision, task.Approval.Hash[:12], task.Approval.Approver.Login)
-	fmt.Fprintf(&b, "Validated commit: `%s`.\n\nWritten by an automated agent.", payload.SHA)
+	fmt.Fprintf(&b, "Validated commit: `%s`.\n\nWritten by an automated agent. "+
+		"Goblins does not merge pull requests.", payload.SHA)
 	return b.String()
 }
 
