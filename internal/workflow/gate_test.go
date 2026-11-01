@@ -94,8 +94,11 @@ func TestGate(t *testing.T) {
 		{"a remark sent to the implementer is still not resolved", func(i *GateInput) {
 			i.Task.Findings = []core.ReviewFinding{{ThreadID: "t", Author: bob, Status: core.FindingAddressed}}
 		}, core.GateWaiting, "1 remark by"},
-		{"resolved and stale remarks do not count", func(i *GateInput) {
-			i.Task.Findings = []core.ReviewFinding{{ThreadID: "t", Author: bob, Status: core.FindingResolved}, {ThreadID: "u", Author: bob, Status: core.FindingStale}}
+		{"a remark on lines that moved stays open until it is resolved", func(i *GateInput) {
+			i.Task.Findings = []core.ReviewFinding{{ThreadID: "u", Author: bob, Status: core.FindingStale}}
+		}, core.GateWaiting, "1 remark by"},
+		{"resolved remarks do not count", func(i *GateInput) {
+			i.Task.Findings = []core.ReviewFinding{{ThreadID: "t", Author: bob, Status: core.FindingResolved}}
 		}, core.GateReady, ""},
 	}
 	for _, tc := range cases {
