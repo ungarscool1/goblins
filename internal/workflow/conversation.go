@@ -45,10 +45,14 @@ func (m *machine) setStatus(f *core.ReviewFinding, status core.FindingStatus, no
 }
 
 func capNote(s string) string {
-	if len(s) > 500 {
-		return strings.ToValidUTF8(s[:500], "") + "..."
+	if len(s) <= 500 {
+		return s
 	}
-	return s
+	cut := strings.ToValidUTF8(s[:500], "")
+	if i := strings.LastIndexAny(cut, " \n"); i > 0 {
+		cut = cut[:i] // a word cut in half reads as a mistake
+	}
+	return cut + "..."
 }
 
 // converse starts judging what is new. It runs no agent for what needs none: a change request
@@ -250,15 +254,12 @@ func (m *machine) confirmFixes() {
 
 func fixReply(f core.ReviewFinding, validated bool) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "I made a change for this in `%s`.", f.FixSHA)
-	if f.Plan != "" {
-		b.WriteString(" " + f.Plan)
-	}
+	fmt.Fprintf(&b, "Fixed in `%s`.", f.FixSHA)
 	if validated {
 		b.WriteString("\n\nThe project's checks passed on that commit.")
 	}
 	if f.Evidence != "" {
-		b.WriteString("\n\n" + f.Evidence)
+		b.WriteString("\n\nWhy I agreed: " + f.Evidence)
 	}
 	b.WriteString("\n\nThis is yours to confirm: I have left the thread open.")
 	return b.String()
