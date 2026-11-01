@@ -750,7 +750,7 @@ func (m *machine) onValidateDone(o *core.JobOutcome) {
 		m.t.ValidatedSHA = p.SHA // only a pass records this
 	}
 	if p.Stage == StagePrePR {
-		m.enqueueMain(JobPublish, PublishPayload{SHA: p.SHA, Revision: m.t.DesignRevision}, m.p.ImplementerLimitKey, 5)
+		m.enqueuePublish(p.SHA)
 		m.reason = "validation passed before publishing"
 		if skipped {
 			m.reason = "no validation configured, publishing an untested commit as allowed"
