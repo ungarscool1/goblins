@@ -20,6 +20,8 @@ const (
 	JobReview    core.JobKind = "review"
 	JobReconcile core.JobKind = "reconcile"
 	JobMerge     core.JobKind = "merge"
+	JobTriage    core.JobKind = "triage"
+	JobReply     core.JobKind = "reply"
 	JobComment   core.JobKind = "comment"
 	JobNotify    core.JobKind = "notify"
 	JobCleanup   core.JobKind = "cleanup"
@@ -27,7 +29,7 @@ const (
 
 // mainKinds are the jobs that advance a task; only one is current at a time.
 var mainKinds = []core.JobKind{JobPlan, JobImplement, JobValidate, JobPublish, JobReview,
-	JobReconcile, JobMerge}
+	JobReconcile, JobMerge, JobTriage}
 
 // PlanPayload parametrizes a planner run.
 type PlanPayload struct {
@@ -126,6 +128,50 @@ type ReconcileResult struct {
 	CanMerge bool `json:"can_merge,omitempty"`
 }
 
+// TriageDecision says what kind of objection a finding is.
+type TriageDecision string
+
+const (
+	TriageValid        TriageDecision = "valid"
+	TriageUnclear      TriageDecision = "unclear"
+	TriageDisputed     TriageDecision = "disputed"
+	TriageSuperseded   TriageDecision = "superseded"
+	TriageDesignChange TriageDecision = "design_change"
+	TriageConflict     TriageDecision = "conflict"
+)
+
+// TriagePayload parametrizes judging findings on one commit.
+type TriagePayload struct {
+	SHA      string             `json:"sha"`
+	Findings []string           `json:"findings"`
+	Checks   []core.StatusCheck `json:"checks,omitempty"`
+}
+
+// TriageItem is the judgement on one finding. It is untrusted model output: it can decide
+// what to ask and what to attempt, and nothing about approval or scope.
+type TriageItem struct {
+	ID       string         `json:"id"`
+	Decision TriageDecision `json:"decision"`
+	Reply    string         `json:"reply,omitempty"`
+	Plan     string         `json:"plan,omitempty"`
+	Evidence string         `json:"evidence,omitempty"`
+}
+
+// TriageResult reports a triage.
+type TriageResult struct {
+	SessionID string       `json:"session_id"`
+	Items     []TriageItem `json:"items"`
+}
+
+// ReplyPayload is an answer in an existing conversation. Without a thread, it goes in the
+// pull request's general conversation.
+type ReplyPayload struct {
+	Finding string `json:"finding"`
+	Thread  string `json:"thread,omitempty"`
+	Key     string `json:"key"`
+	Body    string `json:"body"`
+}
+
 // MergePayload parametrizes merging one exact commit.
 type MergePayload struct {
 	SHA  string `json:"sha"`
@@ -164,4 +210,6 @@ func mustJSON(v any) json.RawMessage {
 func EmitsStart(k core.JobKind) bool { return k == JobImplement || k == JobReview }
 
 // SideJob reports whether a job only performs an effect and never advances a task.
-func SideJob(k core.JobKind) bool { return k == JobComment || k == JobNotify || k == JobCleanup }
+func SideJob(k core.JobKind) bool {
+	return k == JobComment || k == JobNotify || k == JobCleanup || k == JobReply
+}

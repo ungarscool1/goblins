@@ -158,7 +158,12 @@ func reviewReasons(in GateInput, sha string) []string {
 	}
 	open := 0
 	for _, f := range in.Task.Findings {
-		if f.Status != core.FindingResolved && f.Status != core.FindingStale && f.Author.Type == core.ActorHuman {
+		if f.Author.Type != core.ActorHuman {
+			continue
+		}
+		switch f.Status {
+		case core.FindingResolved, core.FindingStale, core.FindingSuperseded:
+		default:
 			open++
 		}
 	}

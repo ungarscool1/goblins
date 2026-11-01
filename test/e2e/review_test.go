@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ungarscool1/goblins/internal/core"
 	"github.com/ungarscool1/goblins/internal/providers/github/fakegithub"
@@ -156,7 +157,7 @@ func TestProjectWithoutCodexNeverRunsIt(t *testing.T) {
 // followsPullRequest makes tasks go on past their report, which is the default.
 func (e *env) followsPullRequest() {
 	e.t.Helper()
-	e.cfgYAML = bytes.Replace(e.cfgYAML, []byte(", stop_at_report: true"), nil, 1)
+	e.cfgYAML = bytes.Replace(e.cfgYAML, []byte(", stop_at_report: true"), []byte(", skip_review_triage: true"), 1)
 	e.boot()
 }
 
@@ -314,5 +315,108 @@ func TestPushBySomeoneElseIsCheckedOutReviewedAndValidated(t *testing.T) {
 	reviews := e.gh.Reviews(repo, pr.Number)
 	if got := reviews[len(reviews)-1]["commit_id"]; got != pushed {
 		t.Fatalf("reviewed %v", got)
+	}
+}
+
+// converses makes tasks follow pull requests with review feedback being judged, the default.
+func (e *env) converses() {
+	e.t.Helper()
+	e.cfgYAML = bytes.Replace(e.cfgYAML, []byte(", stop_at_report: true"), nil, 1)
+	e.boot()
+}
+
+// The acceptance scenario of review conversations, over the real adapter: two remarks are
+// judged, corrected on the same pull request, and answered in their own threads, while the
+// person's verdict and threads stay exactly as that person left them.
+func TestChangeRequestWithTwoRemarksIsAnsweredInItsThreads(t *testing.T) {
+	e := setup(t)
+	e.converses()
+	e.approve()
+	task := e.wantState(core.StateAwaitingReview)
+	pr := e.pullRequest()
+	first := task.HeadSHA
+	runs := e.agentRuns(implementerTools)
+
+	e.gh.AddReview(repo, pr.Number, maintainer, first, "CHANGES_REQUESTED", "",
+		map[string]any{"path": "feature.txt", "line": 1, "body": "this should say more"},
+		map[string]any{"path": "feature.txt", "line": 1, "body": "and be tested"})
+	e.deliverReview(601, pr, first, "")
+	e.settle()
+	e.boot()
+	e.settle()
+
+	task = e.wantState(core.StateAwaitingReview)
+	if task.HeadSHA == first || e.agentRuns(implementerTools) != runs+1 || len(e.gh.PullRequests(repo)) != 1 {
+		t.Fatalf("head %s, implementer rounds %d, pull requests %d", task.HeadSHA, e.agentRuns(implementerTools), len(e.gh.PullRequests(repo)))
+	}
+	for _, root := range []int64{1, 2} {
+		replies := e.gh.ThreadReplies(repo, pr.Number, root)
+		if len(replies) != 1 || !strings.Contains(replies[0], task.HeadSHA) || !strings.Contains(replies[0], "left the thread open") {
+			t.Fatalf("replies in %d = %q", root, replies)
+		}
+	}
+	if got := strings.Join(task.Gate.Reasons, "\n"); !strings.Contains(got, "@maintainer requested changes") || !strings.Contains(got, "2 remarks by people are unresolved") {
+		t.Fatalf("reasons = %s", got)
+	}
+
+	// Replaying the review, and our own replies coming back, change nothing.
+	comments, replies := e.botComments(), e.gh.ThreadReplies(repo, pr.Number, 1)
+	turns := e.agentRuns("Read,Glob,Grep")
+	e.deliverReview(601, pr, first, "")
+	e.deliver("pull_request_review_comment", map[string]any{"action": "created", "pull_request": e.pullRequest(), "sender": fakegithub.BotUser,
+		"comment": map[string]any{"id": 999, "body": "echo", "user": fakegithub.BotUser, "created_at": time.Now()}})
+	e.settle()
+	if e.agentRuns("Read,Glob,Grep") != turns || e.botComments() != comments || !slices.Equal(e.gh.ThreadReplies(repo, pr.Number, 1), replies) {
+		t.Fatal("a replay or an echo had an effect")
+	}
+	for _, r := range e.gh.Requests {
+		if strings.HasSuffix(r, "/merge") || strings.Contains(r, "resolveReviewThread") || strings.Contains(r, "/dismissals") {
+			t.Fatalf("Goblins touched a person's decision: %s", r)
+		}
+	}
+}
+
+func TestFalsePositiveIsArguedThenCorrectedWhenThePersonInsists(t *testing.T) {
+	e := setup(t)
+	e.converses()
+	e.approve()
+	task := e.wantState(core.StateAwaitingReview)
+	pr := e.pullRequest()
+	head := task.HeadSHA
+	runs := e.agentRuns(implementerTools)
+
+	e.gh.AddReview(repo, pr.Number, maintainer, head, "COMMENTED", "", map[string]any{"path": "feature.txt", "line": 1, "body": "false positive trap"})
+	e.deliver("pull_request_review_comment", map[string]any{"action": "created", "pull_request": pr, "sender": maintainer,
+		"comment": map[string]any{"id": 1, "body": "false positive trap", "user": maintainer, "created_at": time.Now()}})
+	e.settle()
+	task = e.wantState(core.StateAwaitingReview)
+	if task.HeadSHA != head || e.agentRuns(implementerTools) != runs {
+		t.Fatalf("the code changed: head %s", task.HeadSHA)
+	}
+	replies := e.gh.ThreadReplies(repo, pr.Number, 1)
+	if len(replies) != 1 || !strings.Contains(replies[0], "feature.txt:1") || !strings.Contains(replies[0], "confirm, or propose") {
+		t.Fatalf("replies = %q", replies)
+	}
+
+	// Days later, after a restart, the person answers in the thread.
+	e.boot()
+	e.gh.AddHumanReply(repo, pr.Number, 5000, 1, maintainer, "I insist, please change it")
+	body := map[string]any{"action": "created", "pull_request": pr, "sender": maintainer,
+		"comment": map[string]any{"id": 5000, "in_reply_to_id": 1, "body": "I insist, please change it", "user": maintainer, "created_at": time.Now()}}
+	for range 2 {
+		e.deliver("pull_request_review_comment", body)
+	}
+	e.settle()
+	e.boot()
+	e.settle()
+	task = e.wantState(core.StateAwaitingReview)
+	if task.HeadSHA == head || e.agentRuns(implementerTools) != runs+1 {
+		t.Fatalf("head %s, implementer rounds %d", task.HeadSHA, e.agentRuns(implementerTools))
+	}
+	if !strings.Contains(e.prompts(), "I insist") || !strings.Contains(e.prompts(), "this workflow replied") {
+		t.Fatalf("the conversation did not reach the judge:\n%s", e.prompts())
+	}
+	if got := e.gh.ThreadReplies(repo, pr.Number, 1); len(got) != 3 {
+		t.Fatalf("thread = %q", got)
 	}
 }

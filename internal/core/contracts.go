@@ -46,6 +46,12 @@ type SourceControl interface {
 	ReviewThreads(ctx context.Context, repo RepoRef, number string) ([]ReviewThread, error)
 	// StatusChecks requires CapSCMStatusChecks.
 	StatusChecks(ctx context.Context, repo RepoRef, sha string) ([]StatusCheck, error)
+	// ReplyToThread answers in an existing review thread, identified by the ID of the remark
+	// that started it. It is idempotent on draft.IdempotencyKey. Requires CapSCMThreadReply.
+	ReplyToThread(ctx context.Context, repo RepoRef, number, threadID string,
+		draft CommentDraft) error
+	// PullRequestComments returns the general conversation of a pull request.
+	PullRequestComments(ctx context.Context, repo RepoRef, number string) ([]Comment, error)
 	// ListReviews returns every review submitted on a pull request, oldest first.
 	ListReviews(ctx context.Context, repo RepoRef, number string) ([]Review, error)
 	// ChangedFiles returns the paths a pull request changes.
@@ -76,6 +82,8 @@ const (
 	RolePlanner     AgentRole = "planner"
 	RoleImplementer AgentRole = "implementer"
 	RoleReviewer    AgentRole = "reviewer"
+	// RoleTriager judges review feedback against the design and the code, read-only.
+	RoleTriager AgentRole = "triager"
 )
 
 // ToolPolicy is the abstract permission set of a run; adapters map it to their

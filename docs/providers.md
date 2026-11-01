@@ -43,6 +43,13 @@ Persistence has its own contract, `StateStore`, which adapters never receive.
 No workflow code changes. `contract/fake_test.go` shows a small independent
 tracker passing the suite with read-only capabilities.
 
+## Review conversations
+
+`SourceControl` carries what review needs, gated where SCMs differ: `ReviewThreads`, `ListReviews`,
+`PullRequestComments`, `ChangedFiles`, plus `ReplyToThread` (`scm.review_threads.reply`),
+`BranchProtection` (`scm.branch_protection`) and `MergePullRequest` (`scm.merge`). A provider without a
+capability gets a visible blocked state, not a guess. Threads are identified by their first remark.
+
 ## Versioning
 
 `core.ContractVersion` is bumped on breaking changes to the contracts. Adapters

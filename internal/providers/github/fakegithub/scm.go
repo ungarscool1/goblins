@@ -214,6 +214,22 @@ func (s *Server) routePulls(w http.ResponseWriter, r *http.Request, repo string,
 					"state": state, "commit_id": rev["commit_id"]})
 			}
 			writeJSON(w, 200, out)
+		case len(seg) == 5 && seg[2] == "comments" && seg[4] == "replies" && r.Method == http.MethodPost:
+			var b struct {
+				Body string `json:"body"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&b)
+			root, err := strconv.ParseInt(seg[3], 10, 64)
+			if err != nil {
+				fail(w, 404, "no such comment")
+				return
+			}
+			if st.replies == nil {
+				st.replies = map[int64][]map[string]any{}
+			}
+			st.replies[n] = append(st.replies[n], map[string]any{"id": s.nextID(),
+				"in_reply_to_id": root, "body": b.Body, "user": BotUser})
+			writeJSON(w, 201, map[string]any{"id": s.nextID()})
 		case len(seg) == 3 && seg[2] == "files" && r.Method == http.MethodGet:
 			out := []map[string]any{}
 			for _, f := range st.files[n] {
@@ -383,4 +399,30 @@ func (s *Server) serveGraphQL(w http.ResponseWriter, r *http.Request, bearer str
 		}}
 	}
 	writeJSON(w, 200, map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequest": map[string]any{"reviewThreads": threads}}}})
+}
+
+// AddHumanReply answers in a review thread as a person.
+func (s *Server) AddHumanReply(repo string, n, id, replyTo int64, author User, body string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.repo(repo)
+	if st.replies == nil {
+		st.replies = map[int64][]map[string]any{}
+	}
+	st.replies[n] = append(st.replies[n], map[string]any{"id": id, "in_reply_to_id": replyTo,
+		"body": body, "user": author})
+}
+
+// ThreadReplies lists what was said in a thread after the remark that started it.
+func (s *Server) ThreadReplies(repo string, n, root int64) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []string
+	for _, r := range s.repo(repo).replies[n] {
+		if r["in_reply_to_id"] == root {
+			body, _ := r["body"].(string)
+			out = append(out, body)
+		}
+	}
+	return out
 }

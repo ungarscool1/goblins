@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ungarscool1/goblins/internal/core"
 )
@@ -19,6 +20,7 @@ func (m *machine) afterReport(reason string) {
 		return
 	}
 	m.moveTo(core.StateAwaitingReview, reason)
+	m.confirmFixes()
 	m.enqueueReconcile()
 }
 
@@ -132,6 +134,9 @@ func (m *machine) onReconcileDone(o *core.JobOutcome) {
 		m.moveTo(core.StateReviewing, "the pull request has an unreviewed head")
 		return
 	}
+	if !m.p.SkipReviewTriage && m.converse(res) {
+		return
+	}
 	if m.feedActionable(res) {
 		return
 	}
@@ -141,6 +146,7 @@ func (m *machine) onReconcileDone(o *core.JobOutcome) {
 }
 
 func (m *machine) onClosed(pr core.PullRequest) {
+	m.t.PausedUntil = time.Time{}
 	if pr.Merged {
 		m.finish("the pull request was merged")
 		return
@@ -164,13 +170,17 @@ func mergeFindings(known, seen []core.ReviewFinding) []core.ReviewFinding {
 			out = append(out, s)
 			continue
 		}
+		spoke := s.LastCommentID != "" && s.LastCommentID != out[i].LastCommentID
 		switch {
 		case s.Status == core.FindingResolved || s.Status == core.FindingStale:
 			out[i].Status = s.Status
 		case out[i].Status == core.FindingResolved:
 			out[i].Status = core.FindingOpen // reopened
+		case spoke && reopensOnReply(out[i].Status, s.Discussion):
+			out[i].Status = core.FindingOpen // the reviewer answered
 		}
 		out[i].Body, out[i].Path, out[i].Line = s.Body, s.Path, s.Line
+		out[i].Discussion, out[i].LastCommentID = s.Discussion, s.LastCommentID
 	}
 	if extra := len(out) - maxFindings; extra > 0 {
 		out = slices.Delete(out, 0, extra)

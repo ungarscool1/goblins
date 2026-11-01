@@ -250,6 +250,10 @@ func SourceControl(t *testing.T, build func(t *testing.T) SCMHarness) {
 		} else {
 			wantKind(t, err, core.KindUnsupported)
 		}
+		if !h.SCM.Info().Has(core.CapSCMThreadReply) {
+			err := h.SCM.ReplyToThread(ctx, h.Repo, "1", "1", core.CommentDraft{Body: "x"})
+			wantKind(t, err, core.KindUnsupported)
+		}
 		if !h.SCM.Info().Has(core.CapSCMMerge) {
 			wantKind(t, h.SCM.MergePullRequest(ctx, h.Repo, "1", h.BaseSHA), core.KindUnsupported)
 		}

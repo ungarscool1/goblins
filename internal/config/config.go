@@ -131,6 +131,11 @@ type Policy struct {
 	// TrustedReviewBots lists automated reviewers whose remarks count as review input.
 	TrustedReviewBots []string    `yaml:"trusted_review_bots,omitempty"`
 	Merge             MergePolicy `yaml:"merge,omitempty"`
+	// SkipReviewTriage sends every remark straight to the implementer, without judging it.
+	SkipReviewTriage bool          `yaml:"skip_review_triage,omitempty"`
+	MaxDebateRounds  int           `yaml:"max_debate_rounds,omitempty"`
+	MaxTriageRounds  int           `yaml:"max_triage_rounds,omitempty"`
+	ReplyTimeout     time.Duration `yaml:"reply_timeout,omitempty"`
 	// AllowUnvalidatedDraftPR lets a project without validation open draft pull requests
 	// from commits nothing has tested. Without it, such a project is refused.
 	AllowUnvalidatedDraftPR bool `yaml:"allow_unvalidated_draft_pr,omitempty"`

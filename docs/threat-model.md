@@ -48,6 +48,15 @@ GitHub, Anthropic or Docker being compromised.
 | Secrets in check output on the ticket | Validation gets no credentials; output is redacted, bounded and fenced. Redaction only knows common shapes, so a secret a repository already holds can still be printed | Go code, separate containers |
 | Agent pushes to a protected branch    | Only `goblins/*`, never forced; App lacks workflow permission | Go code, GitHub |
 
+### Review feedback
+
+Reviewers' words go to a model, and a model's words go back into threads, in public. So remarks by
+anyone below `min_input_permission`, and by automation not listed in `trusted_review_bots`, never
+reach a prompt. Reviewer text is data inside a delimiter it cannot predict. A model picks among fixed
+outcomes, none of which can approve, merge, resolve a thread or widen the design. Replies have markers
+and mentions neutralized and are bounded. Automated reviews are only ever comments, so they cannot
+satisfy branch protection. Goblins has no code path that dismisses a review or resolves a thread.
+
 ## Known gaps
 
 These are real and accepted for P0. Read them before pointing Goblins at anything sensitive.

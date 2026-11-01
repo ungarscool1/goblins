@@ -18,6 +18,7 @@ func live(t *testing.T) (*world, string) {
 	t.Helper()
 	w := setup(t)
 	w.policy.StopAtReport = false
+	w.policy.SkipReviewTriage = true
 	w.w.SetPermission(repo, "alice", core.PermissionWrite)
 	w.rt.Behavior = func(s core.WorkloadSpec) fake.WorkloadResult {
 		sha := fmt.Sprintf("%040d", w.impl.RunCount())
