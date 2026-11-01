@@ -150,7 +150,7 @@ projects:
     repository: %[5]s
     base_branch: main
     validation: checks
-    policy: {allow_skipped_review: true}
+    policy: {allow_skipped_review: true, stop_at_report: true}
     workspace: {commit_name: Goblins, commit_email: goblins@example.invalid, signoff: true}
     stages:
       planner: {agent: claude, runtime: local, model: planner-model}

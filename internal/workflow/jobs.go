@@ -18,13 +18,16 @@ const (
 	JobValidate  core.JobKind = "validate"
 	JobPublish   core.JobKind = "publish"
 	JobReview    core.JobKind = "review"
+	JobReconcile core.JobKind = "reconcile"
+	JobMerge     core.JobKind = "merge"
 	JobComment   core.JobKind = "comment"
 	JobNotify    core.JobKind = "notify"
 	JobCleanup   core.JobKind = "cleanup"
 )
 
 // mainKinds are the jobs that advance a task; only one is current at a time.
-var mainKinds = []core.JobKind{JobPlan, JobImplement, JobValidate, JobPublish, JobReview}
+var mainKinds = []core.JobKind{JobPlan, JobImplement, JobValidate, JobPublish, JobReview,
+	JobReconcile, JobMerge}
 
 // PlanPayload parametrizes a planner run.
 type PlanPayload struct {
@@ -107,6 +110,26 @@ type ReviewPayload struct {
 type ReviewResult struct {
 	Result core.ReviewResult `json:"result"`
 	SHA    string            `json:"sha,omitempty"`
+}
+
+// ReconcileResult is what an SCM says about a pull request right now, whatever event led to
+// asking. Only people and reviewers with sufficient access are in it, and everything in it
+// is data.
+type ReconcileResult struct {
+	PullRequest core.PullRequest       `json:"pull_request"`
+	Findings    []core.ReviewFinding   `json:"findings,omitempty"`
+	Reviews     []core.Review          `json:"reviews,omitempty"`
+	Checks      []core.StatusCheck     `json:"checks,omitempty"`
+	Files       []string               `json:"files,omitempty"`
+	Protection  *core.BranchProtection `json:"protection,omitempty"`
+	// CanMerge says the SCM can merge at all.
+	CanMerge bool `json:"can_merge,omitempty"`
+}
+
+// MergePayload parametrizes merging one exact commit.
+type MergePayload struct {
+	SHA  string `json:"sha"`
+	Rule string `json:"rule"`
 }
 
 // CommentPayload is a message for the ticket conversation.

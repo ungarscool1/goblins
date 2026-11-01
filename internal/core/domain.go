@@ -176,6 +176,7 @@ type PullRequest struct {
 	Base    string  `json:"base"`
 	Draft   bool    `json:"draft"`
 	Open    bool    `json:"open"`
+	Merged  bool    `json:"merged,omitempty"`
 	Author  Actor   `json:"author"`
 	// FetchRef is where Git finds the head, when it lives somewhere other than a branch
 	// of this repository, as for a pull request from a fork.
@@ -236,6 +237,11 @@ const (
 
 // ReviewFinding is one normalized remark of a reviewer on one exact commit.
 type ReviewFinding struct {
+	// ID is stable across observations of the same remark.
+	ID         string           `json:"id,omitempty"`
+	ThreadID   string           `json:"thread_id,omitempty"`
+	Author     Actor            `json:"author,omitzero"`
+	Status     FindingStatus    `json:"status,omitempty"`
 	Path       string           `json:"path,omitempty"`
 	Line       int              `json:"line,omitempty"`
 	Severity   ReviewSeverity   `json:"severity"`
@@ -264,6 +270,70 @@ type ReviewThread struct {
 	Body     string `json:"body"`
 	Author   Actor  `json:"author"`
 	Resolved bool   `json:"resolved"`
+	// ThreadID is the ID of the remark that started the thread this one belongs to.
+	ThreadID string `json:"thread_id,omitempty"`
+	// CommitSHA is the commit the remark was written on.
+	CommitSHA string `json:"commit_sha,omitempty"`
+	// Outdated means the lines it was about no longer exist at the head.
+	Outdated bool `json:"outdated,omitempty"`
+	// Own is set on those this integration itself posted.
+	Own bool `json:"own,omitempty"`
+}
+
+// Review is one review submitted on a pull request.
+type Review struct {
+	ID        string        `json:"id"`
+	Author    Actor         `json:"author"`
+	Verdict   ReviewVerdict `json:"verdict"`
+	Body      string        `json:"body,omitempty"`
+	CommitSHA string        `json:"commit_sha,omitempty"`
+	// Dismissed reviews no longer hold anything up.
+	Dismissed bool `json:"dismissed,omitempty"`
+	Own       bool `json:"own,omitempty"`
+	// Permission is the author's access, filled in by the orchestrator, never by a provider.
+	Permission Permission `json:"permission,omitempty"`
+}
+
+// BranchProtection is what an SCM enforces on a branch.
+type BranchProtection struct {
+	Enabled           bool     `json:"enabled"`
+	RequiredChecks    []string `json:"required_checks,omitempty"`
+	RequiredApprovals int      `json:"required_approvals,omitempty"`
+}
+
+// FindingStatus is where a finding stands.
+type FindingStatus string
+
+const (
+	// FindingOpen waits for something to happen about it.
+	FindingOpen FindingStatus = "open"
+	// FindingAddressed went to the implementer. That says nothing about being fixed.
+	FindingAddressed FindingStatus = "addressed"
+	// FindingStale was written on an earlier commit, and no longer applies to the head.
+	FindingStale FindingStatus = "stale"
+	// FindingResolved was marked as resolved on the SCM, by whoever may do that there.
+	FindingResolved FindingStatus = "resolved"
+)
+
+// GateState says what a pull request is waiting for.
+type GateState string
+
+const (
+	GateWaiting   GateState = "waiting"
+	GateReady     GateState = "ready"
+	GateAutoMerge GateState = "auto_merge"
+)
+
+// MergeGate is the outcome of a project's merge policy on one commit.
+type MergeGate struct {
+	SHA   string    `json:"sha"`
+	State GateState `json:"state"`
+	// Reasons say what stands in the way, in words for a person.
+	Reasons []string `json:"reasons,omitempty"`
+	// Categories are the sensitive areas the change touches.
+	Categories []string `json:"categories,omitempty"`
+	// Rule is the expressly approved rule allowing an automatic merge.
+	Rule string `json:"rule,omitempty"`
 }
 
 // CheckState is the canonical state of a status check.

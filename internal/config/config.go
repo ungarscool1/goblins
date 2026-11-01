@@ -126,11 +126,35 @@ type Policy struct {
 	QuotaPause           time.Duration `yaml:"quota_pause,omitempty"`
 	AuthPause            time.Duration `yaml:"auth_pause,omitempty"`
 	WebResearch          bool          `yaml:"web_research,omitempty"`
+	// StopAtReport ends a task at its report and leaves the pull request to people entirely.
+	StopAtReport bool `yaml:"stop_at_report,omitempty"`
+	// TrustedReviewBots lists automated reviewers whose remarks count as review input.
+	TrustedReviewBots []string    `yaml:"trusted_review_bots,omitempty"`
+	Merge             MergePolicy `yaml:"merge,omitempty"`
 	// AllowUnvalidatedDraftPR lets a project without validation open draft pull requests
 	// from commits nothing has tested. Without it, such a project is refused.
 	AllowUnvalidatedDraftPR bool `yaml:"allow_unvalidated_draft_pr,omitempty"`
 	// AllowSkippedReview lets a project without a reviewer go on without independent review.
 	AllowSkippedReview bool `yaml:"allow_skipped_review,omitempty"`
+}
+
+// MergePolicy says what a pull request needs. Goblins never merges unless an auto_merge rule
+// expressly allows it, and such a rule cannot do without a person's approval.
+type MergePolicy struct {
+	RequiredChecks          []string `yaml:"required_checks,omitempty"`
+	MinHumanApprovals       int      `yaml:"min_human_approvals,omitempty"`
+	Approvers               []string `yaml:"approvers,omitempty"`
+	RequireBranchProtection bool     `yaml:"require_branch_protection,omitempty"`
+	// SensitivePaths adds to the built-in categories, as category name to path patterns.
+	SensitivePaths map[string][]string `yaml:"sensitive_paths,omitempty"`
+	AutoMerge      []AutoMergeRule     `yaml:"auto_merge,omitempty"`
+}
+
+// AutoMergeRule expressly allows merging a low-risk change touching only these paths.
+type AutoMergeRule struct {
+	Name     string   `yaml:"name"`
+	Paths    []string `yaml:"paths"`
+	MaxFiles int      `yaml:"max_files,omitempty"`
 }
 
 // WorkspaceConfig configures Git workspaces.
@@ -339,6 +363,14 @@ func (c *Config) Validate(known TypeChecker) error {
 		for j, r := range p.Stages.Reviewers {
 			ref(fmt.Sprintf("stages.reviewers[%d].agent", j), r.Agent, c.Agents, true)
 			ref(fmt.Sprintf("stages.reviewers[%d].runtime", j), r.Runtime, c.Runtimes, true)
+		}
+		for j, r := range p.Policy.Merge.AutoMerge {
+			if r.Name == "" || len(r.Paths) == 0 {
+				add("%s.policy.merge.auto_merge[%d]: a rule needs a name and paths", path, j)
+			}
+		}
+		if p.Policy.Merge.MinHumanApprovals < 0 {
+			add("%s.policy.merge.min_human_approvals: cannot be negative", path)
 		}
 		switch p.Policy.ReviewMinSeverity {
 		case "", string(core.ReviewCritical), string(core.ReviewHigh), string(core.ReviewMedium),

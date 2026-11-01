@@ -181,7 +181,8 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 			}
 		}
 		policy := policyFor(pc)
-		pr.MinInput = policy.MinInputPermission
+		pr.MinInput, pr.MinApprove = policy.MinInputPermission, policy.MinApprovePermission
+		pr.TrustedReviewBots = policy.TrustedReviewBots
 		sys.Projects[pc.ID] = pr
 		policies[pc.ID] = policy
 		sys.Warnings = append(sys.Warnings, preflight(pc, pr)...)
@@ -256,12 +257,32 @@ func policyFor(pc config.Project) workflow.Policy {
 	if c.ReviewMinSeverity != "" {
 		p.ReviewMinSeverity = core.ReviewSeverity(c.ReviewMinSeverity)
 	}
+	p.StopAtReport = c.StopAtReport
+	p.TrustedReviewBots = c.TrustedReviewBots
+	p.Merge = mergePolicy(c.Merge)
 	if len(pc.Stages.Reviewers) > 0 {
 		p.ReviewerLimitKey = limitKey(pc.Stages.Reviewers[0].Agent)
 	}
 	p.PlannerLimitKey = limitKey(pc.Stages.Planner.Agent)
 	p.ImplementerLimitKey = limitKey(pc.Stages.Implementer.Agent)
 	return p
+}
+
+func mergePolicy(c config.MergePolicy) workflow.MergePolicy {
+	m := workflow.DefaultMergePolicy()
+	m.RequiredChecks, m.Approvers = c.RequiredChecks, c.Approvers
+	m.RequireBranchProtection = c.RequireBranchProtection
+	if c.MinHumanApprovals > 0 {
+		m.MinHumanApprovals = c.MinHumanApprovals
+	}
+	for category, paths := range c.SensitivePaths {
+		m.SensitivePaths[category] = append(m.SensitivePaths[category], paths...)
+	}
+	for _, r := range c.AutoMerge {
+		rule := workflow.AutoMergeRule{Name: r.Name, Paths: r.Paths, MaxFiles: r.MaxFiles}
+		m.AutoMerge = append(m.AutoMerge, rule)
+	}
+	return m
 }
 
 // preflight reports configurations that would run but cannot work as expected. Missing

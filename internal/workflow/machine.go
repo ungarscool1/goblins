@@ -39,6 +39,11 @@ type Policy struct {
 	ReviewMinSeverity core.ReviewSeverity
 	QuotaPause        time.Duration
 	AuthPause         time.Duration
+	// StopAtReport ends a task at its report, leaving a pull request to people entirely.
+	StopAtReport bool
+	// TrustedReviewBots are automated reviewers whose remarks count as review input.
+	TrustedReviewBots []string
+	Merge             MergePolicy
 	// AgentLimitKeys groups agent jobs per account, for concurrency limits.
 	PlannerLimitKey     string
 	ImplementerLimitKey string
@@ -55,6 +60,7 @@ func DefaultPolicy() Policy {
 		MaxImplementLoops:    3,
 		MaxReviewFixLoops:    3,
 		ReviewMinSeverity:    core.ReviewMedium,
+		Merge:                DefaultMergePolicy(),
 		QuotaPause:           30 * time.Minute,
 		AuthPause:            time.Hour,
 	}
@@ -70,8 +76,10 @@ var transitions = map[core.State][]core.State{
 	core.StateAgentReady:     {core.StateImplementing, core.StateInvestigating},
 	core.StateImplementing:   {core.StatePROpen, core.StateInvestigating},
 	core.StatePROpen:         {core.StateReviewing, core.StateTesting},
-	core.StateReviewing:      {core.StateTesting, core.StateCompleted, core.StateImplementing},
-	core.StateTesting:        {core.StateCompleted},
+	core.StateReviewing: {core.StateTesting, core.StateCompleted, core.StateImplementing,
+		core.StateAwaitingReview},
+	core.StateTesting:        {core.StateCompleted, core.StateAwaitingReview},
+	core.StateAwaitingReview: {core.StateReviewing, core.StateImplementing, core.StateCompleted},
 }
 
 // Any active state may also become blocked, failed, cancelled or quota-paused,
@@ -322,6 +330,10 @@ func (m *machine) step() {
 		m.onIssueEdited()
 	case core.EventIssueClosed:
 		m.cancelTask("the item was closed")
+	case core.EventPRClosed, core.EventPRSynchronized, core.EventPRReviewed,
+		core.EventReviewComment,
+		core.EventCheckCompleted:
+		m.onPullRequestEvent()
 	case core.EventJobStarted:
 		m.onJobStarted()
 	case core.EventJobFinished:
@@ -365,6 +377,8 @@ func (m *machine) resume(reason string) {
 		m.jobs = append(m.jobs, d)
 	case to == core.StateInvestigating:
 		m.enqueuePlan(reason)
+	case to == core.StateAwaitingReview:
+		m.enqueueReconcile()
 	case to.IsWaiting():
 		// Idle by nature: the next step is a person's.
 	default:
@@ -409,6 +423,8 @@ func (m *machine) onComment() {
 		m.t.PendingInput = true
 		m.changed = true
 		m.reason = "input arrived during investigation"
+	case core.StateAwaitingReview:
+		m.onPullRequestEvent()
 	default:
 		m.ignore("input is not requested in this state")
 	}
@@ -536,7 +552,7 @@ func (m *machine) onIssueEdited() {
 		m.cancel = slices.Clone(mainKinds)
 		m.comment("The requirements changed, so the approval of this design no longer applies. Goblins will revise the design and ask again.")
 		m.replan("requirements changed after approval")
-	case core.StatePROpen, core.StateReviewing, core.StateTesting:
+	case core.StatePROpen, core.StateReviewing, core.StateTesting, core.StateAwaitingReview:
 		m.cancel = slices.Clone(mainKinds)
 		m.t.Approval = nil
 		m.block("the requirements changed after a pull request was opened; a person needs to decide how to proceed")
@@ -559,7 +575,7 @@ func (m *machine) onEditWhilePaused() {
 		m.cancel = slices.Clone(mainKinds)
 		m.comment("The requirements changed, so the approval of this design no longer applies. Goblins will revise the design and ask again once it resumes.")
 		m.replanOnResume()
-	case core.StatePROpen, core.StateReviewing, core.StateTesting:
+	case core.StatePROpen, core.StateReviewing, core.StateTesting, core.StateAwaitingReview:
 		m.t.Approval = nil
 		m.cancel = slices.Clone(mainKinds)
 		// Blocking also clears any pause timer: this needs a person, not the clock.
@@ -626,6 +642,10 @@ func (m *machine) onJobFinished() {
 		m.onPublishDone(o)
 	case JobReview:
 		m.onReviewDone(o)
+	case JobReconcile:
+		m.onReconcileDone(o)
+	case JobMerge:
+		m.enqueueReconcile()
 	default:
 		m.ignore("unknown job kind")
 	}
@@ -675,6 +695,8 @@ func (m *machine) onJobFailed(o *core.JobOutcome) {
 		m.block(msg)
 	case core.KindCancelled:
 		m.ignore("job cancelled")
+	case core.KindConflict:
+		m.onHeadConflict(msg)
 	default:
 		m.fail(fmt.Sprintf("%s job failed: %s", o.Kind, msg))
 	}
@@ -784,7 +806,7 @@ func (m *machine) onValidateDone(o *core.JobOutcome) {
 		note = "\n\nNote: this project configures no validation, so nothing was tested."
 	}
 	m.comment(RenderReport(&m.t, rep) + note)
-	m.finish("validation passed")
+	m.afterReport("validation passed")
 }
 
 func (m *machine) onValidationFailed(p ValidatePayload, rep core.ValidationReport) {

@@ -102,6 +102,7 @@ func TestReviewOnlyWorkflow(t *testing.T) {
 	p := DefaultPolicy()
 	mustIgnore(t, Decide(nil, ev, writeFacts(), p))
 	p.ReviewPullRequests = true
+	p.StopAtReport = true
 	d := Decide(nil, ev, writeFacts(), p)
 	mustState(t, d, core.StateReviewing)
 	if d.Task.Kind != core.TaskReviewOnly || !hasJob(d, JobReview) {
@@ -303,6 +304,7 @@ func TestMaterialChangeInvalidatesApproval(t *testing.T) {
 
 func TestImplementationPipeline(t *testing.T) {
 	p := DefaultPolicy()
+	p.StopAtReport = true
 	tk := at(core.StateAgentReady, JobImplement)
 	tk.Loops["implement"] = 1
 
@@ -466,6 +468,8 @@ func TestCheckTransitionTable(t *testing.T) {
 		{core.StateDesignProposed, core.StateAgentReady}, {core.StateAgentReady, core.StateImplementing},
 		{core.StateImplementing, core.StatePROpen}, {core.StatePROpen, core.StateReviewing},
 		{core.StateReviewing, core.StateTesting}, {core.StateTesting, core.StateCompleted},
+		{core.StateTesting, core.StateAwaitingReview}, {core.StateAwaitingReview, core.StateImplementing},
+		{core.StateAwaitingReview, core.StateReviewing}, {core.StateAwaitingReview, core.StateCompleted},
 		{core.StateImplementing, core.StateQuotaPaused}, {core.StateTesting, core.StateBlocked},
 	}
 	for _, l := range legal {
@@ -478,6 +482,7 @@ func TestCheckTransitionTable(t *testing.T) {
 		{core.StateWaitingForUser, core.StateAgentReady}, {core.StateDiscovered, core.StateImplementing},
 		{core.StateInvestigating, core.StateAgentReady}, {core.StateCompleted, core.StateInvestigating},
 		{core.StateCancelled, core.StateImplementing}, {core.StateAgentReady, core.StatePROpen},
+		{core.StateAwaitingReview, core.StateInvestigating}, {core.StateAwaitingReview, core.StateAgentReady},
 	}
 	for _, l := range illegal {
 		if CheckTransition(l[0], l[1], "") {

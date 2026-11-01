@@ -104,6 +104,17 @@ func RenderReviewFeedback(findings []core.ReviewFinding, sha string) string {
 	return tail(b.String(), maxFeedback)
 }
 
+// RenderFailedCI formats failed checks of a commit for the implementer. Only names and links
+// are known here: CI output stays on the SCM.
+func RenderFailedCI(checks []core.StatusCheck, sha string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "These checks failed on commit %s:\n", sha)
+	for _, c := range checks {
+		fmt.Fprintf(&b, "\n- %s %s", c.Name, c.URL)
+	}
+	return b.String()
+}
+
 // RenderFindingList formats findings for a person reading the ticket. They are model
 // output, so they are fenced: they cannot format the comment or mention anyone.
 func RenderFindingList(findings []core.ReviewFinding) string {
