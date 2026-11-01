@@ -64,6 +64,12 @@ func TestGate(t *testing.T) {
 		{"a dismissed change request is gone", func(i *GateInput) {
 			i.Result.Reviews = append(i.Result.Reviews, core.Review{Author: bob, Verdict: core.VerdictChangesRequested, Dismissed: true})
 		}, core.GateReady, ""},
+		{"a change request by someone without access holds nothing up", func(i *GateInput) {
+			i.Result.Reviews = append(i.Result.Reviews, core.Review{Author: bob, Verdict: core.VerdictChangesRequested, CommitSHA: head, Permission: core.PermissionRead})
+		}, core.GateReady, ""},
+		{"a remark outside a thread has nothing to resolve", func(i *GateInput) {
+			i.Task.Findings = []core.ReviewFinding{{ID: "comment:1", Author: bob, Status: core.FindingOpen}}
+		}, core.GateReady, ""},
 		{"a failed check", func(i *GateInput) { i.Result.Checks[0].State = core.CheckFailed }, core.GateWaiting, "check test failed"},
 		{"a running check", func(i *GateInput) { i.Result.Checks[0].State = core.CheckPending }, core.GateWaiting, "still running"},
 		{"a required check missing", func(i *GateInput) { i.Policy.RequiredChecks = []string{"security"} }, core.GateWaiting, "required check security"},
@@ -82,13 +88,13 @@ func TestGate(t *testing.T) {
 		{"a voided design", func(i *GateInput) { i.Task.Approval = nil }, core.GateWaiting, "not approved"},
 		{"an unvalidated commit", func(i *GateInput) { i.Task.ValidatedSHA = "old" }, core.GateWaiting, "validation"},
 		{"an open remark by a person", func(i *GateInput) {
-			i.Task.Findings = []core.ReviewFinding{{Author: bob, Status: core.FindingOpen}}
+			i.Task.Findings = []core.ReviewFinding{{ThreadID: "t", Author: bob, Status: core.FindingOpen}}
 		}, core.GateWaiting, "1 remarks"},
 		{"a remark sent to the implementer is still not resolved", func(i *GateInput) {
-			i.Task.Findings = []core.ReviewFinding{{Author: bob, Status: core.FindingAddressed}}
+			i.Task.Findings = []core.ReviewFinding{{ThreadID: "t", Author: bob, Status: core.FindingAddressed}}
 		}, core.GateWaiting, "1 remarks"},
 		{"resolved and stale remarks do not count", func(i *GateInput) {
-			i.Task.Findings = []core.ReviewFinding{{Author: bob, Status: core.FindingResolved}, {Author: bob, Status: core.FindingStale}}
+			i.Task.Findings = []core.ReviewFinding{{ThreadID: "t", Author: bob, Status: core.FindingResolved}, {ThreadID: "u", Author: bob, Status: core.FindingStale}}
 		}, core.GateReady, ""},
 	}
 	for _, tc := range cases {

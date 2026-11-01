@@ -146,7 +146,7 @@ func reviewReasons(in GateInput, sha string) []string {
 	for _, login := range slices.Sorted(maps.Keys(active)) {
 		r := active[login]
 		switch {
-		case r.Verdict == core.VerdictChangesRequested:
+		case r.Verdict == core.VerdictChangesRequested && r.Permission >= in.MinPerm:
 			why = append(why, "@"+login+" requested changes, and only they can clear that")
 		case countsAsApproval(r, in, sha):
 			approvals++
@@ -158,7 +158,9 @@ func reviewReasons(in GateInput, sha string) []string {
 	}
 	open := 0
 	for _, f := range in.Task.Findings {
-		if f.Status != core.FindingResolved && f.Status != core.FindingStale && f.Author.Type == core.ActorHuman {
+		// A remark outside a thread has nothing to resolve: a change request stands through its
+		// verdict above, and a general comment holds nothing up.
+		if f.ThreadID != "" && f.Author.Type == core.ActorHuman && f.Status != core.FindingResolved && f.Status != core.FindingStale {
 			open++
 		}
 	}
