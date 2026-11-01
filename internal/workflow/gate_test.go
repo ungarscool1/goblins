@@ -59,7 +59,8 @@ func TestGate(t *testing.T) {
 			i.Result.Reviews = append([]core.Review{{Author: alice, Verdict: core.VerdictChangesRequested, CommitSHA: "old"}}, i.Result.Reviews...)
 		}, core.GateReady, ""},
 		{"a comment does not replace a verdict", func(i *GateInput) {
-			i.Result.Reviews = []core.Review{{Author: bob, Verdict: core.VerdictChangesRequested, CommitSHA: "old"}, {Author: bob, Verdict: core.VerdictComment, CommitSHA: head}, approval(alice)}
+			i.Result.Reviews = []core.Review{{Author: bob, Verdict: core.VerdictChangesRequested, CommitSHA: "old", Permission: core.PermissionWrite},
+				{Author: bob, Verdict: core.VerdictComment, CommitSHA: head}, approval(alice)}
 		}, core.GateWaiting, "@bob requested changes"},
 		{"a dismissed change request is gone", func(i *GateInput) {
 			i.Result.Reviews = append(i.Result.Reviews, core.Review{Author: bob, Verdict: core.VerdictChangesRequested, Dismissed: true})
