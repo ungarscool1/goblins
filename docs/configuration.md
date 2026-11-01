@@ -32,6 +32,14 @@ Provider instances are declared per kind under a name of your choice, and
 projects refer to them by name, so trackers, source control, agents and runtimes
 can be combined freely. See [`configs/example.yaml`](../configs/example.yaml).
 
+## Pull request descriptions
+
+After each push, an agent reads the diff of the pushed commit and writes the description, read-only and
+with no tools that can change anything. This costs one agent run per push. By default it is the
+implementer's agent on its default model. To use something cheaper, set `stages.describer`, which has to
+be on the implementer's runtime. If that run fails, the pull request still goes out, described from the
+approved design instead.
+
 ## Skipping checks is an explicit choice
 
 A project must name a `validation`, or set `policy.allow_unvalidated_draft_pr: true`. It must
