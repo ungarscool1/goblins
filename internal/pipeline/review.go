@@ -261,45 +261,60 @@ func (p *Pipeline) review(ctx context.Context, jc scheduler.JobContext) (any, er
 // token in scope.
 func (p *Pipeline) reviewCheckout(ctx context.Context, jc scheduler.JobContext, pr *Project,
 	sha string, req *core.ReviewRequest) error {
+	pull := jc.Task.PullRequest
+	diff, err := p.pinnedDiff(ctx, jc, pr, workspace.ReviewTarget{BaseBranch: pull.Base,
+		HeadBranch: pull.Head, FetchRef: pull.FetchRef, SHA: sha})
+	if err != nil {
+		return err
+	}
+	req.Diff = diff
+	req.Runtime = pr.Implementer.Runtime
+	req.Workspace = p.pinnedMount(jc.Task)
+	req.WorkDir = workspace.RepoDir
+	return nil
+}
+
+func (p *Pipeline) pinnedMount(task core.Task) core.Mount {
+	return core.Mount{Volume: p.volume(task, "review"), Target: workspace.Mount, ReadOnly: true}
+}
+
+// pinnedDiff fetches one exact commit into a volume no agent has written to, and reads what it
+// changes with no credentials and no network.
+func (p *Pipeline) pinnedDiff(ctx context.Context, jc scheduler.JobContext, pr *Project,
+	target workspace.ReviewTarget) (string, error) {
 	runtime := pr.Implementer.Runtime
 	volume := p.volume(jc.Task, "review")
 	if err := runtime.EnsureVolume(ctx, volume,
 		map[string]string{scheduler.LabelInstallation: p.Installation,
 			scheduler.LabelTask: jc.Task.ID}); err != nil {
-		return err
+		return "", err
 	}
 	access, err := pr.SCM.GitAccess(ctx, pr.Repo, false)
 	if err != nil {
-		return err
+		return "", err
 	}
-	pull := jc.Task.PullRequest
 	spec, err := workspace.ReviewPrepareSpec(workloadName(jc, "review-fetch"), gitImage(pr), volume,
-		p.labels(jc), access, workspace.ReviewTarget{BaseBranch: pull.Base, HeadBranch: pull.Head,
-			FetchRef: pull.FetchRef, SHA: sha})
+		p.labels(jc), access, target)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if _, _, err := runStep(ctx, runtime, spec); err != nil {
-		return err
+		return "", err
 	}
 	spec, err = workspace.DiffSpec(workloadName(jc, "review-diff"), gitImage(pr), volume,
-		p.labels(jc), sha, maxDiffBytes+1)
+		p.labels(jc), target.SHA, maxDiffBytes+1)
 	if err != nil {
-		return err
+		return "", err
 	}
 	diff, err := rt.RunToCompletion(ctx, runtime, spec)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if diff.Status.Phase != core.WorkloadSucceeded {
-		return core.Errorf(core.KindTransient, "pipeline.review",
+		return "", core.Errorf(core.KindTransient, "pipeline.review",
 			"reading the diff of the pull request failed (exit %d)", diff.Status.ExitCode)
 	}
-	req.Diff = strings.ToValidUTF8(diff.Stdout, "\uFFFD")
-	req.Runtime = runtime
-	req.Workspace = core.Mount{Volume: volume, Target: workspace.Mount, ReadOnly: true}
-	req.WorkDir = workspace.RepoDir
-	return nil
+	return strings.ToValidUTF8(diff.Stdout, "\uFFFD"), nil
 }
 
 // publishReview posts a review once per commit and prompt version. It is always published

@@ -18,6 +18,7 @@ import (
 
 // World is the shared state behind a set of fake adapters.
 type World struct {
+	prBodies   map[string]string
 	mu         sync.Mutex
 	Now        func() time.Time
 	issues     map[string]*core.Issue
@@ -116,6 +117,13 @@ func (w *World) SetBranch(repo, branch, sha string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.branches[repo+"@"+branch] = sha
+}
+
+// PullRequestBody returns the latest description given to a branch's pull request.
+func (w *World) PullRequestBody(head string) string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.prBodies[head]
 }
 
 // PullRequests lists all pull requests.
@@ -305,6 +313,10 @@ func (s *SCM) EnsurePullRequest(_ context.Context, d core.PullRequestDraft) (cor
 	}
 	s.W.mu.Lock()
 	defer s.W.mu.Unlock()
+	if s.W.prBodies == nil {
+		s.W.prBodies = map[string]string{}
+	}
+	s.W.prBodies[d.Head] = d.Body
 	for _, pr := range s.W.prs {
 		if pr.Repo == d.Repo && pr.Head == d.Head && pr.Open {
 			pr.Title = d.Title

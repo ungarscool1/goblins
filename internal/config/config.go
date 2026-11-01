@@ -148,6 +148,9 @@ type Stages struct {
 	// Reviewers are agents that review pull requests, each used when those before it, and
 	// the project's review provider, are unavailable.
 	Reviewers []Stage `yaml:"reviewers,omitempty"`
+	// Describer writes pull request descriptions from their diff. By default it is the
+	// implementer's agent, on that agent's default model.
+	Describer *Stage `yaml:"describer,omitempty"`
 }
 
 // Stage configures one agent role.
@@ -342,6 +345,13 @@ func (c *Config) Validate(known TypeChecker) error {
 			// The reviewer's checkout is a volume, which only exists on one runtime.
 			if r.Runtime != p.Stages.Implementer.Runtime {
 				add("%s.stages.reviewers[%d].runtime: must be the implementer's runtime", path, j)
+			}
+		}
+		if d := p.Stages.Describer; d != nil {
+			ref("stages.describer.agent", d.Agent, c.Agents, true)
+			ref("stages.describer.runtime", d.Runtime, c.Runtimes, true)
+			if d.Runtime != p.Stages.Implementer.Runtime {
+				add("%s.stages.describer.runtime: must be the implementer's runtime", path)
 			}
 		}
 		switch p.Policy.ReviewMinSeverity {

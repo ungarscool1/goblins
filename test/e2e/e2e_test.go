@@ -499,7 +499,8 @@ func (e *env) assertCredentialBoundary(t *testing.T) {
 	for _, s := range e.rt.Specs {
 		name := s.Name
 		_, hasGit := s.Secrets["GIT_PASSWORD"]
-		isGitStep := strings.Contains(name, "-prepare-") || strings.Contains(name, "-publish-")
+		isGitStep := strings.Contains(name, "-prepare-") || strings.Contains(name, "-publish-") ||
+			strings.Contains(name, "-review-fetch-")
 		if hasGit != isGitStep {
 			t.Errorf("%s: GIT_PASSWORD present = %v", name, hasGit)
 		}
@@ -523,6 +524,13 @@ func (e *env) assertCredentialBoundary(t *testing.T) {
 		}
 		if s.Security.Privileged {
 			t.Errorf("%s: privileged", name)
+		}
+		if strings.Contains(name, "-describe-agent-") {
+			for _, m := range s.Mounts {
+				if m.Volume != "claude-config" && !m.ReadOnly {
+					t.Errorf("%s: can write to %s", name, m.Volume)
+				}
+			}
 		}
 	}
 	inv := e.invocations()
