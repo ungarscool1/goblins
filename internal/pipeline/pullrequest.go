@@ -76,7 +76,7 @@ func designSections(design string) map[string]string {
 // safeDescription keeps model output from mentioning anyone, carrying a marker or acting on
 // another ticket when the pull request merges.
 func safeDescription(s string) string {
-	s = strings.ReplaceAll(strings.ToValidUTF8(s, "�"), "<!--", "<! --")
-	s = strings.ReplaceAll(s, "@", "@​")
+	s = strings.ReplaceAll(strings.ToValidUTF8(s, "\uFFFD"), "<!--", "<! --")
+	s = strings.ReplaceAll(s, "@", "@\u200b")
 	return closingReference.ReplaceAllString(s, "`${1}`${2}")
 }
