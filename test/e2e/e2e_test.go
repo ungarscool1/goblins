@@ -19,13 +19,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/ungarscool1/goblins/internal/api"
 	"github.com/ungarscool1/goblins/internal/app"
 	"github.com/ungarscool1/goblins/internal/config"
 	"github.com/ungarscool1/goblins/internal/core"
+	"github.com/ungarscool1/goblins/internal/observability"
 	"github.com/ungarscool1/goblins/internal/providers"
 	"github.com/ungarscool1/goblins/internal/providers/claude"
 	"github.com/ungarscool1/goblins/internal/providers/codex"
@@ -75,6 +79,7 @@ type env struct {
 	sys      *app.System
 	store    core.StateStore
 	webhooks http.Handler
+	logs     io.Writer
 	issueNum int64
 	seq      int
 }
@@ -192,7 +197,11 @@ func (e *env) boot() {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	e.sys, err = app.Build(cfg, e.store, discard, app.Options{Registry: reg})
+	log := discard
+	if e.logs != nil {
+		log = slog.New(slog.NewJSONHandler(e.logs, nil))
+	}
+	e.sys, err = app.Build(cfg, e.store, log, app.Options{Registry: reg})
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -742,4 +751,94 @@ func TestReleaseGates(t *testing.T) {
 			t.Errorf("%s mentions a model API key", f)
 		}
 	}
+}
+
+// A webhook that never arrives, a restart at the worst moment and a late redelivery still give
+// one task, which an operator can follow in the metrics, the audit log and the trace.
+func TestLostEventAndRestartRecoverOneTask(t *testing.T) {
+	e := setup(t)
+	var logs syncBuffer
+	e.logs = &logs
+	// Polling needs what the tracker has: the source of these tests only takes webhooks.
+	tracker := regexp.MustCompile(`options: \{(app_id: .*?api_url: [^}]*)\}\}`).
+		FindStringSubmatch(string(e.cfgYAML))[1]
+	cfg := strings.Replace(string(e.cfgYAML), "    repository:",
+		"    poll_interval: 1ms\n    repository:", 1)
+	e.cfgYAML = []byte(strings.Replace(cfg, "options: {webhook_secret_env:",
+		"options: {"+tracker+", webhook_secret_env:", 1))
+	e.boot()
+
+	// The issue opens, and no webhook comes. Polling is what notices.
+	i := e.gh.AddIssue(repo, "Add the feature", "Please add the feature.", maintainer)
+	e.issueNum = i.Number
+	time.Sleep(5 * time.Millisecond)
+	e.settle()
+	task := e.wantState(core.StateWaitingForUser)
+
+	// The process dies. The webhook turns up after all, more than once.
+	e.boot()
+	for range 2 {
+		e.deliver("issues", map[string]any{"action": "opened", "issue": i, "sender": maintainer})
+	}
+	e.settle()
+	tasks, err := e.store.ListTasks(ctx, "")
+	if err != nil || len(tasks) != 1 || tasks[0].ID != task.ID {
+		t.Fatalf("tasks = %+v, %v", tasks, err)
+	}
+	e.wantState(core.StateWaitingForUser)
+
+	if e.agentRuns("Read,Glob,Grep") != 1 {
+		t.Fatalf("planner runs = %d", e.agentRuns("Read,Glob,Grep"))
+	}
+
+	var audit strings.Builder
+	if err := app.WriteAudit(ctx, &audit, e.store, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	trace := observability.TraceID(task.ID)
+	for _, want := range []string{"trace " + trace, "-> waiting-for-user",
+		"plan  succeeded"} {
+		if !strings.Contains(audit.String(), want) {
+			t.Errorf("%q is missing from the audit log:\n%s", want, audit.String())
+		}
+	}
+
+	spans := logs.String()
+	if !strings.Contains(spans, `"trace_id":"`+trace+`"`) ||
+		!strings.Contains(spans, `"span":"job.plan"`) {
+		t.Errorf("no span for the plan:\n%s", spans)
+	}
+	for _, leaked := range []string{webhookSecret, "ghs_", "s3cret"} {
+		if strings.Contains(spans, leaked) {
+			t.Errorf("%q in the logs", leaked)
+		}
+	}
+
+	w := httptest.NewRecorder()
+	h := api.MetricsHandler(e.sys.Metrics, e.store, e.sys.Scheduler, discard)
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	metrics := w.Body.String()
+	for _, want := range []string{`goblins_tasks{state="waiting-for-user"} 1`,
+		"goblins_tasks_stalled 0", `goblins_events_total{result="duplicate"} `} {
+		if !strings.Contains(metrics, want) {
+			t.Errorf("%q is missing from the metrics:\n%s", want, metrics)
+		}
+	}
+}
+
+type syncBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }

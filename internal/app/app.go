@@ -22,6 +22,7 @@ import (
 	"github.com/ungarscool1/goblins/internal/api"
 	"github.com/ungarscool1/goblins/internal/config"
 	"github.com/ungarscool1/goblins/internal/core"
+	"github.com/ungarscool1/goblins/internal/observability"
 	"github.com/ungarscool1/goblins/internal/pipeline"
 	"github.com/ungarscool1/goblins/internal/providers"
 	"github.com/ungarscool1/goblins/internal/providers/fake"
@@ -52,6 +53,7 @@ type System struct {
 	Agents    map[string]core.AgentProvider
 	Runtimes  map[string]core.ExecutionRuntime
 	Warnings  []string
+	Metrics   *observability.Metrics
 }
 
 // OpenStore opens the configured database.
@@ -227,7 +229,11 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 	}
 	sys.Scheduler = &scheduler.Scheduler{Store: store, Engine: engine, Handlers: pipe.Handlers(), Sources: polls, Inbox: sys.Inbox, Runtimes: rts, Log: log, Now: now,
 		Cfg: scheduler.Config{Owner: owner, Installation: cfg.Installation.Name, Workers: cfg.Scheduler.Workers,
-			Limits: scheduler.Limits{MaxGlobal: cfg.Scheduler.MaxGlobal, MaxPerProject: cfg.Scheduler.MaxPerProject, MaxPerKey: limits}}}
+			Limits: scheduler.Limits{MaxGlobal: cfg.Scheduler.MaxGlobal,
+				MaxPerProject: cfg.Scheduler.MaxPerProject, MaxPerKey: limits},
+			TranscriptRetention: cfg.Scheduler.TranscriptRetention}}
+	sys.Metrics = observability.NewMetrics()
+	sys.Scheduler.Metrics, sys.Inbox.Metrics, engine.Metrics = sys.Metrics, sys.Metrics, sys.Metrics
 	return sys, nil
 }
 
@@ -366,6 +372,9 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, o Options) er
 		{Name: "storage", Run: store.Ping},
 	})
 	srv.Handle("POST /webhooks/{source}", api.WebhookHandler(sys.Webhooks, sys.Inbox, log))
+	if cfg.Server.Metrics {
+		srv.Handle("GET /metrics", api.MetricsHandler(sys.Metrics, store, sys.Scheduler, log))
+	}
 	if o.Mock != nil {
 		mountMock(srv, sys, cfg, o.Mock, log)
 	}

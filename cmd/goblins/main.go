@@ -28,6 +28,8 @@ Usage:
   goblins config render [--config FILE|--mock] Print effective configuration, secrets masked
   goblins doctor [--config FILE|--mock]      Check providers and agent login, using no model
   goblins status [--config FILE|--mock]      List tasks
+  goblins audit --task ID [--config FILE|--mock]
+                                             Say what happened to a task, and why
   goblins comment --task ID --as NAME --body TEXT [--config FILE|--mock]
                                              Enter a comment by hand, for trackers without one
   goblins healthcheck [--url URL]            Probe a running instance (container health)
@@ -109,6 +111,23 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			_, _ = fmt.Fprintln(stdout)
 		}
 		return nil
+	case "audit":
+		var task string
+		cfg, _, err := loadFlags("audit", args[1:], stderr, func(fs *flag.FlagSet) {
+			fs.StringVar(&task, "task", "", "task ID")
+		})
+		if err != nil {
+			return err
+		}
+		if task == "" {
+			return errors.New("--task is required")
+		}
+		store, err := app.OpenStore(ctx, ensureDir(cfg))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = store.Close() }()
+		return app.WriteAudit(ctx, stdout, store, task)
 	case "comment":
 		var task, as, body string
 		cfg, _, err := loadFlags("comment", args[1:], stderr, func(fs *flag.FlagSet) {

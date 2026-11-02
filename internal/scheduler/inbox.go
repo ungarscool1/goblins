@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ungarscool1/goblins/internal/core"
+	"github.com/ungarscool1/goblins/internal/observability"
 )
 
 // Route tells the inbox which project a source's container belongs to. Anything
@@ -25,6 +26,8 @@ type Inbox struct {
 	Log    *slog.Logger
 	Now    func() time.Time
 	routes map[string]Route
+	// Metrics counts what comes in. It can be nil.
+	Metrics *observability.Metrics
 }
 
 // NewInbox builds an inbox from its routes.
@@ -65,9 +68,12 @@ func (in *Inbox) Accept(ctx context.Context, source string, events []core.Event)
 		if err != nil {
 			return inserted, err
 		}
+		result := "duplicate"
 		if isNew {
 			inserted++
+			result = "new"
 		}
+		in.Metrics.Inc("goblins_events_total", observability.Labels{"result", result})
 	}
 	return inserted, nil
 }

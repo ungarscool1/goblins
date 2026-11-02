@@ -58,6 +58,8 @@ type Installation struct {
 type Server struct {
 	Listen          string        `yaml:"listen"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
+	// Metrics serves Prometheus metrics on /metrics, with no login.
+	Metrics bool `yaml:"metrics,omitempty"`
 }
 
 // Log configures structured logging.
@@ -80,6 +82,8 @@ type Scheduler struct {
 	Workers       int `yaml:"workers,omitempty"`
 	MaxGlobal     int `yaml:"max_concurrent_agents,omitempty"`
 	MaxPerProject int `yaml:"max_agents_per_project,omitempty"`
+	// TranscriptRetention removes transcripts of finished tasks after this long.
+	TranscriptRetention time.Duration `yaml:"transcript_retention,omitempty"`
 }
 
 // Provider is one named adapter instance.

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ungarscool1/goblins/internal/core"
+	"github.com/ungarscool1/goblins/internal/observability"
 )
 
 // SourceOperator marks events entered by someone with shell access to the installation.
@@ -34,6 +35,8 @@ type Engine struct {
 	EventLease time.Duration
 	// RetryDelay spaces attempts when a lookup fails.
 	RetryDelay time.Duration
+	// Metrics counts transitions. It can be nil.
+	Metrics *observability.Metrics
 }
 
 func (e *Engine) now() time.Time {
@@ -149,7 +152,10 @@ func (e *Engine) process(ctx context.Context, ev core.Event, now time.Time) erro
 		return err
 	}
 	if commit.Transition != nil {
-		e.Log.Info("task transition", "task", d.Task.ID, "from", d.From, "to", d.Task.State, "reason", d.Reason)
+		e.Log.Info("task transition", "task", d.Task.ID, "from", d.From, "to", d.Task.State,
+			"reason", d.Reason, "trace_id", observability.TraceID(d.Task.ID))
+		e.Metrics.Inc("goblins_task_transitions_total",
+			observability.Labels{"to", string(d.Task.State)})
 	}
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ungarscool1/goblins/internal/core"
@@ -55,6 +56,10 @@ type Config struct {
 	ReconcileEvery    time.Duration
 	MaxTranscript     int
 	MaxTranscriptLine int
+	// StallAfter is how long a task may go without a job before being reported.
+	StallAfter time.Duration
+	// TranscriptRetention removes transcripts of finished tasks after this long. Zero keeps them.
+	TranscriptRetention time.Duration
 }
 
 func (c *Config) fill() {
@@ -77,6 +82,7 @@ func (c *Config) fill() {
 	def(&c.TickInterval, 500*time.Millisecond)
 	def(&c.DefaultJobTimeout, 2*time.Hour)
 	def(&c.RetryBase, 15*time.Second)
+	def(&c.StallAfter, time.Hour)
 	def(&c.RetryMax, 15*time.Minute)
 	def(&c.ReconcileEvery, 5*time.Minute)
 	if c.MaxTranscript == 0 {
@@ -113,6 +119,9 @@ type Scheduler struct {
 	Log      *slog.Logger
 	Now      func() time.Time
 	Cfg      Config
+	Metrics  *observability.Metrics
+	// Stalled is how many tasks the last health check found with no job to move them.
+	Stalled atomic.Int64
 
 	once sync.Once
 	wg   sync.WaitGroup
@@ -307,6 +316,7 @@ func (s *Scheduler) runJob(parent context.Context, job core.Job) {
 	}()
 
 	tr := s.newTranscript(job)
+	start := s.Now()
 	result, runErr := s.invoke(ctx, job, task, tr)
 	close(stopBeat)
 	beat.Wait()
@@ -318,6 +328,7 @@ func (s *Scheduler) runJob(parent context.Context, job core.Job) {
 		return
 	default:
 	}
+	s.observeJob(bg, log, task, job, start, runErr)
 	s.record(bg, parent.Err() != nil, errors.Is(ctx.Err(), context.DeadlineExceeded), log, task, job, result, runErr)
 }
 
@@ -400,6 +411,7 @@ func (s *Scheduler) maybeReconcile(ctx context.Context) {
 	s.mu.Unlock()
 	if due {
 		s.ReconcileWorkloads(ctx)
+		s.checkHealth(ctx)
 	}
 }
 
