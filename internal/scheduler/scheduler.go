@@ -53,6 +53,11 @@ type Config struct {
 	DefaultJobTimeout time.Duration
 	RetryBase         time.Duration
 	RetryMax          time.Duration
+	// QuotaHold, RateLimitHold and AuthHold rest an account after those failures, when
+	// nothing reported when they end.
+	QuotaHold         time.Duration
+	RateLimitHold     time.Duration
+	AuthHold          time.Duration
 	ReconcileEvery    time.Duration
 	MaxTranscript     int
 	MaxTranscriptLine int
@@ -83,6 +88,9 @@ func (c *Config) fill() {
 	def(&c.DefaultJobTimeout, 2*time.Hour)
 	def(&c.RetryBase, 15*time.Second)
 	def(&c.StallAfter, time.Hour)
+	def(&c.QuotaHold, 30*time.Minute)
+	def(&c.RateLimitHold, 5*time.Minute)
+	def(&c.AuthHold, 5*time.Minute)
 	def(&c.RetryMax, 15*time.Minute)
 	def(&c.ReconcileEvery, 5*time.Minute)
 	if c.MaxTranscript == 0 {
@@ -137,6 +145,7 @@ func (s *Scheduler) init() {
 		s.sem = make(chan struct{}, s.Cfg.Workers)
 		s.side = make(chan struct{}, s.Cfg.SideWorkers)
 		s.last = map[string]time.Time{}
+		s.Handlers[workflow.JobReleaseHold] = s.releaseHoldJob
 		if s.Now == nil {
 			s.Now = func() time.Time { return time.Now().UTC() }
 		}
@@ -234,7 +243,7 @@ func (s *Scheduler) dispatchFrom(ctx context.Context, pool chan struct{}, minPri
 		job, err := s.Store.ClaimJob(ctx, core.JobClaim{
 			Owner: s.Cfg.Owner, LeaseFor: s.Cfg.Lease, Now: s.Now(),
 			MaxGlobal: s.Cfg.Limits.MaxGlobal, MaxPerProject: s.Cfg.Limits.MaxPerProject, MaxPerLimit: s.Cfg.Limits.MaxPerKey,
-			MinPriority: minPriority,
+			MinPriority: minPriority, Held: s.heldKeys(ctx),
 		})
 		if err != nil || job == nil {
 			<-pool
@@ -370,6 +379,7 @@ func (s *Scheduler) record(bg context.Context, shuttingDown, timedOut bool, log 
 			finish(core.JobFailed, core.JobOutcome{ErrorKind: core.KindInternal, Message: "unreadable job result"})
 			return
 		}
+		s.updateHold(bg, log, job, nil, now)
 		finish(core.JobSucceeded, core.JobOutcome{OK: true, Result: raw})
 		return
 	}
@@ -394,7 +404,9 @@ func (s *Scheduler) record(bg context.Context, shuttingDown, timedOut bool, log 
 		}
 		return
 	}
-	finish(core.JobFailed, core.JobOutcome{ErrorKind: kind, Message: message})
+	s.updateHold(bg, log, job, runErr, now)
+	finish(core.JobFailed, core.JobOutcome{ErrorKind: kind, Message: message,
+		RetryAt: core.RetryAtOf(runErr)})
 }
 
 func (s *Scheduler) backoff(attempt int) time.Duration {

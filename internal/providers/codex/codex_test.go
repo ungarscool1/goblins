@@ -201,6 +201,7 @@ func TestLoginProblemsStopTheRunBeforeAnyModelCall(t *testing.T) {
 func TestFailuresAreClassified(t *testing.T) {
 	cases := map[string]core.ErrorKind{
 		"rate_limit": core.KindQuotaExhausted,
+		"rate_reset": core.KindRateLimited,
 		"expired":    core.KindAuthRequired,
 		"gone":       core.KindNotFound,
 		"crash":      core.KindTransient,
@@ -324,5 +325,29 @@ func TestFactoryRefusesAPICredentials(t *testing.T) {
 	a, err := providers.As[core.AgentProvider](r, providers.KindAgent, "codex-cli", "c", deps, providers.Options{"image": "i"})
 	if err != nil || !a.Info().Has(core.CapAgentResume) {
 		t.Fatalf("valid config: %v", err)
+	}
+}
+
+func TestRateLimitSaysWhenItEnds(t *testing.T) {
+	a, rt := setup(t, "rate_reset")
+	before := time.Now()
+	_, err := a.Run(ctx, request(rt, "w-rate"), func(core.AgentEvent) {})
+	if !core.IsKind(err, core.KindRateLimited) {
+		t.Fatalf("err = %v", err)
+	}
+	if got := core.RetryAtOf(err); got.Before(before.Add(9 * time.Minute)) {
+		t.Fatalf("retry at %v", got)
+	}
+}
+
+func TestRunReportsWhatItUsed(t *testing.T) {
+	a, rt := setup(t, "usage")
+	res, err := a.Run(ctx, request(rt, "w-usage"), func(core.AgentEvent) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := core.AgentUsage{InputTokens: 13484, OutputTokens: 5, Turns: 1}
+	if res.Usage != want {
+		t.Fatalf("usage = %+v", res.Usage)
 	}
 }

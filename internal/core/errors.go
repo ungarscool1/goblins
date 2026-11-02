@@ -6,6 +6,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 // ErrorKind classifies failures so orchestration logic can react to them
@@ -23,6 +24,7 @@ const (
 	KindTransient      ErrorKind = "transient"
 	KindAuthRequired   ErrorKind = "auth_required"
 	KindQuotaExhausted ErrorKind = "quota_exhausted"
+	KindRateLimited    ErrorKind = "rate_limited"
 	KindTimeout        ErrorKind = "timeout"
 	KindCancelled      ErrorKind = "cancelled"
 )
@@ -35,6 +37,8 @@ type Error struct {
 	Op      string
 	Message string
 	Err     error
+	// RetryAt is when the cause is known to end, if something reported it.
+	RetryAt time.Time
 }
 
 func (e *Error) Error() string {
@@ -70,6 +74,24 @@ func Wrap(kind ErrorKind, op string, err error) error {
 		return nil
 	}
 	return &Error{Kind: kind, Op: op, Err: err}
+}
+
+// WithRetryAt records when err is known to end. A zero time or an unclassified err changes nothing.
+func WithRetryAt(err error, at time.Time) error {
+	var e *Error
+	if !at.IsZero() && errors.As(err, &e) {
+		e.RetryAt = at
+	}
+	return err
+}
+
+// RetryAtOf returns when err is known to end, or a zero time.
+func RetryAtOf(err error) time.Time {
+	var e *Error
+	if errors.As(err, &e) {
+		return e.RetryAt
+	}
+	return time.Time{}
 }
 
 // KindOf returns the kind of the outermost Error in err's chain.

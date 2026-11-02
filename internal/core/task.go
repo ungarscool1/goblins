@@ -112,7 +112,9 @@ type Task struct {
 	// ResumeState is the state to return to when leaving a pause or block.
 	ResumeState State     `json:"resume_state,omitempty"`
 	PausedUntil time.Time `json:"paused_until,omitzero"`
-	Reason      string    `json:"reason,omitempty"`
+	// ValidatedReport is what the commit in ValidatedSHA passed, without check output.
+	ValidatedReport *ValidationReport `json:"validated_report,omitempty"`
+	Reason          string            `json:"reason,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -179,6 +181,15 @@ type JobOutcome struct {
 	ErrorKind ErrorKind       `json:"error_kind,omitempty"`
 	Message   string          `json:"message,omitempty"`
 	Result    json.RawMessage `json:"result,omitempty"`
+	// RetryAt is when a limit is known to end, if something reported it.
+	RetryAt time.Time `json:"retry_at,omitzero"`
+}
+
+// LimitHold keeps jobs of a limit key from starting, because the account behind it is limited.
+type LimitHold struct {
+	LimitKey string
+	Until    time.Time
+	Reason   string
 }
 
 // StateCommit is the atomic result of processing one event. It succeeds entirely or
@@ -228,6 +239,8 @@ type JobClaim struct {
 	MaxGlobal     int
 	MaxPerProject int
 	MaxPerLimit   map[string]int
+	// Held limit keys start nothing, whatever the limits allow.
+	Held map[string]bool
 	// MinPriority restricts the claim to jobs of at least this priority, so that workers
 	// reserved for quick, urgent jobs never get stuck with long ones.
 	MinPriority int
@@ -301,6 +314,10 @@ type StateStore interface {
 	Stats(ctx context.Context) (StoreStats, error)
 	// PruneTranscripts removes transcripts of finished tasks older than a time.
 	PruneTranscripts(ctx context.Context, before time.Time) (int64, error)
+	// HoldLimit keeps a limit key's jobs from starting until a time. It never shortens a hold.
+	HoldLimit(ctx context.Context, h LimitHold) error
+	ReleaseLimit(ctx context.Context, key string) error
+	ActiveHolds(ctx context.Context, now time.Time) ([]LimitHold, error)
 	ListJobs(ctx context.Context, taskID string) ([]Job, error)
 
 	AppendTranscript(ctx context.Context, entries []TranscriptEntry) error

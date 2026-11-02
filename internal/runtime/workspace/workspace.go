@@ -46,6 +46,11 @@ type Result struct {
 	BaseSHA  string `json:"base_sha,omitempty"`
 	HeadSHA  string `json:"head_sha,omitempty"`
 	Changed  bool   `json:"changed,omitempty"`
+	// Manifest and TrustedChanged are base64, as they hold repository content.
+	Manifest       string `json:"manifest,omitempty"`
+	TrustedChanged string `json:"trusted_changed,omitempty"`
+	// ChangedFiles counts the files that differ from the base.
+	ChangedFiles int `json:"changed_files,omitempty"`
 }
 
 // ParseResult reads the result line from a workload's output. It uses the last match,
@@ -261,10 +266,12 @@ fi
 head=$(` + git + ` rev-parse HEAD)
 changed=true
 [ "$head" = "$base" ] && changed=false
+files=$(` + git + ` diff --name-only "$base" "$head" | wc -l | tr -d ' ')
 mkdir -p /workspace/out
 ` + git + ` bundle create -q "/workspace/out/$head.tmp" "refs/heads/$GOBLINS_BRANCH" 2>/dev/null || true
 if [ -f "/workspace/out/$head.tmp" ]; then mv "/workspace/out/$head.tmp" "/workspace/out/$head.bundle"; fi
-result "{\"prepared\":true,\"base_sha\":\"$base\",\"head_sha\":\"$head\",\"changed\":$changed}"
+shas="\"base_sha\":\"$base\",\"head_sha\":\"$head\""
+result "{\"prepared\":true,$shas,\"changed\":$changed,\"changed_files\":${files:-0}}"
 `
 	s := base(name, image, volume, labels, core.NetworkNone, script, false)
 	s.Env["GOBLINS_MESSAGE"] = message
@@ -294,6 +301,41 @@ result "{\"head_sha\":\"$GOBLINS_SHA\"}"
 	s.WorkDir = ScratchMount
 	s.Mounts = append(s.Mounts, core.Mount{Volume: scratch, Target: ScratchMount})
 	s.Env["GOBLINS_SHA"] = sha
+	return s, nil
+}
+
+// TrustedSpec makes a checks' copy use the base commit's version of trusted paths, removing
+// whatever the change added there, and reads the manifest from the base commit. It reports which
+// trusted files the change edited. Paths come from the operator's configuration.
+func TrustedSpec(name, image, scratch string, labels map[string]string, baseSHA, manifest string,
+	paths []string) (core.WorkloadSpec, error) {
+	if !shaRE.MatchString(baseSHA) {
+		return core.WorkloadSpec{}, core.Errorf(core.KindInvalid, "workspace.trusted",
+			"this task has no base commit to take trusted files from")
+	}
+	script := preamble + `
+cd /scratch/repo
+g="git -c safe.directory=* -c core.hooksPath=/dev/null"
+changed=$(printf '%s\n' "$GOBLINS_TRUSTED" | while IFS= read -r p; do
+  [ -z "$p" ] || $g diff --name-only "$GOBLINS_BASE" HEAD -- "./$p"
+done | base64 | tr -d '\n')
+printf '%s\n' "$GOBLINS_TRUSTED" | while IFS= read -r p; do
+  [ -n "$p" ] || continue
+  rm -rf -- "./$p"
+  $g checkout -q "$GOBLINS_BASE" -- "./$p" 2>/dev/null || true
+done
+found=""
+if [ -n "$GOBLINS_MANIFEST" ] && $g cat-file -e "$GOBLINS_BASE:$GOBLINS_MANIFEST" 2>/dev/null; then
+  found=$($g show "$GOBLINS_BASE:$GOBLINS_MANIFEST" | base64 | tr -d '\n')
+fi
+result "{\"manifest\":\"$found\",\"trusted_changed\":\"$changed\"}"
+`
+	s := base(name, image, scratch, labels, core.NetworkNone, script, false)
+	s.WorkDir = ScratchMount
+	s.Mounts = []core.Mount{{Volume: scratch, Target: ScratchMount}}
+	s.Env["GOBLINS_BASE"] = baseSHA
+	s.Env["GOBLINS_MANIFEST"] = manifest
+	s.Env["GOBLINS_TRUSTED"] = strings.Join(paths, "\n")
 	return s, nil
 }
 

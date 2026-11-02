@@ -2,6 +2,7 @@ package pipeline_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -739,5 +740,94 @@ func TestCommitsAreWordedByTheImplementer(t *testing.T) {
 	// It has to reach a session resumed from before the request existed, so it ends the prompt.
 	if !strings.Contains(prompt[strings.LastIndex(prompt, ">>>END"):], "goblins-commit") {
 		t.Fatalf("the commit request does not end the prompt:\n%s", prompt)
+	}
+}
+
+func TestChecksTakeTheManifestFromTheBaseCommit(t *testing.T) {
+	w := setup(t)
+	w.project.ValidationManifest = ".goblins/validation.yaml"
+	w.project.TrustedPaths = []string{"conformance"}
+	manifest := "version: 1\n"
+	changed := "conformance/a.sh\n@someone`.sh\n"
+	var trusted []core.WorkloadSpec
+	inner := w.rt.Behavior
+	w.rt.Behavior = func(s core.WorkloadSpec) fake.WorkloadResult {
+		if !strings.Contains(s.Name, "trusted") {
+			return inner(s)
+		}
+		trusted = append(trusted, s)
+		return fake.WorkloadResult{Stdout: `GOBLINS_RESULT {"manifest":"` +
+			base64.StdEncoding.EncodeToString([]byte(manifest)) + `","trusted_changed":"` +
+			base64.StdEncoding.EncodeToString([]byte(changed)) + `"}` + "\n"}
+	}
+	w.agent.Script(fake.AgentStep{Output: designJSON("d")})
+	w.open()
+	w.say(maintainer, "/approve-design 1")
+	w.want(core.StateCompleted)
+	if len(trusted) == 0 || trusted[0].Env["GOBLINS_BASE"] != baseSHA {
+		t.Fatalf("trusted = %+v", trusted)
+	}
+	if len(w.val.Calls) == 0 || string(w.val.Calls[0].Manifest) != manifest {
+		t.Fatalf("calls = %+v", w.val.Calls)
+	}
+	posted := w.posted()
+	if !strings.Contains(posted, "`conformance/a.sh`") ||
+		!strings.Contains(posted, "`?someone?.sh`") {
+		t.Fatalf("what the checks left out is not reported safely:\n%s", posted)
+	}
+}
+
+func TestLimitedModelContinuesOnTheFallback(t *testing.T) {
+	w := setup(t)
+	w.project.Planner.FallbackModel = "cheap-model"
+	w.agent.Script(fake.AgentStep{Err: core.Errorf(core.KindQuotaExhausted, "x", "limit")},
+		fake.AgentStep{Output: designJSON("d")})
+	w.open()
+	w.want(core.StateDesignProposed)
+	first, second := w.agent.Requests[0], w.agent.Requests[1]
+	if first.Model != "plan-model" || second.Model != "cheap-model" || second.ResumeSessionID == "" {
+		t.Fatalf("requests = %+v", w.agent.Requests)
+	}
+	if first.WorkloadName == second.WorkloadName {
+		t.Fatal("a second run needs a workload of its own")
+	}
+}
+
+func TestLimitOnEveryModelStillPauses(t *testing.T) {
+	w := setup(t)
+	w.project.Planner.FallbackModel = "cheap-model"
+	limit := fake.AgentStep{Err: core.Errorf(core.KindQuotaExhausted, "x", "limit")}
+	w.agent.Script(limit, limit)
+	w.open()
+	w.want(core.StateQuotaPaused)
+	if w.agent.RunCount() != 2 {
+		t.Fatalf("runs = %d", w.agent.RunCount())
+	}
+}
+
+func TestRunOverItsToolBudgetBlocks(t *testing.T) {
+	w := setup(t)
+	w.project.Planner.MaxToolCalls = 2
+	tool := core.AgentEvent{Kind: core.AgentEventTool, Text: "Read"}
+	w.agent.Script(fake.AgentStep{Events: []core.AgentEvent{tool, tool, tool},
+		Output: designJSON("d")})
+	w.open()
+	task := w.want(core.StateBlocked)
+	if !strings.Contains(task.Reason, "budget of 2 tool calls") {
+		t.Fatalf("reason = %q", task.Reason)
+	}
+}
+
+func TestResumingOverridesALimitOnTheAccount(t *testing.T) {
+	w := setup(t)
+	w.policy.PlannerLimitKey = "acct"
+	w.agent.Script(fake.AgentStep{Err: core.Errorf(core.KindQuotaExhausted, "x", "limit")},
+		fake.AgentStep{Output: designJSON("d")})
+	w.open()
+	w.want(core.StateQuotaPaused)
+	w.say(maintainer, "/goblins resume")
+	w.want(core.StateDesignProposed)
+	if w.agent.RunCount() != 2 {
+		t.Fatalf("runs = %d", w.agent.RunCount())
 	}
 }

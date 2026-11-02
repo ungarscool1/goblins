@@ -31,6 +31,13 @@ type Policy struct {
 	ReviewMinSeverity core.ReviewSeverity
 	QuotaPause        time.Duration
 	AuthPause         time.Duration
+	RateLimitPause    time.Duration
+	// MaxLimitPause caps how long one pause grows to, and MaxLimitPauses how many in a row a
+	// task takes before asking a person. A reported reset time is used as it is.
+	MaxLimitPause  time.Duration
+	MaxLimitPauses int
+	// MaxChangedFiles blocks a change touching more files than this. Zero means no limit.
+	MaxChangedFiles int
 	// StopAtReport ends a task at its report, leaving a pull request to people entirely.
 	StopAtReport bool
 	// TrustedReviewBots are automated reviewers whose remarks count as review input.
@@ -66,5 +73,8 @@ func DefaultPolicy() Policy {
 		ReplyTimeout:         7 * 24 * time.Hour,
 		QuotaPause:           30 * time.Minute,
 		AuthPause:            time.Hour,
+		RateLimitPause:       5 * time.Minute,
+		MaxLimitPause:        6 * time.Hour,
+		MaxLimitPauses:       8,
 	}
 }

@@ -323,6 +323,42 @@ func Run(t *testing.T, build func(t *testing.T) core.StateStore) {
 		}
 	})
 
+	t.Run("limit holds", func(t *testing.T) {
+		s := build(t)
+		long := core.LimitHold{LimitKey: "acct", Until: t0.Add(2 * time.Hour),
+			Reason: "quota_exhausted"}
+		short := core.LimitHold{LimitKey: "acct", Until: t0.Add(time.Minute), Reason: "rate_limited"}
+		for _, h := range []core.LimitHold{long, short} {
+			if err := s.HoldLimit(ctx, h); err != nil {
+				t.Fatal(err)
+			}
+		}
+		holds, err := s.ActiveHolds(ctx, t0)
+		if err != nil || len(holds) != 1 || !holds[0].Until.Equal(long.Until) {
+			t.Fatalf("a hold must only grow: %+v %v", holds, err)
+		}
+		if holds, _ = s.ActiveHolds(ctx, t0.Add(3*time.Hour)); len(holds) != 0 {
+			t.Fatalf("expired hold still active: %+v", holds)
+		}
+		addTask(t, s, "t", core.JobDraft{Kind: "agent", IdempotencyKey: "a", LimitKey: "acct"},
+			core.JobDraft{Kind: "agent", IdempotencyKey: "b", LimitKey: "other"})
+		claim := core.JobClaim{Owner: "w", LeaseFor: time.Hour, Now: t0,
+			Held: map[string]bool{"acct": true}}
+		j, err := s.ClaimJob(ctx, claim)
+		if err != nil || j == nil || j.IdempotencyKey != "b" {
+			t.Fatalf("claimed %+v, %v", j, err)
+		}
+		if j, _ = s.ClaimJob(ctx, claim); j != nil {
+			t.Fatalf("started a held job: %+v", j)
+		}
+		if err := s.ReleaseLimit(ctx, "acct"); err != nil {
+			t.Fatal(err)
+		}
+		if holds, _ = s.ActiveHolds(ctx, t0); len(holds) != 0 {
+			t.Fatalf("released hold still active: %+v", holds)
+		}
+	})
+
 	t.Run("concurrency limits", func(t *testing.T) {
 		s := build(t)
 		addTask(t, s, "t",

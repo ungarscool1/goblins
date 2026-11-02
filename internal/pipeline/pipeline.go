@@ -34,6 +34,10 @@ type Stage struct {
 	Model   string
 	Effort  string
 	Timeout time.Duration
+	// FallbackModel continues a run when Model is limited. MaxToolCalls ends a run that
+	// makes more calls than this. Zero values turn these off.
+	FallbackModel string
+	MaxToolCalls  int
 }
 
 // Project holds a project's resolved providers.
@@ -47,7 +51,10 @@ type Project struct {
 	Implementer Stage
 	// Describer writes pull request descriptions from their diff. Without an agent, a
 	// description comes from the approved design.
-	Describer  Stage
+	Describer Stage
+	// Triager judges review remarks, usually on a cheaper model. Without an agent, the
+	// implementer does.
+	Triager    Stage
 	Validation core.ValidationProvider
 	Review     core.ReviewProvider
 	// ReviewFallbacks are tried in order when the reviewer before them is unavailable.
@@ -56,6 +63,10 @@ type Project struct {
 	GitImage        string
 	Identity        workspace.Identity
 	WebResearch     bool
+	// ValidationManifest is where the repository keeps its checks. TrustedPaths are files
+	// checks always take from the base commit, so a change cannot pass by weakening them.
+	ValidationManifest string
+	TrustedPaths       []string
 	// PlainCommits words commits and pull request titles as the ticket's title, rather than as
 	// Conventional Commits.
 	PlainCommits bool
@@ -177,7 +188,7 @@ func (p *Pipeline) runAgent(ctx context.Context, jc scheduler.JobContext, stage 
 			jc.Log(string(e.Kind), e.Text)
 		}
 	}
-	res, err := stage.Agent.Run(ctx, req, sink)
+	res, err := runBudgeted(ctx, jc, stage, req, sink)
 	if core.IsKind(err, core.KindNotFound) && session != "" {
 		// The session is gone, for instance because its volume was lost. The durable
 		// record (ticket, design) is the source of truth, so start over from it.
@@ -185,7 +196,7 @@ func (p *Pipeline) runAgent(ctx context.Context, jc scheduler.JobContext, stage 
 		req.ResumeSessionID = ""
 		req.WorkloadName = workloadName(jc, "agent-fresh")
 		cp.SessionID = ""
-		return stage.Agent.Run(ctx, req, sink)
+		return runBudgeted(ctx, jc, stage, req, sink)
 	}
 	return res, err
 }
@@ -400,7 +411,7 @@ func (p *Pipeline) implement(ctx context.Context, jc scheduler.JobContext) (any,
 	if err != nil {
 		return nil, err
 	}
-	return workflow.ImplementResult{SessionID: res.SessionID, Workspace: volume, Branch: branch, BaseSHA: st.BaseSHA, HeadSHA: st.HeadSHA, Changed: st.Changed}, nil
+	return workflow.ImplementResult{SessionID: res.SessionID, Workspace: volume, Branch: branch, BaseSHA: st.BaseSHA, HeadSHA: st.HeadSHA, Changed: st.Changed, ChangedFiles: st.ChangedFiles}, nil
 }
 
 func (p *Pipeline) validate(ctx context.Context, jc scheduler.JobContext) (any, error) {
@@ -413,7 +424,7 @@ func (p *Pipeline) validate(ctx context.Context, jc scheduler.JobContext) (any, 
 		return nil, err
 	}
 	if payload.Reuse {
-		return workflow.ValidateResult{Report: core.ValidationReport{Status: core.ValidationPassed, Summary: "this exact commit already passed before publishing"}}, nil
+		return workflow.ValidateResult{Report: reusedReport(jc.Task)}, nil
 	}
 	if pr.Validation == nil {
 		if !pr.AllowUnvalidated {
@@ -436,15 +447,20 @@ func (p *Pipeline) validate(ctx context.Context, jc scheduler.JobContext) (any, 
 	if _, _, err := runStep(ctx, runtime, spec); err != nil {
 		return nil, err
 	}
+	trusted, err := p.applyTrusted(ctx, jc, pr, scratch)
+	if err != nil {
+		return nil, err
+	}
 	report, err := pr.Validation.Validate(ctx, core.ValidationRequest{
 		IdempotencyKey: jc.Job.IdempotencyKey, WorkloadName: workloadName(jc, "check"), HeadSHA: payload.SHA,
 		Workspace: core.Mount{Volume: scratch, Target: workspace.ScratchMount},
 		WorkDir:   workspace.ScratchMount + "/repo",
-		Runtime:   runtime, Labels: p.labels(jc),
+		Runtime:   runtime, Labels: p.labels(jc), Manifest: trusted.manifest,
 	})
 	if err != nil {
 		return nil, err
 	}
+	report.Summary += trusted.note()
 	for _, c := range report.Checks {
 		jc.Log("validation", fmt.Sprintf("%s: %s (exit %d)\n%s", c.Name, c.Status, c.ExitCode, c.Output))
 	}

@@ -301,6 +301,7 @@ type streamParser struct {
 	result     *resultLine
 	apiBilling string
 	assistErr  string
+	resetsAt   int64
 }
 
 func newStreamParser(sink func(core.AgentEvent)) *streamParser { return &streamParser{sink: sink} }
@@ -311,6 +312,13 @@ type resultLine struct {
 	Result         string `json:"result"`
 	SessionID      string `json:"session_id"`
 	APIErrorStatus int    `json:"api_error_status"`
+	NumTurns       int    `json:"num_turns"`
+	Usage          struct {
+		InputTokens   int64 `json:"input_tokens"`
+		CacheCreation int64 `json:"cache_creation_input_tokens"`
+		CacheRead     int64 `json:"cache_read_input_tokens"`
+		OutputTokens  int64 `json:"output_tokens"`
+	} `json:"usage"`
 }
 
 type streamLine struct {
@@ -319,7 +327,11 @@ type streamLine struct {
 	SessionID    string `json:"session_id"`
 	APIKeySource string `json:"apiKeySource"`
 	Error        string `json:"error"`
-	Message      struct {
+	RateLimit    struct {
+		Status   string `json:"status"`
+		ResetsAt int64  `json:"resetsAt"`
+	} `json:"rate_limit_info"`
+	Message struct {
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
@@ -345,6 +357,10 @@ func (p *streamParser) line(raw []byte) {
 		}
 	}
 	switch l.Type {
+	case "rate_limit_event":
+		if l.RateLimit.Status != "allowed" {
+			p.resetsAt = l.RateLimit.ResetsAt
+		}
 	case "system":
 		if l.Subtype == "init" && apiBilled(l.APIKeySource) {
 			p.apiBilling = l.APIKeySource
@@ -385,6 +401,9 @@ func (p *streamParser) finish(st core.WorkloadStatus, stderr string) (core.Agent
 	}
 	if p.result != nil && !p.result.IsError && st.ExitCode == 0 {
 		res.Output = p.result.Result
+		u := p.result.Usage
+		res.Usage = core.AgentUsage{InputTokens: u.InputTokens + u.CacheCreation + u.CacheRead,
+			OutputTokens: u.OutputTokens, Turns: p.result.NumTurns}
 		p.sink(core.AgentEvent{Kind: core.AgentEventResult, SessionID: p.session, Text: res.Output})
 		return res, nil
 	}
@@ -394,11 +413,15 @@ func (p *streamParser) finish(st core.WorkloadStatus, stderr string) (core.Agent
 		text = p.result.Result + " " + p.result.Subtype + " " + text
 		status = p.result.APIErrorStatus
 	}
+	if p.resetsAt > 0 {
+		text += fmt.Sprintf(" resetsAt:%d", p.resetsAt)
+	}
 	return res, classify(status, text, st)
 }
 
 var (
-	quotaPattern  = regexp.MustCompile(`(?i)usage limit|rate[ _-]?limit|limit reached|hit your .*limit|quota|out of extra usage|billing_error`)
+	quotaPattern  = regexp.MustCompile(`(?i)usage limit|limit reached|hit your .*limit|quota|out of extra usage|billing_error`)
+	ratePattern   = regexp.MustCompile(`(?i)rate[ _-]?limit|too many requests`)
 	authPattern   = regexp.MustCompile(`(?i)/login|not logged in|authentication_failed|authentication failed|invalid api key|oauth token|token (has )?expired|credentials? (is|are|has|have)|unauthorized`)
 	resumePattern = regexp.MustCompile(`(?i)no conversation found|session .*not found`)
 )
@@ -409,8 +432,12 @@ func classify(status int, text string, st core.WorkloadStatus) error {
 	switch {
 	case status == 401 || status == 403 || authPattern.MatchString(text):
 		return core.Errorf(core.KindAuthRequired, "claude.run", "the subscription login is missing or expired. %s", loginHint)
-	case status == 429 || quotaPattern.MatchString(text):
-		return core.Errorf(core.KindQuotaExhausted, "claude.run", "the subscription usage limit was reached")
+	case quotaPattern.MatchString(text):
+		return core.WithRetryAt(core.Errorf(core.KindQuotaExhausted, "claude.run",
+			"the subscription usage limit was reached"), agentcli.RetryAt(text, time.Now()))
+	case status == 429 || ratePattern.MatchString(text):
+		return core.WithRetryAt(core.Errorf(core.KindRateLimited, "claude.run",
+			"the agent was rate limited"), agentcli.RetryAt(text, time.Now()))
 	case resumePattern.MatchString(text):
 		return core.Errorf(core.KindNotFound, "claude.run", "the agent session can no longer be resumed")
 	case st.Phase == core.WorkloadTimedOut:

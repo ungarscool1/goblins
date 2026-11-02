@@ -136,6 +136,15 @@ type AgentEvent struct {
 type AgentResult struct {
 	SessionID string
 	Output    string
+	Usage     AgentUsage
+}
+
+// AgentUsage is what a run reported using. It is zero when the CLI does not say, and is never
+// an estimate.
+type AgentUsage struct {
+	InputTokens  int64
+	OutputTokens int64
+	Turns        int
 }
 
 // AuthState is the login state of an agent installation.
@@ -167,8 +176,9 @@ type AgentProvider interface {
 	// Run launches or resumes a conversation in req.Runtime and blocks until it
 	// ends. Cancelling ctx cancels the run. Events are delivered to sink in
 	// order, and the session ID is delivered as soon as it is known so a crashed
-	// run can be resumed. Exhausted quota and missing login are returned as
-	// KindQuotaExhausted and KindAuthRequired.
+	// run can be resumed. Exhausted quota, rate limits and missing login are returned as
+	// KindQuotaExhausted, KindRateLimited and KindAuthRequired, with RetryAt set if the CLI
+	// said when the limit ends.
 	Run(ctx context.Context, req AgentRequest, sink func(AgentEvent)) (AgentResult, error)
 	AuthStatus(ctx context.Context, rt ExecutionRuntime) (AuthStatus, error)
 	Models(ctx context.Context) ([]Model, error)
@@ -360,6 +370,10 @@ type ValidationCheck struct {
 	Status   ValidationStatus `json:"status"`
 	Output   string           `json:"output,omitempty"`
 	ExitCode int              `json:"exit_code"`
+	Stage    string           `json:"stage,omitempty"`
+	Image    string           `json:"image,omitempty"`
+	// Optional checks are reported, but do not decide the report's status.
+	Optional bool `json:"optional,omitempty"`
 }
 
 // ValidationRequest asks to run a project's checks on a workspace. Workloads
@@ -372,6 +386,9 @@ type ValidationRequest struct {
 	WorkDir        string
 	Runtime        ExecutionRuntime
 	Labels         map[string]string
+	// Manifest is the project's checks from the base commit, if it keeps them there. It is
+	// never read from the change being checked.
+	Manifest []byte
 }
 
 // ValidationReport aggregates check results.
