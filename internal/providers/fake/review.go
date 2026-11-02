@@ -136,3 +136,57 @@ func (s *SCM) MergePullRequest(_ context.Context, repo core.RepoRef, number, sha
 	s.W.merges = append(s.W.merges, sha)
 	return nil
 }
+
+// Replies lists what the integration answered in a thread.
+func (w *World) Replies(repo, number, threadID string) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var out []string
+	for _, t := range w.threads[repo+"#"+number] {
+		if t.Own && t.ThreadID == threadID {
+			out = append(out, t.Body)
+		}
+	}
+	return out
+}
+
+// AddConversation seeds a remark in a pull request's general conversation.
+func (w *World) AddConversation(repo, number string, author core.Actor, body string) core.Comment {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	c := core.Comment{ID: "conv-" + w.next(), Author: author, Body: body, CreatedAt: w.Now()}
+	w.general[repo+"#"+number] = append(w.general[repo+"#"+number], c)
+	return c
+}
+
+// ReplyToThread implements core.SourceControl.
+func (s *SCM) ReplyToThread(_ context.Context, repo core.RepoRef, number, threadID string,
+	d core.CommentDraft) error {
+	if !s.Info().Has(core.CapSCMThreadReply) {
+		return core.Unsupported(s.Info(), core.CapSCMThreadReply)
+	}
+	s.W.mu.Lock()
+	defer s.W.mu.Unlock()
+	k := repo.Slug + "#" + number
+	found := slices.ContainsFunc(s.W.threads[k],
+		func(t core.ReviewThread) bool { return t.ThreadID == threadID })
+	if !found {
+		return core.Errorf(core.KindNotFound, "fake.reply", "thread %s not found", threadID)
+	}
+	if d.IdempotencyKey != "" && s.W.replyKeys[k+"|"+d.IdempotencyKey] {
+		return nil
+	}
+	s.W.replyKeys[k+"|"+d.IdempotencyKey] = true
+	id := "reply-" + s.W.next()
+	s.W.threads[k] = append(s.W.threads[k], core.ReviewThread{ID: id, ThreadID: threadID,
+		Body: d.Body, Author: s.W.Bot, Own: true})
+	return nil
+}
+
+// PullRequestComments implements core.SourceControl.
+func (s *SCM) PullRequestComments(_ context.Context, repo core.RepoRef,
+	number string) ([]core.Comment, error) {
+	s.W.mu.Lock()
+	defer s.W.mu.Unlock()
+	return slices.Clone(s.W.general[repo.Slug+"#"+number]), nil
+}

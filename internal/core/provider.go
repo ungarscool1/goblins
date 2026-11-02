@@ -9,7 +9,7 @@ import (
 // ContractVersion is bumped on breaking changes to the provider contracts.
 // Adapters report the version they were written against, and the registry
 // refuses adapters built for another version.
-const ContractVersion = 2
+const ContractVersion = 3
 
 // ProviderKind identifies a family of interchangeable adapters.
 type ProviderKind string
@@ -41,6 +41,8 @@ const (
 	CapSCMStatusChecks Capability = "scm.status_checks"
 	// CapSCMBranchProtection reads the rules the SCM enforces on a branch.
 	CapSCMBranchProtection Capability = "scm.branch_protection"
+	// CapSCMThreadReply answers inside an existing review thread.
+	CapSCMThreadReply Capability = "scm.review_threads.reply"
 	// CapSCMMerge merges a pull request. Only an expressly approved rule ever uses it.
 	CapSCMMerge Capability = "scm.merge"
 

@@ -250,6 +250,37 @@ type ReviewFinding struct {
 	HeadSHA    string           `json:"head_sha,omitempty"`
 	// Provenance names what raised it: the provider and its prompt version, or a person.
 	Provenance string `json:"provenance,omitempty"`
+	// Discussion is the conversation about it, oldest first and bounded, so that it survives
+	// restarts and lost agent sessions.
+	Discussion []DiscussionEntry `json:"discussion,omitempty"`
+	// LastCommentID tells whether someone has said something new.
+	LastCommentID string `json:"last_comment_id,omitempty"`
+	// Plan and Evidence are the agent's latest judgement, as data.
+	Plan     string `json:"plan,omitempty"`
+	Evidence string `json:"evidence,omitempty"`
+	// FixSHA is the correction commit, once there is one.
+	FixSHA string `json:"fix_sha,omitempty"`
+	// DebateRounds counts questions and objections posted, which a policy bounds.
+	DebateRounds int `json:"debate_rounds,omitempty"`
+	// History is the audit trail of who decided what, on which commit.
+	History []FindingEvent `json:"history,omitempty"`
+}
+
+// DiscussionEntry is one remark in a finding's conversation.
+type DiscussionEntry struct {
+	CommentID string `json:"comment_id"`
+	Author    string `json:"author"`
+	Own       bool   `json:"own,omitempty"`
+	Human     bool   `json:"human,omitempty"`
+	Body      string `json:"body"`
+}
+
+// FindingEvent records one step of a finding.
+type FindingEvent struct {
+	At     time.Time     `json:"at"`
+	Status FindingStatus `json:"status"`
+	SHA    string        `json:"sha,omitempty"`
+	Note   string        `json:"note,omitempty"`
 }
 
 // ReviewDraft is a review to publish on a pull request. CommitSHA pins it to the commit
@@ -313,6 +344,17 @@ const (
 	FindingStale FindingStatus = "stale"
 	// FindingResolved was marked as resolved on the SCM, by whoever may do that there.
 	FindingResolved FindingStatus = "resolved"
+	// FindingNeedsFix was judged valid, and awaits a correction.
+	FindingNeedsFix FindingStatus = "needs-fix"
+	// FindingAwaitingReviewer has a question to its reviewer in its thread.
+	FindingAwaitingReviewer FindingStatus = "awaiting-reviewer"
+	// FindingDisputed has an explanation of why it seems wrong, awaiting the reviewer's view.
+	FindingDisputed FindingStatus = "disputed"
+	// FindingSuperseded no longer applies, for the reason its history records.
+	FindingSuperseded FindingStatus = "superseded"
+	// FindingFixedPending has a correction, linked to its commit and evidence. Only the
+	// reviewer's own acknowledgement on the SCM takes it further.
+	FindingFixedPending FindingStatus = "fixed-pending-confirmation"
 )
 
 // GateState says what a pull request is waiting for.

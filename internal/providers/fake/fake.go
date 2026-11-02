@@ -35,6 +35,8 @@ type World struct {
 	files      map[string][]string
 	protection map[string]core.BranchProtection
 	merges     []string
+	replyKeys  map[string]bool
+	general    map[string][]core.Comment
 	notes      []core.Notification
 	noteKeys   map[string]bool
 	seq        int
@@ -58,6 +60,8 @@ func NewWorld() *World {
 		threads:    map[string][]core.ReviewThread{},
 		files:      map[string][]string{},
 		protection: map[string]core.BranchProtection{},
+		replyKeys:  map[string]bool{},
+		general:    map[string][]core.Comment{},
 		noteKeys:   map[string]bool{},
 		Bot:        core.Actor{ID: "bot-1", Login: "goblins-bot", Type: core.ActorBot},
 	}
@@ -291,7 +295,7 @@ type SCM struct {
 // AllSCMCaps lists every SCM capability.
 var AllSCMCaps = []core.Capability{core.CapSCMPullRequests, core.CapSCMDraft,
 	core.CapSCMInlineReview,
-	core.CapSCMStatusChecks, core.CapSCMBranchProtection, core.CapSCMMerge}
+	core.CapSCMStatusChecks, core.CapSCMBranchProtection, core.CapSCMMerge, core.CapSCMThreadReply}
 
 // NewSCM returns a fully capable fake SCM.
 func NewSCM(w *World, name string) *SCM { return &SCM{W: w, Name: name, Caps: AllSCMCaps} }

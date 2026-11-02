@@ -3,11 +3,17 @@ package pipeline
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"github.com/ungarscool1/goblins/internal/core"
 	"github.com/ungarscool1/goblins/internal/runtime/workspace"
 	"github.com/ungarscool1/goblins/internal/scheduler"
 	"github.com/ungarscool1/goblins/internal/workflow"
+)
+
+const (
+	maxDiscussion      = 20
+	maxDiscussionBytes = 2 << 10
 )
 
 // reconcile reads where a pull request stands now, from the SCM, whatever led to asking. It
@@ -44,11 +50,20 @@ func (p *Pipeline) reconcile(ctx context.Context, jc scheduler.JobContext) (any,
 	if res.Findings, err = threadFindings(ctx, threads, head, &perms); err != nil {
 		return nil, err
 	}
-	reviewFs, err := reviewFindings(ctx, res.Reviews, head, &perms)
+	reviewFs, err := reviewFindings(ctx, res.Reviews, res.Findings, head, &perms)
 	if err != nil {
 		return nil, err
 	}
 	res.Findings = append(res.Findings, reviewFs...)
+	comments, err := pr.SCM.PullRequestComments(ctx, pr.Repo, number)
+	if err != nil {
+		return nil, err
+	}
+	commentFs, err := conversationFindings(ctx, comments, head, &perms)
+	if err != nil {
+		return nil, err
+	}
+	res.Findings = append(res.Findings, commentFs...)
 	if pr.SCM.Info().Has(core.CapSCMStatusChecks) {
 		if res.Checks, err = pr.SCM.StatusChecks(ctx, pr.Repo, head); err != nil {
 			return nil, err
@@ -125,28 +140,89 @@ func (p *Pipeline) reviewsWithPermission(ctx context.Context, pr *Project, numbe
 	return reviews, nil
 }
 
-// threadFindings normalizes review remarks. A remark about lines the head no longer has is
-// stale, and says so instead of disappearing.
+// threadFindings turns threads into findings: one per thread, whatever is said in it, carrying
+// its discussion. Withheld people's remarks are not part of the discussion. A thread about
+// lines the head no longer has is stale, and says so instead of disappearing.
 func threadFindings(ctx context.Context, threads []core.ReviewThread, head string,
 	perms *permissionCache) ([]core.ReviewFinding, error) {
 	var out []core.ReviewFinding
+	index := map[string]int{}
 	for _, t := range threads {
 		ok, err := perms.admits(ctx, t.Author)
 		if err != nil {
 			return nil, err
 		}
-		if t.Own || !ok {
+		if !ok && !t.Own {
 			continue
 		}
-		f := core.ReviewFinding{ID: "thread:" + t.ID, ThreadID: t.ThreadID, Author: t.Author,
-			Path: t.Path, Line: t.Line,
-			Severity: core.ReviewHigh, Confidence: core.ConfidenceHigh, Body: capText(t.Body,
-				maxFindingBytes),
-			HeadSHA: t.CommitSHA, Provenance: t.Author.Login, Status: core.FindingOpen}
-		switch {
-		case t.Resolved:
+		i, seen := index[t.ThreadID]
+		if !seen && t.Own {
+			continue // a thread this integration started belongs to its review, not to this
+		}
+		if !seen {
+			i = len(out)
+			index[t.ThreadID] = i
+			out = append(out, threadFinding(t, head))
+		}
+		f := &out[i]
+		f.Discussion = appendDiscussion(f.Discussion, core.DiscussionEntry{CommentID: t.ID,
+			Author: t.Author.Login,
+			Own:    t.Own, Human: t.Author.Type == core.ActorHuman, Body: capText(t.Body,
+				maxDiscussionBytes)})
+		f.LastCommentID = t.ID
+		if t.Resolved {
 			f.Status = core.FindingResolved
-		case t.Outdated && t.CommitSHA != head:
+		}
+	}
+	return out, nil
+}
+
+func threadFinding(t core.ReviewThread, head string) core.ReviewFinding {
+	f := core.ReviewFinding{ID: "thread:" + t.ThreadID, ThreadID: t.ThreadID, Author: t.Author,
+		Path: t.Path,
+		Line: t.Line, Severity: core.ReviewHigh, Confidence: core.ConfidenceHigh,
+		Body: capText(t.Body, maxFindingBytes), HeadSHA: t.CommitSHA, Provenance: t.Author.Login,
+		Status: core.FindingOpen}
+	if t.Outdated && t.CommitSHA != head {
+		f.Status = core.FindingStale
+	}
+	return f
+}
+
+// appendDiscussion keeps the start of a conversation, which says what it is about, and its end.
+func appendDiscussion(d []core.DiscussionEntry, e core.DiscussionEntry) []core.DiscussionEntry {
+	d = append(d, e)
+	if len(d) > maxDiscussion {
+		d = append(d[:1], d[len(d)-maxDiscussion+1:]...)
+	}
+	return d
+}
+
+// reviewFindings turns a change request into a finding. A review on an earlier commit is stale
+// as a finding, while the verdict itself keeps standing until cleared. One with no text at all
+// and no remarks by its author is still a real gate: it becomes a finding with an empty body,
+// which the workflow answers by asking what is wanted.
+func reviewFindings(ctx context.Context, reviews []core.Review, threads []core.ReviewFinding,
+	head string, perms *permissionCache) ([]core.ReviewFinding, error) {
+	var out []core.ReviewFinding
+	for _, r := range reviews {
+		ok, err := perms.admits(ctx, r.Author)
+		if err != nil {
+			return nil, err
+		}
+		if r.Own || !ok || r.Verdict != core.VerdictChangesRequested {
+			continue
+		}
+		spoke := slices.ContainsFunc(threads,
+			func(f core.ReviewFinding) bool { return f.Author.Login == r.Author.Login })
+		if r.Body == "" && spoke {
+			continue
+		}
+		f := core.ReviewFinding{ID: "review:" + r.ID, Author: r.Author, Severity: core.ReviewHigh,
+			Confidence: core.ConfidenceHigh,
+			Body:       capText(r.Body, maxFindingBytes), HeadSHA: r.CommitSHA,
+			Provenance: r.Author.Login, Status: core.FindingOpen}
+		if r.Dismissed || (r.Body != "" && r.CommitSHA != head) {
 			f.Status = core.FindingStale
 		}
 		out = append(out, f)
@@ -154,27 +230,23 @@ func threadFindings(ctx context.Context, threads []core.ReviewThread, head strin
 	return out, nil
 }
 
-// reviewFindings turns the text of a change request into a finding. A review on an earlier
-// commit is stale as a finding, while the verdict itself keeps standing until cleared.
-func reviewFindings(ctx context.Context, reviews []core.Review, head string,
+// conversationFindings turns remarks in a pull request's general conversation into findings.
+// Commands are for the workflow, and are nobody's review.
+func conversationFindings(ctx context.Context, comments []core.Comment, head string,
 	perms *permissionCache) ([]core.ReviewFinding, error) {
 	var out []core.ReviewFinding
-	for _, r := range reviews {
-		ok, err := perms.admits(ctx, r.Author)
+	for _, c := range comments {
+		ok, err := perms.admits(ctx, c.Author)
 		if err != nil {
 			return nil, err
 		}
-		if r.Own || !ok || r.Verdict != core.VerdictChangesRequested || r.Body == "" {
+		if c.Own || !ok || c.Author.Type != core.ActorHuman || strings.HasPrefix(strings.TrimSpace(c.Body), "/") {
 			continue
 		}
-		f := core.ReviewFinding{ID: "review:" + r.ID, Author: r.Author, Severity: core.ReviewHigh,
-			Confidence: core.ConfidenceHigh,
-			Body:       capText(r.Body, maxFindingBytes), HeadSHA: r.CommitSHA,
-			Provenance: r.Author.Login, Status: core.FindingOpen}
-		if r.CommitSHA != head || r.Dismissed {
-			f.Status = core.FindingStale
-		}
-		out = append(out, f)
+		out = append(out, core.ReviewFinding{ID: "comment:" + c.ID, Author: c.Author,
+			Severity: core.ReviewHigh, Confidence: core.ConfidenceHigh,
+			Body: capText(c.Body, maxFindingBytes), HeadSHA: head, Provenance: c.Author.Login,
+			Status: core.FindingOpen, LastCommentID: c.ID})
 	}
 	return out, nil
 }

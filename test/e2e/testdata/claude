@@ -35,6 +35,22 @@ if [ "$scenario" = quota ]; then
   exit 1
 fi
 
+if printf '%s' "$prompt" | grep -q 'Judge these findings'; then
+  decision=valid
+  reply='fix it'
+  if printf '%s' "$prompt" | grep -q 'false positive trap' && ! printf '%s' "$prompt" | grep -q 'I insist'; then
+    decision=disputed
+    reply='feature.txt:1 is right, and the check covers it.'
+  fi
+  items=""
+  for id in $(printf '%s' "$prompt" | grep -o 'DATA finding [^ ]*' | sed 's/DATA finding //'); do
+    [ -n "$items" ] && items="$items,"
+    items="$items"'{\"id\":\"'"$id"'\",\"decision\":\"'"$decision"'\",\"reply\":\"'"$reply"'\",\"plan\":\"correct it, with a test\"}'
+  done
+  printf '{"type":"result","subtype":"success","is_error":false,"session_id":"%s","result":"```goblins-triage\\n{\\"items\\":[%s]}\\n```"}\n' "$session" "$items"
+  exit 0
+fi
+
 case "$*" in
   *Edit,Write*)
     if printf '%s' "$prompt" | grep -q 'These checks failed on commit'; then

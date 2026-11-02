@@ -155,15 +155,61 @@ the merge gate until its reviewer resolves it.
 
 | What the reconcile finds                | What happens                                                    |
 | --------------------------------------- | --------------------------------------------------------------- |
-| New remark or change request text       | Correction round on the same pull request                       |
+| New remark or change request text       | Judged first, see Review conversations; a correction goes to the same pull request |
 | Failed check on this commit             | One correction round per commit                                 |
 | A head Goblins did not push             | Reviewed once. Validated from a fresh checkout of that commit   |
 | Merged / closed                         | `completed` / `cancelled`, volumes removed                      |
 | Nothing to act on                       | The merge policy is evaluated, and people told if the outcome changed |
 
 Corrections share `max_review_fix_loops` with automated reviews, and being sent to the implementer
-does not resolve anything: a finding stays `addressed`, and counts as unresolved, until the thread is
-resolved on the SCM. A branch that moved during a correction blocks the task, and resuming looks again.
+does not resolve anything: a finding counts as unresolved until the thread is resolved on the SCM. A branch that moved during a correction blocks the task, and resuming looks again.
+
+### Review conversations
+
+A change request is not an instruction to obey. Each remark becomes a **finding**, with its thread and
+the replies in it, keyed by the thread's stable ID and stored with the task. So the conversation
+survives restarts and lost agent sessions, and is restored from there rather than from a model's memory.
+
+A `triage` job judges what is new against the approved design, the code at this commit and the checks.
+It runs read-only, with reviewers' words as data, and a model can only choose among these outcomes:
+
+| Decision        | Effect                                                                        |
+| --------------- | ----------------------------------------------------------------------------- |
+| `valid`         | A correction with that plan, then a reply in its thread with the commit and what checked it |
+| `unclear`       | One question in the thread, then waiting, at no cost, for as long as it takes |
+| `disputed`      | The reasoning and evidence in the thread. The code does not change. Waits for the reviewer |
+| `superseded`    | Marked as such, saying why. People are told in their thread                   |
+| `design_change` | Voids the approval and blocks. Resuming revises the design, and it needs a new approval |
+| `conflict`      | Blocks: reviewers disagree, and a person decides                              |
+
+```text
+open -> (needs-fix | awaiting-reviewer | disputed | superseded)
+needs-fix -> fixed-pending-confirmation -> resolved
+awaiting-reviewer, disputed, fixed-pending-confirmation -> open, when a person answers
+any -> stale, when the lines are gone from the head
+```
+
+What keeps this honest:
+
+- **Nothing counts as fixed because something was pushed.** `fixed-pending-confirmation` links the
+  commit and evidence. Only the thread being resolved on the SCM, by whoever may do that there, goes
+  further, and until then it counts as unresolved.
+- **People's decisions stay theirs.** Goblins never dismisses a review, approves, or resolves a thread.
+- **It is bounded.** `max_debate_rounds` (default 2) per finding, one against automation, and
+  `max_triage_rounds` (default 12) per task, then the task blocks. Only people's answers reopen a
+  finding, so two automated reviewers cannot keep each other busy. `/goblins resume` restarts the count.
+- **Nobody is left waiting silently.** After `reply_timeout` (default 7 days) a person is told. It keeps
+  waiting, as the reviewer can still answer. A missing `scm.review_threads.reply` capability, or a
+  reply that fails for good, blocks the task.
+- **Each write has one identity**, derived from the finding and the commit or round, so neither a
+  retry nor a replay says it twice. Findings keep a history of who decided what, and on which commit.
+- **A change request with nothing in it** is asked about, by mention, without running a model. Its gate
+  keeps standing.
+- Remarks in the pull request's general conversation count too, but not commands.
+
+The project's own automated reviewer goes straight to correction, without this, as its findings are
+not a conversation. `skip_review_triage` makes every remark do that. No provider is assumed: the
+judging runs on the implementer's agent, and `@`-mentioning a reviewer is never relied on.
 
 ### Merge policy
 

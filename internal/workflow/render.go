@@ -167,3 +167,24 @@ func RenderReport(t *core.Task, rep core.ValidationReport) string {
 	}
 	return b.String()
 }
+
+// RenderTriagedFeedback gives the implementer what was judged valid, with the plan and the
+// conversation about it. All of it is data, and none of it widens the design.
+func RenderTriagedFeedback(findings []core.ReviewFinding, sha string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Findings of the review of commit %s, judged valid:\n", sha)
+	for i, f := range findings {
+		fmt.Fprintf(&b, "\n%d. %s, from %s\n%s\n", i+1, findingLocation(f), f.Provenance,
+			strings.TrimSpace(f.Body))
+		if len(f.Discussion) > 1 {
+			b.WriteString("Discussion:\n")
+			for _, d := range f.Discussion[1:] {
+				fmt.Fprintf(&b, "- %s: %s\n", d.Author, strings.TrimSpace(d.Body))
+			}
+		}
+		if f.Plan != "" {
+			b.WriteString("Plan: " + f.Plan + "\n")
+		}
+	}
+	return tail(b.String(), maxFeedback)
+}

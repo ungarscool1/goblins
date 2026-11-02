@@ -97,6 +97,9 @@ func TestGate(t *testing.T) {
 		{"a remark on lines that moved stays open until it is resolved", func(i *GateInput) {
 			i.Task.Findings = []core.ReviewFinding{{ThreadID: "u", Author: bob, Status: core.FindingStale}}
 		}, core.GateWaiting, "1 remark by"},
+		{"a model judging a remark superseded does not close it", func(i *GateInput) {
+			i.Task.Findings = []core.ReviewFinding{{ThreadID: "u", Author: bob, Status: core.FindingSuperseded}}
+		}, core.GateWaiting, "1 remark by"},
 		{"resolved remarks do not count", func(i *GateInput) {
 			i.Task.Findings = []core.ReviewFinding{{ThreadID: "t", Author: bob, Status: core.FindingResolved}}
 		}, core.GateReady, ""},
@@ -216,5 +219,32 @@ func TestUnresolvedRemarksReadNaturally(t *testing.T) {
 	}
 	if got := unresolvedRemarks(2); got != "2 remarks by people are unresolved" {
 		t.Error(got)
+	}
+}
+
+func TestFixReplySaysWhatHappened(t *testing.T) {
+	reply := fixReply(core.ReviewFinding{FixSHA: "abc", Plan: "In main.go add a helper",
+		Evidence: "the same code is at lines 20 and 30"}, true)
+	for _, want := range []string{"Fixed in `abc`.", "checks passed",
+		"Why I agreed: the same code", "yours to confirm"} {
+		if !strings.Contains(reply, want) {
+			t.Errorf("%q is missing from:\n%s", want, reply)
+		}
+	}
+	if strings.Contains(reply, "add a helper") {
+		t.Errorf("the plan is an instruction to the implementer, not news:\n%s", reply)
+	}
+	if strings.Contains(fixReply(core.ReviewFinding{FixSHA: "abc"}, false), "checks passed") {
+		t.Error("claims a check that did not pass")
+	}
+}
+
+func TestCapNoteEndsOnAWholeWord(t *testing.T) {
+	got := capNote(strings.Repeat("word ", 150))
+	if !strings.HasSuffix(got, "word...") || len(got) > 503 {
+		t.Errorf("note ends %q, %d bytes", got[len(got)-12:], len(got))
+	}
+	if short := "stays as it is"; capNote(short) != short {
+		t.Error("a short note changed")
 	}
 }

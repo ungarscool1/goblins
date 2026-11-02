@@ -92,18 +92,26 @@ func setup(t *testing.T) *world {
 		Implementer: pipeline.Stage{Agent: w.impl, Runtime: w.rt, Model: "big-model", Effort: "high"},
 		Validation:  w.val, MinInput: core.PermissionWrite, WebResearch: true, AllowSkippedReview: true,
 	}
-	pipe := &pipeline.Pipeline{Installation: "inst", Projects: map[string]*pipeline.Project{"p": w.project}, Designs: store, Log: discard}
-	// Tests here end at the report; those about what follows it clear this.
 	w.policy = workflow.DefaultPolicy()
+	// Tests here end at the report; those about what follows it clear this.
 	w.policy.StopAtReport = true
-	engine := &workflow.Engine{Store: store, Owner: "e", Log: discard, Now: w.clock, Auth: tracker{w},
-		Policies: func(string) (workflow.Policy, bool) { return w.policy, true }}
-	inbox := scheduler.NewInbox(store, discard, []scheduler.Route{{Source: "src", Container: repo, Project: "p", Tracker: "t", SCM: "s"}})
-	inbox.Now = w.clock
-	w.sched = &scheduler.Scheduler{Store: store, Engine: engine, Handlers: pipe.Handlers(), Inbox: inbox, Log: discard, Now: w.clock, Runtimes: []core.ExecutionRuntime{w.rt},
-		Cfg: scheduler.Config{Owner: "w", Installation: "inst", ReconcileEvery: 24 * time.Hour}}
+	w.boot()
 	return w
 }
+
+// boot builds everything a process has in memory on top of what is durable, so calling it again
+// is what a restart does.
+func (w *world) boot() {
+	pipe := &pipeline.Pipeline{Installation: "inst", Projects: map[string]*pipeline.Project{"p": w.project}, Designs: w.store, Log: discard}
+	engine := &workflow.Engine{Store: w.store, Owner: "e", Log: discard, Now: w.clock, Auth: tracker{w},
+		Policies: func(string) (workflow.Policy, bool) { return w.policy, true }}
+	inbox := scheduler.NewInbox(w.store, discard, []scheduler.Route{{Source: "src", Container: repo, Project: "p", Tracker: "t", SCM: "s"}})
+	inbox.Now = w.clock
+	w.sched = &scheduler.Scheduler{Store: w.store, Engine: engine, Handlers: pipe.Handlers(), Inbox: inbox, Log: discard, Now: w.clock, Runtimes: []core.ExecutionRuntime{w.rt},
+		Cfg: scheduler.Config{Owner: "w", Installation: "inst", ReconcileEvery: 24 * time.Hour}}
+}
+
+func (w *world) restart() { w.boot() }
 
 type tracker struct{ w *world }
 

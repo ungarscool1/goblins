@@ -34,7 +34,7 @@ func NewSCM(name string, c *Client, gitBase string) *SCM {
 func (s *SCM) Info() core.ProviderInfo {
 	return info(core.ProviderSCM, s.name, core.CapSCMPullRequests, core.CapSCMDraft,
 		core.CapSCMInlineReview, core.CapSCMStatusChecks, core.CapSCMBranchProtection,
-		core.CapSCMMerge)
+		core.CapSCMMerge, core.CapSCMThreadReply)
 }
 
 // GitAccess implements core.SourceControl. The token is scoped to this repository and
