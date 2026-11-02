@@ -236,7 +236,7 @@ func TestAPIBilledSessionIsRefused(t *testing.T) {
 func TestFailuresAreClassified(t *testing.T) {
 	cases := map[string]core.ErrorKind{
 		"rate_limit":    core.KindQuotaExhausted,
-		"status_429":    core.KindQuotaExhausted,
+		"status_429":    core.KindRateLimited,
 		"invalid_login": core.KindAuthRequired,
 		"stderr_login":  core.KindAuthRequired,
 		"gone":          core.KindNotFound,
@@ -336,5 +336,30 @@ func TestFactoryRefusesAPIKeys(t *testing.T) {
 	a, err := providers.As[core.AgentProvider](r, providers.KindAgent, "claude-cli", "c", deps, providers.Options{"image": "i", "oauth_token_env": "T"})
 	if err != nil || !a.Info().Has(core.CapAgentResume) {
 		t.Fatalf("valid config: %v", err)
+	}
+}
+
+func TestLimitEventSaysWhenItEnds(t *testing.T) {
+	base, rt := setup(t, "limit_event")
+	a := withScenario(t, base, "limit_event")
+	_, err := a.Run(ctx, request(rt, "limit_event", "w-limit"), func(core.AgentEvent) {})
+	if !core.IsKind(err, core.KindQuotaExhausted) {
+		t.Fatalf("err = %v", err)
+	}
+	if got := core.RetryAtOf(err); !got.Equal(time.Unix(1893456000, 0)) {
+		t.Fatalf("retry at %v", got)
+	}
+}
+
+func TestRunReportsWhatItUsed(t *testing.T) {
+	base, rt := setup(t, "usage")
+	a := withScenario(t, base, "usage")
+	res, err := a.Run(ctx, request(rt, "usage", "w-usage"), func(core.AgentEvent) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := core.AgentUsage{InputTokens: 152, OutputTokens: 7, Turns: 3}
+	if res.Usage != want {
+		t.Fatalf("usage = %+v", res.Usage)
 	}
 }

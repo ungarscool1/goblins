@@ -126,6 +126,10 @@ type Policy struct {
 	ReviewMinSeverity    string        `yaml:"review_min_severity,omitempty"`
 	QuotaPause           time.Duration `yaml:"quota_pause,omitempty"`
 	AuthPause            time.Duration `yaml:"auth_pause,omitempty"`
+	RateLimitPause       time.Duration `yaml:"rate_limit_pause,omitempty"`
+	MaxLimitPause        time.Duration `yaml:"max_limit_pause,omitempty"`
+	MaxLimitPauses       int           `yaml:"max_limit_pauses,omitempty"`
+	MaxChangedFiles      int           `yaml:"max_changed_files,omitempty"`
 	WebResearch          bool          `yaml:"web_research,omitempty"`
 	// ValidationManifest is where the repository keeps its checks, read from the base commit.
 	ValidationManifest string `yaml:"validation_manifest,omitempty"`
@@ -187,6 +191,9 @@ type Stages struct {
 	// Describer writes pull request descriptions from their diff. By default it is the
 	// implementer's agent, on that agent's default model.
 	Describer *Stage `yaml:"describer,omitempty"`
+	// Triager judges review remarks on a model of its own, such as a cheaper one. It shares
+	// the implementer's account and checkout, so only its model and budget can differ.
+	Triager *Stage `yaml:"triager,omitempty"`
 }
 
 // Stage configures one agent role.
@@ -196,6 +203,10 @@ type Stage struct {
 	Model   string        `yaml:"model,omitempty"`
 	Effort  string        `yaml:"effort,omitempty"`
 	Timeout time.Duration `yaml:"timeout,omitempty"`
+	// FallbackModel continues a run when Model is limited, on the same account and session.
+	FallbackModel string `yaml:"fallback_model,omitempty"`
+	// MaxToolCalls ends a run making more tool calls than this.
+	MaxToolCalls int `yaml:"max_tool_calls,omitempty"`
 }
 
 // Default returns a configuration with defaults filled in.
@@ -396,12 +407,19 @@ func (c *Config) Validate(known TypeChecker) error {
 		if p.Policy.Merge.MinHumanApprovals < 0 {
 			add("%s.policy.merge.min_human_approvals: cannot be negative", path)
 		}
+		if tr := p.Stages.Triager; tr != nil && (tr.Agent != p.Stages.Implementer.Agent ||
+			tr.Runtime != p.Stages.Implementer.Runtime) {
+			add("%s.stages.triager: must use the implementer's agent and runtime", path)
+		}
 		if d := p.Stages.Describer; d != nil {
 			ref("stages.describer.agent", d.Agent, c.Agents, true)
 			ref("stages.describer.runtime", d.Runtime, c.Runtimes, true)
 			if d.Runtime != p.Stages.Implementer.Runtime {
 				add("%s.stages.describer.runtime: must be the implementer's runtime", path)
 			}
+		}
+		if p.Policy.MaxLimitPauses < 0 || p.Policy.MaxChangedFiles < 0 {
+			add("%s.policy: max_limit_pauses and max_changed_files cannot be negative", path)
 		}
 		if s := p.Policy.CommitStyle; s != "" && s != "conventional" && s != "plain" {
 			add("%s.policy.commit_style: must be conventional or plain", path)

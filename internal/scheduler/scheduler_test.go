@@ -63,12 +63,17 @@ func (e *env) boot() {
 	}
 	e.store = s
 	engine := &workflow.Engine{Store: s, Auth: allow{}, Owner: "engine", Log: discard, Now: e.clock,
-		Policies: func(string) (workflow.Policy, bool) {
+		Policies: func(project string) (workflow.Policy, bool) {
 			p := workflow.DefaultPolicy()
 			p.PlannerLimitKey = "agent-a"
+			if project == "q" {
+				p.PlannerLimitKey = "agent-b"
+			}
 			return p, true
 		}}
-	inbox := scheduler.NewInbox(s, discard, []scheduler.Route{{Source: "src", Container: "acme/app", Project: "p", Tracker: "t", SCM: "s"}})
+	inbox := scheduler.NewInbox(s, discard, []scheduler.Route{
+		{Source: "src", Container: "acme/app", Project: "p", Tracker: "t", SCM: "s"},
+		{Source: "src", Container: "acme/other", Project: "q", Tracker: "t", SCM: "s"}})
 	inbox.Now = e.clock
 	e.sched = &scheduler.Scheduler{
 		Store: s, Engine: engine, Inbox: inbox, Log: discard, Now: e.clock,
@@ -645,5 +650,97 @@ func TestOrphanWorkloadsAreReconciledOnAnyRuntime(t *testing.T) {
 				t.Fatalf("expired workload kept: %v", err)
 			}
 		})
+	}
+}
+
+func TestLimitHoldsOneAccountAndNothingElse(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	limited := atomic.Bool{}
+	limited.Store(true)
+	ran := map[string]*atomic.Int64{"p": {}, "q": {}}
+	e.sched.Handlers[workflow.JobPlan] = func(_ context.Context,
+		jc scheduler.JobContext) (any, error) {
+		ran[jc.Task.Project].Add(1)
+		if jc.Task.Project == "p" && limited.Load() {
+			return nil, core.Errorf(core.KindQuotaExhausted, "x", "limit reached")
+		}
+		return workflow.PlanResult{Questions: []string{"Q"}}, nil
+	}
+	e.sched.Handlers[workflow.JobNotify] = func(context.Context,
+		scheduler.JobContext) (any, error) {
+		return struct{}{}, nil
+	}
+	if _, err := e.sched.Inbox.Accept(ctx, "src", []core.Event{issueEvent("1")}); err != nil {
+		t.Fatal(err)
+	}
+	e.sched.Step(ctx)
+	if st := e.task("1").State; st != core.StateQuotaPaused {
+		t.Fatalf("state = %s", st)
+	}
+	other := issueEvent("3")
+	other.Subject.Container = "acme/other"
+	if _, err := e.sched.Inbox.Accept(ctx, "src", []core.Event{issueEvent("2"), other}); err != nil {
+		t.Fatal(err)
+	}
+	e.sched.Step(ctx)
+	if ran["p"].Load() != 1 {
+		t.Fatalf("another job spent a run on a limited account: %d", ran["p"].Load())
+	}
+	if ran["q"].Load() != 1 {
+		t.Fatal("the limit stopped another account")
+	}
+	if st := e.task("2").State; st == core.StateWaitingForUser {
+		t.Fatalf("state = %s", st)
+	}
+
+	e.boot() // the hold outlives the process
+	limited.Store(false)
+	e.sched.Handlers[workflow.JobPlan] = func(_ context.Context,
+		jc scheduler.JobContext) (any, error) {
+		ran[jc.Task.Project].Add(1)
+		return workflow.PlanResult{Questions: []string{"Q"}}, nil
+	}
+	e.sched.Handlers[workflow.JobNotify] = func(context.Context,
+		scheduler.JobContext) (any, error) {
+		return struct{}{}, nil
+	}
+	e.sched.Step(ctx)
+	if ran["p"].Load() != 1 {
+		t.Fatal("ran during the hold after a restart")
+	}
+	e.tick(31 * time.Minute)
+	e.sched.Step(ctx)
+	if st := e.task("1").State; st != core.StateWaitingForUser {
+		t.Fatalf("task 1 = %s", st)
+	}
+	if st := e.task("2").State; st != core.StateWaitingForUser {
+		t.Fatalf("task 2 = %s", st)
+	}
+	holds, err := e.store.ActiveHolds(ctx, e.clock())
+	if err != nil || len(holds) != 0 {
+		t.Fatalf("holds = %+v, %v", holds, err)
+	}
+}
+
+func TestReportedResetTimeSetsTheHold(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	reset := e.clock().Add(3 * time.Hour)
+	e.sched.Handlers[workflow.JobPlan] = func(context.Context, scheduler.JobContext) (any, error) {
+		return nil, core.WithRetryAt(core.Errorf(core.KindRateLimited, "x", "slow down"), reset)
+	}
+	if _, err := e.sched.Inbox.Accept(ctx, "src", []core.Event{issueEvent("1")}); err != nil {
+		t.Fatal(err)
+	}
+	e.sched.Step(ctx)
+	task := e.task("1")
+	if task.State != core.StateQuotaPaused || !task.PausedUntil.Equal(reset) {
+		t.Fatalf("task = %s until %v", task.State, task.PausedUntil)
+	}
+	holds, err := e.store.ActiveHolds(ctx, e.clock())
+	if err != nil || len(holds) != 1 || !holds[0].Until.Equal(reset) ||
+		holds[0].LimitKey != "agent-a" {
+		t.Fatalf("holds = %+v, %v", holds, err)
 	}
 }

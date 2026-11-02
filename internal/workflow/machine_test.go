@@ -871,5 +871,87 @@ func TestReportNamesWhatEachCheckRanIn(t *testing.T) {
 	}})
 	if !strings.Contains(feedback, "must") || strings.Contains(feedback, "may") {
 		t.Fatalf("an optional check is not the implementer's to fix:\n%s", feedback)
+
+func TestLimitPausesGrowThenAskAPerson(t *testing.T) {
+	p := DefaultPolicy()
+	p.MaxLimitPauses = 3
+	tk := at(core.StateImplementing, JobImplement)
+	want := []time.Duration{p.QuotaPause, 2 * p.QuotaPause, 4 * p.QuotaPause}
+	for i, wait := range want {
+		d := Decide(tk, finished(tk, false, core.KindQuotaExhausted, "limit", nil), writeFacts(), p)
+		mustState(t, d, core.StateQuotaPaused)
+		if !d.Task.PausedUntil.Equal(t0.Add(wait)) {
+			t.Fatalf("pause %d lasts until %v", i, d.Task.PausedUntil)
+		}
+		if i > 0 && hasJob(d, JobNotify) {
+			t.Fatal("only the first pause is worth a notification")
+		}
+		tk = at(core.StateImplementing, JobImplement)
+		tk.Loops = d.Task.Loops
+	}
+	d := Decide(tk, finished(tk, false, core.KindQuotaExhausted, "limit", nil), writeFacts(), p)
+	mustState(t, d, core.StateBlocked)
+	if !hasJob(d, JobComment) {
+		t.Fatal("a person must be told")
+	}
+}
+
+func TestLimitPauseKindsAndReportedTimes(t *testing.T) {
+	p := DefaultPolicy()
+	tk := at(core.StateImplementing, JobImplement)
+	rate := Decide(tk, finished(tk, false, core.KindRateLimited, "slow down", nil), writeFacts(), p)
+	if !rate.Task.PausedUntil.Equal(t0.Add(p.RateLimitPause)) || hasJob(rate, JobNotify) {
+		t.Fatalf("rate limit: %+v, jobs %+v", rate.Task, rate.Jobs)
+	}
+	for name, c := range map[string]struct {
+		at   time.Time
+		want time.Time
+	}{
+		"reported":       {t0.Add(3 * time.Hour), t0.Add(3 * time.Hour)},
+		"already past":   {t0.Add(-time.Hour), t0.Add(p.QuotaPause)},
+		"not believable": {t0.Add(90 * 24 * time.Hour), t0.Add(p.QuotaPause)},
+	} {
+		ev := finished(tk, false, core.KindQuotaExhausted, "limit", nil)
+		ev.Job.RetryAt = c.at
+		if d := Decide(tk, ev, writeFacts(), p); !d.Task.PausedUntil.Equal(c.want) {
+			t.Errorf("%s: until %v", name, d.Task.PausedUntil)
+		}
+	}
+	ok := at(core.StateImplementing, JobImplement)
+	ok.Loops = map[string]int{loopLimitPause: 5}
+	done := finished(ok, true, "", "", ImplementResult{HeadSHA: "abc", Changed: true})
+	d := Decide(ok, done, writeFacts(), p)
+	if d.Task.Loops[loopLimitPause] != 0 {
+		t.Fatal("a finished job shows the limit lifted")
+	}
+}
+
+func TestResumingReleasesTheAccount(t *testing.T) {
+	p := DefaultPolicy()
+	tk := at(core.StateImplementing, JobImplement)
+	tk.CurrentJob.LimitKey = "acct"
+	limit := finished(tk, false, core.KindQuotaExhausted, "limit", nil)
+	paused := Decide(tk, limit, writeFacts(), p).Task
+	d := Decide(paused, comment(maintainer, "/goblins resume", t0), writeFacts(), p)
+	mustState(t, d, core.StateImplementing)
+	if !hasJob(d, JobReleaseHold) || d.Task.Loops[loopLimitPause] != 0 {
+		t.Fatalf("task %+v, jobs %+v", d.Task, d.Jobs)
+	}
+}
+
+func TestChangeOverTheFileBudgetBlocks(t *testing.T) {
+	p := DefaultPolicy()
+	p.MaxChangedFiles = 2
+	tk := at(core.StateImplementing, JobImplement)
+	changing := func(files int) core.Event {
+		return finished(tk, true, "", "", ImplementResult{HeadSHA: "abc", Changed: true,
+			ChangedFiles: files})
+	}
+	d := Decide(tk, changing(3), writeFacts(), p)
+	if d.Task.State != core.StateBlocked || hasJob(d, JobValidate) {
+		t.Fatalf("task %+v, jobs %+v", d.Task, d.Jobs)
+	}
+	if d = Decide(tk, changing(2), writeFacts(), p); !hasJob(d, JobValidate) {
+		t.Fatalf("jobs %+v", d.Jobs)
 	}
 }

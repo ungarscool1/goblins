@@ -127,7 +127,8 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 		if m := cfg.Agents[s.Agent].MaxConcurrent; m > 0 {
 			limits[limitKey(s.Agent)] = m
 		}
-		return pipeline.Stage{Agent: agent, Runtime: runtime, Model: s.Model, Effort: s.Effort, Timeout: s.Timeout}, nil
+		return pipeline.Stage{Agent: agent, Runtime: runtime, Model: s.Model, Effort: s.Effort,
+			Timeout: s.Timeout, FallbackModel: s.FallbackModel, MaxToolCalls: s.MaxToolCalls}, nil
 	}
 
 	for _, pc := range cfg.Projects {
@@ -163,6 +164,11 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 		}
 		if pr.Describer, err = stage(describer); err != nil {
 			return nil, err
+		}
+		if pc.Stages.Triager != nil {
+			if pr.Triager, err = stage(*pc.Stages.Triager); err != nil {
+				return nil, err
+			}
 		}
 		if pc.Validation != "" {
 			if pr.Validation, err = build[core.ValidationProvider](b, providers.KindValidation, cfg.Validations, pc.Validation); err != nil {
@@ -261,6 +267,16 @@ func policyFor(pc config.Project) workflow.Policy {
 	if c.AuthPause > 0 {
 		p.AuthPause = c.AuthPause
 	}
+	if c.RateLimitPause > 0 {
+		p.RateLimitPause = c.RateLimitPause
+	}
+	if c.MaxLimitPause > 0 {
+		p.MaxLimitPause = c.MaxLimitPause
+	}
+	if c.MaxLimitPauses > 0 {
+		p.MaxLimitPauses = c.MaxLimitPauses
+	}
+	p.MaxChangedFiles = c.MaxChangedFiles
 	if c.MaxReviewFixLoops > 0 {
 		p.MaxReviewFixLoops = c.MaxReviewFixLoops
 	}

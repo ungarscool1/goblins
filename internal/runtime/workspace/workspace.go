@@ -49,6 +49,8 @@ type Result struct {
 	// Manifest and TrustedChanged are base64, as they hold repository content.
 	Manifest       string `json:"manifest,omitempty"`
 	TrustedChanged string `json:"trusted_changed,omitempty"`
+	// ChangedFiles counts the files that differ from the base.
+	ChangedFiles int `json:"changed_files,omitempty"`
 }
 
 // ParseResult reads the result line from a workload's output. It uses the last match,
@@ -264,10 +266,12 @@ fi
 head=$(` + git + ` rev-parse HEAD)
 changed=true
 [ "$head" = "$base" ] && changed=false
+files=$(` + git + ` diff --name-only "$base" "$head" | wc -l | tr -d ' ')
 mkdir -p /workspace/out
 ` + git + ` bundle create -q "/workspace/out/$head.tmp" "refs/heads/$GOBLINS_BRANCH" 2>/dev/null || true
 if [ -f "/workspace/out/$head.tmp" ]; then mv "/workspace/out/$head.tmp" "/workspace/out/$head.bundle"; fi
-result "{\"prepared\":true,\"base_sha\":\"$base\",\"head_sha\":\"$head\",\"changed\":$changed}"
+shas="\"base_sha\":\"$base\",\"head_sha\":\"$head\""
+result "{\"prepared\":true,$shas,\"changed\":$changed,\"changed_files\":${files:-0}}"
 `
 	s := base(name, image, volume, labels, core.NetworkNone, script, false)
 	s.Env["GOBLINS_MESSAGE"] = message

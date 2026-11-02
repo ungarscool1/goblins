@@ -25,6 +25,8 @@ const (
 	JobComment   core.JobKind = "comment"
 	JobNotify    core.JobKind = "notify"
 	JobCleanup   core.JobKind = "cleanup"
+	// JobReleaseHold lets a limit key's jobs start again, when a person says so.
+	JobReleaseHold core.JobKind = "release-hold"
 )
 
 // mainKinds are the jobs that advance a task; only one is current at a time.
@@ -61,6 +63,8 @@ type ImplementResult struct {
 	BaseSHA   string `json:"base_sha"`
 	HeadSHA   string `json:"head_sha"`
 	Changed   bool   `json:"changed"`
+	// ChangedFiles counts the files that differ from the base branch.
+	ChangedFiles int `json:"changed_files,omitempty"`
 }
 
 // ValidateStage says where in the workflow validation runs.

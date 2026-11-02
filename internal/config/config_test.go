@@ -84,6 +84,8 @@ func TestRejections(t *testing.T) {
 			"allow_skipped_review: true, trusted_paths: [../x]", 1), "plain path"},
 		{"manifest path with options", strings.Replace(valid, "allow_skipped_review: true",
 			"allow_skipped_review: true, validation_manifest: -x", 1), "plain path"},
+		{"negative budget", strings.Replace(valid, "allow_skipped_review: true",
+			"allow_skipped_review: true, max_changed_files: -1", 1), "max_changed_files"},
 		{"no reviewer, no opt-in", strings.Replace(valid, ", allow_skipped_review: true", "", 1), "allow_skipped_review"},
 		{"bad storage", "version: 1\nstorage: {driver: mongo}", "unknown driver"},
 		{"postgres dsn", "version: 1\nstorage: {driver: postgres}", "dsn_env"},

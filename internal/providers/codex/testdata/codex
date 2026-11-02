@@ -48,6 +48,13 @@ case "$FAKE_SCENARIO" in
     printf '{"type":"error","message":"You have hit your usage limit. Try again later."}\n'
     printf '{"type":"turn.failed","error":{"message":"You have hit your usage limit."}}\n'
     exit 1 ;;
+  rate_reset)
+    printf '{"type":"turn.failed","error":{"message":"429 Too Many Requests: please try again in 10m"}}\n'
+    exit 1 ;;
+  usage)
+    printf '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}\n'
+    printf '{"type":"turn.completed","usage":{"input_tokens":13484,"cached_input_tokens":0,"output_tokens":5}}\n'
+    exit 0 ;;
   expired)
     printf '{"type":"turn.failed","error":{"message":"401 Unauthorized: your refresh token has expired, please log in again"}}\n'
     exit 1 ;;

@@ -5,6 +5,8 @@ package agentcli
 import (
 	"bytes"
 	"context"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -99,4 +101,40 @@ func (l *LineWriter) Flush() {
 		l.Fn(l.buf.Bytes())
 	}
 	l.buf.Reset()
+}
+
+// CLIs word limits differently from version to version, so only forms that state a time are
+// read, and anything else means no time is known. Clock times like "resets 3pm" have no date or
+// zone to go by, so they are left out too.
+var (
+	resetEpoch = regexp.MustCompile(
+		`(?i)(?:resets?_?at"?\s*[:=]\s*"?|usage limit reached\|)(\d{10})\b`)
+	resetAfter = regexp.MustCompile(
+		`(?i)(?:resets?(?:_in)?(?:_seconds)?"?\s*(?:in\s*|[:=]\s*)|try again in\s+|` +
+			`retry[-_ ]after"?\s*[:=]?\s*)(\d+)\s*(h(?:ours?)?|m(?:in(?:ute)?s?)?|s(?:ec(?:ond)?s?)?)?\b`)
+)
+
+// RetryAt reads when a limit ends from what a CLI printed, and is zero if it does not say.
+func RetryAt(text string, now time.Time) time.Time {
+	if m := resetEpoch.FindStringSubmatch(text); m != nil {
+		if sec, err := strconv.ParseInt(m[1], 10, 64); err == nil {
+			return time.Unix(sec, 0).UTC()
+		}
+	}
+	m := resetAfter.FindStringSubmatch(text)
+	if m == nil {
+		return time.Time{}
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		return time.Time{}
+	}
+	unit := time.Second
+	switch strings.ToLower(m[2] + " ")[0] {
+	case 'h':
+		unit = time.Hour
+	case 'm':
+		unit = time.Minute
+	}
+	return now.Add(time.Duration(n) * unit)
 }

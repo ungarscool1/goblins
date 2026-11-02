@@ -536,24 +536,20 @@ func (s *Store) ClaimJob(ctx context.Context, c core.JobClaim) (*core.Job, error
 		if err != nil {
 			return err
 		}
-		for _, j := range candidates {
-			if j.Priority < c.MinPriority {
-				continue
-			}
-			if j.LimitKey != "" && !running.allows(j, c) {
-				continue
-			}
-			j.Attempt++
-			j.State = core.JobRunning
-			j.LeaseOwner = c.Owner
-			j.LeaseUntil = c.Now.Add(c.LeaseFor)
-			if _, err := tx.ExecContext(ctx, s.rebind(`UPDATE jobs SET state = ?, attempt = ?, lease_owner = ?, lease_until = ?, updated_at = ? WHERE id = ?`),
-				string(j.State), j.Attempt, j.LeaseOwner, nanos(j.LeaseUntil), now, j.ID); err != nil {
-				return err
-			}
-			out = &j
+		ready := claimOrder(candidates, running, c)
+		if len(ready) == 0 {
 			return nil
 		}
+		j := ready[0]
+		j.Attempt++
+		j.State = core.JobRunning
+		j.LeaseOwner = c.Owner
+		j.LeaseUntil = c.Now.Add(c.LeaseFor)
+		if _, err := tx.ExecContext(ctx, s.rebind(`UPDATE jobs SET state = ?, attempt = ?, lease_owner = ?, lease_until = ?, updated_at = ? WHERE id = ?`),
+			string(j.State), j.Attempt, j.LeaseOwner, nanos(j.LeaseUntil), now, j.ID); err != nil {
+			return err
+		}
+		out = &j
 		return nil
 	})
 	return out, err

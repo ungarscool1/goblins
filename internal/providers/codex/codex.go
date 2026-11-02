@@ -419,13 +419,18 @@ type streamParser struct {
 	completed bool
 	failure   string
 	command   string
+	usage     core.AgentUsage
 }
 
 type streamLine struct {
 	Type     string `json:"type"`
 	ThreadID string `json:"thread_id"`
 	Message  string `json:"message"`
-	Error    struct {
+	Usage    struct {
+		InputTokens  int64 `json:"input_tokens"`
+		OutputTokens int64 `json:"output_tokens"`
+	} `json:"usage"`
+	Error struct {
 		Message string `json:"message"`
 	} `json:"error"`
 	Item struct {
@@ -472,6 +477,9 @@ func (p *streamParser) line(raw []byte) {
 		}
 	case "turn.completed":
 		p.completed = true
+		p.usage.Turns++
+		p.usage.InputTokens += l.Usage.InputTokens
+		p.usage.OutputTokens += l.Usage.OutputTokens
 	case "turn.failed":
 		p.failure += " " + l.Error.Message
 	case "error":
@@ -486,7 +494,7 @@ func (p *streamParser) finish(st core.WorkloadStatus, stderr string) (core.Agent
 			"the Codex CLI used a %s tool despite being told not to, so the result was discarded. Goblins will not run this CLI next to its credentials; change the agent image", p.command)
 	}
 	if p.completed && p.failure == "" && st.ExitCode == 0 {
-		res.Output = p.output
+		res.Output, res.Usage = p.output, p.usage
 		p.sink(core.AgentEvent{Kind: core.AgentEventResult, SessionID: p.session, Text: res.Output})
 		return res, nil
 	}
@@ -494,7 +502,8 @@ func (p *streamParser) finish(st core.WorkloadStatus, stderr string) (core.Agent
 }
 
 var (
-	quotaPattern  = regexp.MustCompile(`(?i)usage limit|rate[ _-]?limit|limit reached|hit your .*limit|quota|too many requests|\b429\b`)
+	quotaPattern  = regexp.MustCompile(`(?i)usage limit|limit reached|hit your .*limit|quota`)
+	ratePattern   = regexp.MustCompile(`(?i)rate[ _-]?limit|too many requests|\b429\b`)
 	authPattern   = regexp.MustCompile(`(?i)not logged in|please (run )?(codex )?login|log ?in again|unauthorized|\b401\b|\b403\b|token[ _](has )?expired|refresh token|authentication`)
 	resumePattern = regexp.MustCompile(`(?i)no (rollout|session|thread|conversation)[^.]* found|(session|thread|conversation|rollout) [^.]*not found`)
 )
@@ -507,8 +516,11 @@ func classify(text string, st core.WorkloadStatus) error {
 		return core.Errorf(core.KindAuthRequired, "codex.run",
 			"the ChatGPT subscription login is missing or expired. %s", loginHint)
 	case quotaPattern.MatchString(text):
-		return core.Errorf(core.KindQuotaExhausted, "codex.run",
-			"the ChatGPT subscription usage limit was reached")
+		return core.WithRetryAt(core.Errorf(core.KindQuotaExhausted, "codex.run",
+			"the ChatGPT subscription usage limit was reached"), agentcli.RetryAt(text, time.Now()))
+	case ratePattern.MatchString(text):
+		return core.WithRetryAt(core.Errorf(core.KindRateLimited, "codex.run",
+			"the agent was rate limited"), agentcli.RetryAt(text, time.Now()))
 	case resumePattern.MatchString(text):
 		return core.Errorf(core.KindNotFound, "codex.run",
 			"the agent session can no longer be resumed")

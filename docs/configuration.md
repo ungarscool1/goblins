@@ -40,6 +40,36 @@ implementer's agent on its default model. To use something cheaper, set `stages.
 be on the implementer's runtime. If that run fails, the pull request still goes out, described from the
 approved design instead.
 
+## Usage limits and budgets
+
+Goblins runs on subscriptions, so it works from what a CLI reports and never estimates what is left.
+
+When an agent reports a usage limit, a rate limit or a lost login, the task pauses with its job, session and
+branch intact, and everything else queued on that agent's account waits too. Other accounts keep
+working. If the CLI said when the limit ends, the pause lasts until then. Otherwise it starts at
+`policy.quota_pause`, `rate_limit_pause` or `auth_pause`, and doubles each time up to `max_limit_pause`.
+After `max_limit_pauses` in a row the task blocks and asks a person. `/goblins resume` tries again
+right away, including for the rest of the account.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `policy.quota_pause` | 30m | First pause after a usage limit |
+| `policy.rate_limit_pause` | 5m | First pause after a rate limit |
+| `policy.auth_pause` | 1h | First pause after a lost login |
+| `policy.max_limit_pause` | 6h | Longest a pause grows to, when no reset time is known |
+| `policy.max_limit_pauses` | 8 | Pauses in a row before blocking |
+| `policy.max_changed_files` | none | Blocks a change touching more files than this, before it is checked or published |
+| `stages.*.timeout` | per stage | Longest one run may take |
+| `stages.*.fallback_model` | none | Continues the same session on this model when the configured one is limited. Planner, implementer and triager only |
+| `stages.*.max_tool_calls` | none | Blocks a run making more tool calls than this. `/goblins resume` grants a new budget. Planner, implementer and triager only |
+
+`stages.triager` judges review remarks on a model of its own, such as a cheaper one. It has to use the
+implementer's agent and runtime. Without it, the implementer's settings apply.
+
+Concurrency stays per account, with `max_concurrent` on an agent. Among jobs of equal priority, the
+project running the fewest goes first. A project that does not name an agent never runs it. What each
+run reports using is kept in its transcript.
+
 ## Commit messages and pull request titles
 
 Commits and pull request titles follow [Conventional Commits](https://www.conventionalcommits.org).
