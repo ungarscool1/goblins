@@ -16,11 +16,12 @@ const (
 
 const commitInstruction = `
 
-When you finish, end your reply with exactly one fenced block tagged goblins-commit holding the
-subject of the commit, as a Conventional Commit: type(optional scope): what this change does, in
-the imperative and in lower case. Describe this change, not the whole ticket. The type is one of
-feat, fix, docs, style, refactor, perf, test, build, ci, chore or revert. Only if this change
-breaks what existing users of the project rely on, add ! after the type or scope, as in feat!: .
+Your reply is not complete without this: end it with exactly one fenced block tagged
+goblins-commit holding the subject of the commit, as a Conventional Commit: type(optional
+scope): what this change does, in the imperative and in lower case. Describe this change, not
+the whole ticket. The type is one of feat, fix, docs, style, refactor, perf, test, build, ci,
+chore or revert. Only if this change breaks what existing users of the project rely on, add !
+after the type or scope, as in feat!: .
 ` + "```goblins-commit" + `
 feat(api): add a health check endpoint
 ` + "```"
@@ -36,27 +37,32 @@ var (
 	ciDirective = regexp.MustCompile(`(?i)\[[^\]]*\b(skip|no ci)\b[^\]]*\]|\*\*\*no_ci\*\*\*`)
 )
 
-// implementerInstructions asks the implementer to word its commit, when it has a say in that.
-func implementerInstructions(pr *Project) string {
+// commitRequest asks the implementer to word its commit, when it has a say in that. This ends
+// the prompt rather than joining the system prompt: a real implementer that resumed a session
+// from before it was asked to left the block out.
+func commitRequest(pr *Project) string {
 	if pr.PlainCommits {
-		return implementerSystem
+		return ""
 	}
-	return implementerSystem + commitInstruction
+	return commitInstruction
 }
 
 // commitHeader words the subject of a commit: what the implementer reports having done or,
-// failing that, the ticket's title. The implementer's reply is untrusted output.
-func commitHeader(pr *Project, title, output string) string {
+// failing that, the ticket's title, along with a note saying why. The implementer's reply is
+// untrusted output.
+func commitHeader(pr *Project, title, output string) (header, note string) {
 	if pr.PlainCommits {
-		return safeHeader(title)
+		return safeHeader(title), ""
 	}
 	blocks := commitBlock.FindAllStringSubmatch(output, -1)
-	if len(blocks) > 0 {
-		if header, ok := parseHeader(blocks[len(blocks)-1][1]); ok {
-			return header
-		}
+	if len(blocks) == 0 {
+		return titleHeader(title), "the implementer did not word its commit, so the title stands in"
 	}
-	return titleHeader(title)
+	header, ok := parseHeader(blocks[len(blocks)-1][1])
+	if !ok {
+		return titleHeader(title), "the implementer worded its commit badly, so the title stands in"
+	}
+	return header, ""
 }
 
 // pullRequestTitle words a pull request's title, which becomes the commit subject when a pull

@@ -724,11 +724,20 @@ func TestCommitsAreWordedByTheImplementer(t *testing.T) {
 		return inner(s)
 	}
 	w.agent.Script(fake.AgentStep{Output: designJSON("the design")})
-	w.impl.Script(fake.AgentStep{Output: "Done.\n```goblins-commit\nfix(api): handle nil\n```"})
+	var prompt string
+	w.impl.Script(fake.AgentStep{Run: func(_ context.Context,
+		req core.AgentRequest) (string, error) {
+		prompt = req.Prompt
+		return "Done.\n```goblins-commit\nfix(api): handle nil\n```", nil
+	}})
 	w.open()
 	w.say(maintainer, "/approve-design 1")
 	w.want(core.StateCompleted)
 	if !strings.HasPrefix(message, "fix(api): handle nil\n\nImplements design revision 1") {
 		t.Fatal(message)
+	}
+	// It has to reach a session resumed from before the request existed, so it ends the prompt.
+	if !strings.Contains(prompt[strings.LastIndex(prompt, ">>>END"):], "goblins-commit") {
+		t.Fatalf("the commit request does not end the prompt:\n%s", prompt)
 	}
 }

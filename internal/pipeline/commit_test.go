@@ -29,21 +29,33 @@ func TestCommitHeader(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := commitHeader(&Project{}, c.title, c.output); got != c.want {
+			if got, _ := commitHeader(&Project{}, c.title, c.output); got != c.want {
 				t.Fatalf("got %q, want %q", got, c.want)
 			}
 		})
 	}
 }
 
+func TestCommitHeaderSaysWhenTheTitleStandsIn(t *testing.T) {
+	cases := map[string]bool{
+		"Done.": true, "```goblins-commit\nwip: stuff\n```": true,
+		"```goblins-commit\nfix: handle nil\n```": false,
+	}
+	for output, want := range cases {
+		if _, note := commitHeader(&Project{}, "T", output); (note != "") != want {
+			t.Errorf("%q: note %q", output, note)
+		}
+	}
+}
+
 func TestPlainCommitsKeepTheTitle(t *testing.T) {
 	pr := &Project{PlainCommits: true}
-	got := commitHeader(pr, "Add a thing", "```goblins-commit\nfeat: other\n```")
+	got, _ := commitHeader(pr, "Add a thing", "```goblins-commit\nfeat: other\n```")
 	title := pullRequestTitle(pr, "Add a thing", &changeDescription{Title: "feat: other"})
 	if got != "Add a thing" || title != "Add a thing" {
 		t.Fatalf("commit %q, title %q", got, title)
 	}
-	if strings.Contains(implementerInstructions(pr), "goblins-commit") {
+	if commitRequest(pr) != "" {
 		t.Fatal("the implementer was asked to word a commit nobody will use")
 	}
 }
@@ -118,7 +130,7 @@ func TestAnOpenPullRequestKeepsItsTitle(t *testing.T) {
 
 func TestAgentsAreAskedToMarkBreakingChanges(t *testing.T) {
 	for name, prompt := range map[string]string{
-		"implementer": implementerInstructions(&Project{}), "describer": describerSystem} {
+		"implementer": commitRequest(&Project{}), "describer": describerSystem} {
 		if !strings.Contains(prompt, "feat!:") {
 			t.Errorf("%s: %s", name, prompt)
 		}

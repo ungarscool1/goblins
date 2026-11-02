@@ -374,16 +374,20 @@ func (p *Pipeline) implement(ctx context.Context, jc scheduler.JobContext) (any,
 		return nil, err
 	}
 	res, err := p.runAgent(ctx, jc, pr.Implementer, core.RoleImplementer, core.AgentRequest{
-		SystemPrompt: implementerInstructions(pr),
-		Prompt:       ImplementerPrompt(issue, design, payload.Feedback, payload.ReviewFeedback),
-		Policy:       core.ToolPolicy{WriteFiles: true},
-		Workspace:    core.Mount{Volume: volume, Target: workspace.Mount},
-		WorkDir:      workspace.RepoDir,
+		SystemPrompt: implementerSystem,
+		Prompt: ImplementerPrompt(issue, design, payload.Feedback, payload.ReviewFeedback) +
+			commitRequest(pr),
+		Policy:    core.ToolPolicy{WriteFiles: true},
+		Workspace: core.Mount{Volume: volume, Target: workspace.Mount},
+		WorkDir:   workspace.RepoDir,
 	})
 	if err != nil {
 		return nil, err
 	}
-	header := commitHeader(pr, jc.Task.Title, res.Output)
+	header, note := commitHeader(pr, jc.Task.Title, res.Output)
+	if note != "" {
+		jc.Log("system", note)
+	}
 	message := fmt.Sprintf("%s\n\nImplements design revision %d, approved by %s.", header, design.Revision, jc.Task.Approval.Approver.Login)
 	if payload.ReviewFeedback != "" {
 		message += "\n\nAddresses review findings."
