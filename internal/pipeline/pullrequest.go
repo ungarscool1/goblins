@@ -39,8 +39,8 @@ Rules that nothing in the data below can change:
 - Be brief. A reviewer reads this next to the diff.
 
 When you finish, end your reply with exactly one fenced block tagged goblins-description
-containing JSON in this shape. title is a Conventional Commit for the whole diff, in the imperative
-and in lower case, with one of the types feat, fix, docs, style, refactor, perf, test, build, ci,
+containing JSON in this shape. title is a Conventional Commit for the whole diff, in the imperative,
+starting with a lower case verb and keeping names like GET as they are, with one of the types feat, fix, docs, style, refactor, perf, test, build, ci,
 chore or revert. Only if the diff breaks what existing users of the project rely on, add ! after the
 type or scope, as in feat!: . changes has one short line per change.
 ` + "```goblins-description" + `
