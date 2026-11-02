@@ -19,7 +19,8 @@ inside job results.
 | `pr-open`          | Draft pull request exists, review queued                |
 | `reviewing`        | Independent review running                              |
 | `testing`          | Final validation of the pushed commit                   |
-| `completed`        | Report posted; nothing was merged                       |
+| `awaiting-review`  | Report posted; idle until something happens on the pull request |
+| `completed`        | The pull request was merged, or the report was the end (`stop_at_report`) |
 | `blocked`          | A person must act; the reason is on the task and ticket |
 | `quota-paused`     | Usage limit or login required; resumes on a timer       |
 | `failed`           | Unrecoverable; reported on the ticket                   |
@@ -36,8 +37,9 @@ inside job results.
 | `agent-ready`      | `implementing`, `investigating` (requirements changed)     |
 | `implementing`     | `pr-open`, `investigating` (requirements changed)          |
 | `pr-open`          | `reviewing`, `testing` (commit already reviewed)           |
-| `reviewing`        | `testing`, `implementing` (findings to correct), `completed` (review-only tasks) |
-| `testing`          | `completed`                                                |
+| `reviewing`        | `testing`, `implementing` (findings to correct), `awaiting-review`, `completed` (review-only tasks) |
+| `testing`          | `awaiting-review`, `completed` (`stop_at_report`)          |
+| `awaiting-review`  | `reviewing` (new head), `implementing` (actionable feedback), `completed` (merged), `cancelled` (closed) |
 | any active         | `blocked`, `quota-paused`, `failed`, `cancelled`           |
 | `blocked`, `quota-paused` | the state recorded when they were entered, or `investigating` if requirements changed meanwhile |
 
@@ -86,6 +88,8 @@ Delivery is at-least-once; effects are exactly-once *by idempotency*:
 
 ## Commands
 
+These also work in a comment on the pull request of a task.
+
 Commands must be alone on the first non-blank line of a new comment, from a person
 with at least `MinApprovePermission`:
 
@@ -129,6 +133,74 @@ the design: implementation still rechecks the approval.
 Automated reviews are published as comments and never as an approval or a change request, so they
 can neither satisfy nor block a person's branch protection, and each one says that it proves
 nothing about safety. Goblins' own reviews do not trigger anything, as they come from automation.
+
+## After the report
+
+A task follows its pull request until someone merges or closes it, which ends the task and removes
+its volumes. `policy.stop_at_report: true` ends it at the report instead.
+
+Each commit gets one status comment on the ticket: the pull request, the commit, the validation result
+and what stands between it and a merge. Later comments only come when that verdict changes.
+
+**Signals only prompt a look.** Any webhook or poll about the pull request, once deduplicated, queues
+one `reconcile` job. It asks the SCM where things stand now: head, reviews, threads, checks, changed
+files and branch protection. It runs no model. So a late, replayed or forged-looking delivery can do
+no more than cause a read, and webhooks and polling behave alike. Own remarks are recognized and
+ignored. Remarks by anyone below `min_input_permission`, or by automation not listed in
+`trusted_review_bots`, are withheld at this point, so they reach neither the workflow nor a prompt.
+
+**Findings** are normalized (path, line, severity, confidence, provenance, commit) and keep a stable
+ID, so seeing one again changes nothing. A remark on lines the head no longer has becomes `stale`: it is no longer work to do, but it holds up
+the merge gate until its reviewer resolves it.
+
+| What the reconcile finds                | What happens                                                    |
+| --------------------------------------- | --------------------------------------------------------------- |
+| New remark or change request text       | Correction round on the same pull request                       |
+| Failed check on this commit             | One correction round per commit                                 |
+| A head Goblins did not push             | Reviewed once. Validated from a fresh checkout of that commit   |
+| Merged / closed                         | `completed` / `cancelled`, volumes removed                      |
+| Nothing to act on                       | The merge policy is evaluated, and people told if the outcome changed |
+
+Corrections share `max_review_fix_loops` with automated reviews, and being sent to the implementer
+does not resolve anything: a finding stays `addressed`, and counts as unresolved, until the thread is
+resolved on the SCM. A branch that moved during a correction blocks the task, and resuming looks again.
+
+### Merge policy
+
+The gate is a pure function (`EvaluateGate`) reporting what stands between a commit and a merge:
+
+- the design revision is approved, and this commit passed validation;
+- no check failed or is running, and required checks reported (`required_checks`, plus what branch
+  protection requires);
+- no person has an active change request, and no remark by a person is unresolved;
+- `min_human_approvals` (default 1) people approved **this commit**, with `min_approve_permission`, on
+  the `approvers` list if there is one, and not being the author. Automation never counts;
+- with `require_branch_protection`, the base is known to be protected. Unknown is not protected.
+
+A change touching a sensitive area (authentication, cryptography, network, automation, plus
+`sensitive_paths`) is always reported as needing a person.
+
+**Goblins does not merge**, unless a project lists an `auto_merge` rule. A rule applies only when the
+whole change is inside its paths and touches nothing sensitive, and it cannot be configured to do
+without a person: it needs an approval of this commit, passing checks, a known set of files, and an
+SCM that merges exactly that commit. Passing tests and an automated review alone can never merge.
+
+```yaml
+policy:
+  trusted_review_bots: [some-reviewer[bot]]
+  merge:
+    required_checks: [test]
+    min_human_approvals: 1
+    approvers: [alice, bob]
+    require_branch_protection: true
+    sensitive_paths:
+      billing: ["internal/billing/**"]
+    auto_merge:
+      - {name: docs, paths: ["docs/**"], max_files: 5}
+```
+
+Issue #17 (quota-aware scheduling) is not implemented yet. Review and correction rounds use the same
+pausing as everything else: an exhausted agent moves the task to `quota-paused`.
 
 ## Storage
 

@@ -46,6 +46,16 @@ type SourceControl interface {
 	ReviewThreads(ctx context.Context, repo RepoRef, number string) ([]ReviewThread, error)
 	// StatusChecks requires CapSCMStatusChecks.
 	StatusChecks(ctx context.Context, repo RepoRef, sha string) ([]StatusCheck, error)
+	// ListReviews returns every review submitted on a pull request, oldest first.
+	ListReviews(ctx context.Context, repo RepoRef, number string) ([]Review, error)
+	// ChangedFiles returns the paths a pull request changes.
+	ChangedFiles(ctx context.Context, repo RepoRef, number string) ([]string, error)
+	// BranchProtection reports what the SCM enforces on a branch. Requires
+	// CapSCMBranchProtection.
+	BranchProtection(ctx context.Context, repo RepoRef, branch string) (BranchProtection, error)
+	// MergePullRequest merges exactly sha, and fails with KindConflict if the head has moved.
+	// Requires CapSCMMerge.
+	MergePullRequest(ctx context.Context, repo RepoRef, number, sha string) error
 }
 
 // EventSource normalizes external signals into canonical events. It reports

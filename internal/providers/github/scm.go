@@ -32,7 +32,9 @@ func NewSCM(name string, c *Client, gitBase string) *SCM {
 
 // Info implements core.Provider.
 func (s *SCM) Info() core.ProviderInfo {
-	return info(core.ProviderSCM, s.name, core.CapSCMPullRequests, core.CapSCMDraft, core.CapSCMInlineReview, core.CapSCMStatusChecks)
+	return info(core.ProviderSCM, s.name, core.CapSCMPullRequests, core.CapSCMDraft,
+		core.CapSCMInlineReview, core.CapSCMStatusChecks, core.CapSCMBranchProtection,
+		core.CapSCMMerge)
 }
 
 // GitAccess implements core.SourceControl. The token is scoped to this repository and
@@ -191,24 +193,39 @@ func (s *SCM) PostReview(ctx context.Context, repo core.RepoRef, number string, 
 
 // ReviewThreads implements core.SourceControl.
 func (s *SCM) ReviewThreads(ctx context.Context, repo core.RepoRef, number string) ([]core.ReviewThread, error) {
+	own, err := s.c.AppLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := []core.ReviewThread{}
 	var roots []int64
-	err := s.c.list(ctx, repo.Slug, "/repos/"+repo.Slug+"/pulls/"+number+"/comments?per_page=100", func(raw json.RawMessage) error {
-		var c struct {
-			ID        int64  `json:"id"`
-			InReplyTo int64  `json:"in_reply_to_id"`
-			Path      string `json:"path"`
-			Line      int    `json:"line"`
-			Body      string `json:"body"`
-			User      user   `json:"user"`
-		}
-		if err := json.Unmarshal(raw, &c); err != nil {
-			return core.Wrap(core.KindTransient, "github.threads", err)
-		}
-		out = append(out, core.ReviewThread{ID: strconv.FormatInt(c.ID, 10), Path: c.Path, Line: c.Line, Body: c.Body, Author: actorOf(c.User)})
-		roots = append(roots, cmp.Or(c.InReplyTo, c.ID))
-		return nil
-	})
+	err = s.c.list(ctx, repo.Slug, "/repos/"+repo.Slug+"/pulls/"+number+"/comments?per_page=100",
+		func(raw json.RawMessage) error {
+			var c struct {
+				ID        int64  `json:"id"`
+				InReplyTo int64  `json:"in_reply_to_id"`
+				Path      string `json:"path"`
+				Line      *int   `json:"line"`
+				Body      string `json:"body"`
+				User      user   `json:"user"`
+				Commit    string `json:"commit_id"`
+			}
+			if err := json.Unmarshal(raw, &c); err != nil {
+				return core.Wrap(core.KindTransient, "github.threads", err)
+			}
+			// GitHub keeps a remark but gives it no line once that line is gone from the head.
+			t := core.ReviewThread{ID: strconv.FormatInt(c.ID, 10), Path: c.Path,
+				Outdated: c.Line == nil,
+				Body:     c.Body, Author: actorOf(c.User), CommitSHA: c.Commit}
+			if c.Line != nil {
+				t.Line = *c.Line
+			}
+			t.Own = t.Author.Type == core.ActorBot && t.Author.Login == own
+			t.ThreadID = strconv.FormatInt(cmp.Or(c.InReplyTo, c.ID), 10)
+			out = append(out, t)
+			roots = append(roots, cmp.Or(c.InReplyTo, c.ID))
+			return nil
+		})
 	if err != nil || len(out) == 0 {
 		return out, err
 	}

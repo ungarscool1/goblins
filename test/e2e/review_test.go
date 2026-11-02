@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/ungarscool1/goblins/internal/core"
+	"github.com/ungarscool1/goblins/internal/providers/github/fakegithub"
 )
 
 const withReviewer = `
@@ -148,5 +150,169 @@ func TestProjectWithoutCodexNeverRunsIt(t *testing.T) {
 	}
 	if strconv.Itoa(e.agentRuns(implementerTools)) != "2" {
 		t.Fatalf("implementer rounds = %d", e.agentRuns(implementerTools))
+	}
+}
+
+// followsPullRequest makes tasks go on past their report, which is the default.
+func (e *env) followsPullRequest() {
+	e.t.Helper()
+	e.cfgYAML = bytes.Replace(e.cfgYAML, []byte(", stop_at_report: true"), nil, 1)
+	e.boot()
+}
+
+func (e *env) pullRequest() fakegithub.PullRequest {
+	e.t.Helper()
+	prs := e.gh.PullRequests(repo)
+	if len(prs) != 1 {
+		e.t.Fatalf("pull requests = %+v", prs)
+	}
+	return prs[0]
+}
+
+func (e *env) requestChanges(id int, body string, sha string) {
+	e.t.Helper()
+	pr := e.pullRequest()
+	e.gh.AddReview(repo, pr.Number, maintainer, sha, "CHANGES_REQUESTED", body)
+	e.deliverReview(id, pr, sha, body)
+}
+
+func (e *env) deliverReview(id int, pr fakegithub.PullRequest, sha, body string) {
+	e.deliver("pull_request_review", map[string]any{"action": "submitted", "pull_request": pr, "sender": maintainer,
+		"review": map[string]any{"id": id, "state": "changes_requested", "commit_id": sha, "body": body, "user": maintainer}})
+}
+
+// The acceptance scenario of review orchestration: a person's review and then a test failure
+// each cause one correction on the same pull request, a replay causes nothing, a change to
+// sensitive code stays with a person after approval, and only the merge ends the task.
+func TestReviewAndCIFailureDriveCorrectionsUntilAPersonMerges(t *testing.T) {
+	e := setup(t)
+	e.followsPullRequest()
+	e.approve()
+	task := e.wantState(core.StateAwaitingReview)
+	if task.Gate == nil || task.Gate.State != core.GateWaiting {
+		t.Fatalf("gate = %+v", task.Gate)
+	}
+	pr := e.pullRequest()
+	first := task.HeadSHA
+	runs := e.agentRuns(implementerTools)
+
+	// A change request becomes a correction on the same pull request.
+	e.requestChanges(501, "please handle the empty case", first)
+	e.settle()
+	e.boot()
+	e.settle()
+	task = e.wantState(core.StateAwaitingReview)
+	if task.HeadSHA == first || e.agentRuns(implementerTools) != runs+1 {
+		t.Fatalf("head %s, implementer rounds %d", task.HeadSHA, e.agentRuns(implementerTools))
+	}
+	if !strings.Contains(e.prompts(), "please handle the empty case") {
+		t.Fatal("the request did not reach the implementer")
+	}
+	if pushed := gitIn(t, e.bare, "rev-parse", "refs/heads/goblins/"+task.ID); pushed != task.HeadSHA {
+		t.Fatalf("pushed %s, task at %s", pushed, task.HeadSHA)
+	}
+	if len(e.gh.PullRequests(repo)) != 1 {
+		t.Fatal("a second pull request was opened")
+	}
+
+	// Replays cause no more work, and no more words.
+	runs = e.agentRuns(implementerTools)
+	comments := e.botComments()
+	for range 3 {
+		e.deliverReview(501, pr, first, "please handle the empty case")
+	}
+	e.settle()
+	if e.agentRuns(implementerTools) != runs || e.botComments() != comments {
+		t.Fatalf("a replay had an effect: %d rounds", e.agentRuns(implementerTools))
+	}
+
+	// The change request by that person still stands, whatever was pushed since.
+	if got := strings.Join(task.Gate.Reasons, "\n"); !strings.Contains(got, "requested changes") {
+		t.Fatalf("reasons = %s", got)
+	}
+
+	// A failing check on the new commit causes one correction.
+	e.gh.SetCheckRun(repo, task.HeadSHA, "unit", "completed", "failure")
+	checkEvent := map[string]any{"action": "completed", "sender": fakegithub.BotUser, "check_run": map[string]any{
+		"id": 77, "name": "unit", "head_sha": task.HeadSHA, "conclusion": "failure",
+		"pull_requests": []map[string]any{{"number": pr.Number}}}}
+	e.deliver("check_run", checkEvent)
+	e.settle()
+	e.boot()
+	e.settle()
+	second := e.wantState(core.StateAwaitingReview)
+	if second.HeadSHA == task.HeadSHA || e.agentRuns(implementerTools) != runs+1 {
+		t.Fatalf("head %s, implementer rounds %d", second.HeadSHA, e.agentRuns(implementerTools))
+	}
+	if !strings.Contains(e.prompts(), "These checks failed on commit "+task.HeadSHA) {
+		t.Fatalf("the failure did not reach the implementer:\n%s", e.prompts())
+	}
+
+	// Sensitive code stays with a person, even once everything is approved and green.
+	e.gh.SetFiles(repo, pr.Number, "internal/auth/token.go")
+	e.gh.SetCheckRun(repo, second.HeadSHA, "unit", "completed", "success")
+	e.gh.AddReview(repo, pr.Number, maintainer, second.HeadSHA, "APPROVED", "fine by me")
+	e.deliver("pull_request_review", map[string]any{"action": "submitted", "pull_request": e.pullRequest(), "sender": maintainer,
+		"review": map[string]any{"id": 502, "state": "approved", "commit_id": second.HeadSHA, "user": maintainer}})
+	e.settle()
+	third := e.wantState(core.StateAwaitingReview)
+	if third.Gate == nil || !slices.Contains(third.Gate.Categories, "authentication") {
+		t.Fatalf("gate = %+v", third.Gate)
+	}
+	if !strings.Contains(e.botComments(), "a person has to look at") {
+		t.Fatalf("people were not told:\n%s", e.botComments())
+	}
+	for _, r := range e.gh.Requests {
+		if strings.HasSuffix(r, "/merge") {
+			t.Fatalf("merge attempted: %s", r)
+		}
+	}
+
+	// The merge by a person ends the task, and everything temporary with it.
+	closed := e.gh.ClosePullRequest(repo, pr.Number, true)
+	e.deliver("pull_request", map[string]any{"action": "closed", "pull_request": closed, "sender": maintainer})
+	e.settle()
+	e.wantState(core.StateCompleted)
+	if _, err := os.Stat(e.rt.VolumePath("goblins-e2e-" + task.ID + "-impl")); err == nil {
+		t.Fatal("workspace volume left behind")
+	}
+}
+
+func TestPushBySomeoneElseIsCheckedOutReviewedAndValidated(t *testing.T) {
+	e := setup(t)
+	e.followsPullRequest()
+	e.useCodex(true)
+	e.approve()
+	task := e.wantState(core.StateAwaitingReview)
+	pr := e.pullRequest()
+	runs := e.codexRuns()
+
+	// Someone pushes to the branch themselves.
+	clone := filepath.Join(t.TempDir(), "clone")
+	gitIn(t, e.root, "clone", "-q", "-b", "goblins/"+task.ID, e.bare, clone)
+	if err := os.WriteFile(filepath.Join(clone, "feature.txt"), []byte("fixed by hand, reviewed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, clone, "add", "-A")
+	gitIn(t, clone, "-c", "user.name=A", "-c", "user.email=a@example.invalid", "commit", "-qm", "by hand")
+	gitIn(t, clone, "push", "-q", "origin", "goblins/"+task.ID)
+	pushed := gitIn(t, clone, "rev-parse", "HEAD")
+
+	moved := e.pullRequest()
+	moved.Head.SHA = pushed
+	for range 2 {
+		e.deliver("pull_request", map[string]any{"action": "synchronize", "pull_request": moved, "sender": maintainer})
+	}
+	e.settle()
+	task = e.wantState(core.StateAwaitingReview)
+	if task.HeadSHA != pushed || task.ValidatedSHA != pushed {
+		t.Fatalf("head %s, validated %s, pushed %s", task.HeadSHA, task.ValidatedSHA, pushed)
+	}
+	if e.codexRuns() != runs+1 {
+		t.Fatalf("reviews = %d, want one more than %d", e.codexRuns(), runs)
+	}
+	reviews := e.gh.Reviews(repo, pr.Number)
+	if got := reviews[len(reviews)-1]["commit_id"]; got != pushed {
+		t.Fatalf("reviewed %v", got)
 	}
 }

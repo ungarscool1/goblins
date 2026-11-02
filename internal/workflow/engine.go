@@ -53,7 +53,8 @@ func (e *Engine) lease() time.Duration {
 func needsPermission(ev core.Event) bool {
 	switch ev.Type {
 	case core.EventIssueOpened, core.EventIssueLabeled, core.EventIssueEdited,
-		core.EventCommentCreated, core.EventCommentEdited, core.EventPROpened, core.EventPRReopened:
+		core.EventCommentCreated, core.EventCommentEdited, core.EventPROpened, core.EventPRReopened,
+		core.EventPRReviewed, core.EventReviewComment:
 		return ev.Actor.Type == core.ActorHuman
 	}
 	return false
@@ -98,11 +99,8 @@ func (e *Engine) process(ctx context.Context, ev core.Event, now time.Time) erro
 		e.Log.Warn("event for an unknown project dropped", "project", ev.Project, "seq", ev.Seq)
 		return e.Store.Commit(ctx, core.StateCommit{EventSeq: ev.Seq, EventOwner: e.Owner, Now: now})
 	}
-	var current *core.Task
-	switch t, err := e.Store.FindTask(ctx, ev.Project, ev.Subject); {
-	case err == nil:
-		current = &t
-	case !core.IsKind(err, core.KindNotFound):
+	current, err := e.findTask(ctx, ev)
+	if err != nil {
 		return err
 	}
 
@@ -154,6 +152,30 @@ func (e *Engine) process(ctx context.Context, ev core.Event, now time.Time) erro
 		e.Log.Info("task transition", "task", d.Task.ID, "from", d.From, "to", d.Task.State, "reason", d.Reason)
 	}
 	return nil
+}
+
+// findTask returns the task an event is about, if any. A signal about a pull request belongs
+// to the task that opened it, whose subject is the ticket it came from.
+func (e *Engine) findTask(ctx context.Context, ev core.Event) (*core.Task, error) {
+	t, err := e.Store.FindTask(ctx, ev.Project, ev.Subject)
+	if err == nil {
+		return &t, nil
+	}
+	if !core.IsKind(err, core.KindNotFound) {
+		return nil, err
+	}
+	if ev.Subject.Kind != core.SubjectPullRequest {
+		return nil, nil //nolint:nilnil // no task yet is an answer, not a failure
+	}
+	s := ev.Subject
+	t, err = e.Store.FindTaskByPullRequest(ctx, ev.Project, s.Container, s.ExternalID)
+	if core.IsKind(err, core.KindNotFound) {
+		return nil, nil //nolint:nilnil // no task yet is an answer, not a failure
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
 }
 
 // JobOutcomeEvent builds the event reporting a job's end. Its dedup key makes a

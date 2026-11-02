@@ -62,6 +62,10 @@ type Project struct {
 	AllowSkippedReview bool
 	// MinInput is the access a commenter needs for their words to reach the planner.
 	MinInput core.Permission
+	// MinApprove is the access a reviewer needs for an approval to count.
+	MinApprove core.Permission
+	// TrustedReviewBots are automated reviewers whose remarks count as review input.
+	TrustedReviewBots []string
 }
 
 // Pipeline resolves projects and exposes the handlers.
@@ -82,6 +86,8 @@ func (p *Pipeline) Handlers() map[core.JobKind]scheduler.Handler {
 		workflow.JobValidate:  p.validate,
 		workflow.JobPublish:   p.publish,
 		workflow.JobReview:    p.review,
+		workflow.JobReconcile: p.reconcile,
+		workflow.JobMerge:     p.merge,
 		workflow.JobComment:   p.comment,
 		workflow.JobNotify:    p.notify,
 		workflow.JobCleanup:   p.cleanup,
@@ -359,6 +365,9 @@ func (p *Pipeline) implement(ctx context.Context, jc scheduler.JobContext) (any,
 	if _, err := p.prepare(ctx, jc, pr, runtime, volume, branch, true); err != nil {
 		return nil, err
 	}
+	if err := p.syncWorkspace(ctx, jc, pr, jc.Task.HeadSHA); err != nil {
+		return nil, err
+	}
 	res, err := p.runAgent(ctx, jc, pr.Implementer, core.RoleImplementer, core.AgentRequest{
 		SystemPrompt: implementerSystem,
 		Prompt:       ImplementerPrompt(issue, design, payload.Feedback, payload.ReviewFeedback),
@@ -403,6 +412,9 @@ func (p *Pipeline) validate(ctx context.Context, jc scheduler.JobContext) (any, 
 		return workflow.ValidateResult{Report: core.ValidationReport{Status: core.ValidationSkipped, Summary: "no validation is configured for this project"}, Skipped: true}, nil
 	}
 	runtime := pr.Implementer.Runtime
+	if err := p.syncWorkspace(ctx, jc, pr, payload.SHA); err != nil {
+		return nil, err
+	}
 	scratch := p.volume(jc.Task, "scratch")
 	if err := runtime.EnsureVolume(ctx, scratch, map[string]string{scheduler.LabelInstallation: p.Installation, scheduler.LabelTask: jc.Task.ID}); err != nil {
 		return nil, err
