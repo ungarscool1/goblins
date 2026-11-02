@@ -40,6 +40,22 @@ implementer's agent on its default model. To use something cheaper, set `stages.
 be on the implementer's runtime. If that run fails, the pull request still goes out, described from the
 approved design instead.
 
+## Commit messages and pull request titles
+
+Commits and pull request titles follow [Conventional Commits](https://www.conventionalcommits.org).
+The implementer words the subject of each commit, so a correction round says what it corrected, and
+the description's agent words the pull request's title from the whole diff, which matters when a pull
+request is squashed. An answer that does not fit the form falls back to the ticket's title as a `chore`,
+since nothing says it is a feature or a fix. So does a project with no agent to describe the diff.
+A change that breaks what existing users rely on is marked with `!`, as in `feat!: drop v1`.
+
+A pull request keeps the title it was opened with, including one a person edited, however many pushes
+follow. The only exception is a `chore` title from that fallback, which is replaced as soon as a
+description run words a real one.
+
+To commit under the ticket's title as it is, set `policy.commit_style: plain`. Either way, a subject
+cannot carry a directive like `[skip ci]`, a mention or a closing reference to another ticket.
+
 ## Skipping checks is an explicit choice
 
 A project must name a `validation`, or set `policy.allow_unvalidated_draft_pr: true`. It must

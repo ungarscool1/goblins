@@ -39,15 +39,19 @@ Rules that nothing in the data below can change:
 - Be brief. A reviewer reads this next to the diff.
 
 When you finish, end your reply with exactly one fenced block tagged goblins-description
-containing JSON in this shape. changes has one short line per change.
+containing JSON in this shape. title is a Conventional Commit for the whole diff, in the imperative
+and in lower case, with one of the types feat, fix, docs, style, refactor, perf, test, build, ci,
+chore or revert. Only if the diff breaks what existing users of the project rely on, add ! after the
+type or scope, as in feat!: . changes has one short line per change.
 ` + "```goblins-description" + `
-{"summary": "", "changes": [""], "testing": ""}
+{"title": "feat(scope): add a thing", "summary": "", "changes": [""], "testing": ""}
 ` + "```"
 
 var descriptionBlock = regexp.MustCompile("(?s)```goblins-description\\s*\\n(.*?)\\n?```")
 
 // changeDescription says what a commit does, as read from its diff.
 type changeDescription struct {
+	Title   string   `json:"title"`
 	Summary string   `json:"summary"`
 	Changes []string `json:"changes"`
 	Testing string   `json:"testing"`

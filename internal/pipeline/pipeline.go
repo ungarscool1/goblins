@@ -56,6 +56,9 @@ type Project struct {
 	GitImage        string
 	Identity        workspace.Identity
 	WebResearch     bool
+	// PlainCommits words commits and pull request titles as the ticket's title, rather than as
+	// Conventional Commits.
+	PlainCommits bool
 	// AllowUnvalidated accepts pull requests from commits nothing tested, if no validation
 	// is configured. AllowSkippedReview likewise accepts having no independent reviewer.
 	AllowUnvalidated   bool
@@ -371,7 +374,7 @@ func (p *Pipeline) implement(ctx context.Context, jc scheduler.JobContext) (any,
 		return nil, err
 	}
 	res, err := p.runAgent(ctx, jc, pr.Implementer, core.RoleImplementer, core.AgentRequest{
-		SystemPrompt: implementerSystem,
+		SystemPrompt: implementerInstructions(pr),
 		Prompt:       ImplementerPrompt(issue, design, payload.Feedback, payload.ReviewFeedback),
 		Policy:       core.ToolPolicy{WriteFiles: true},
 		Workspace:    core.Mount{Volume: volume, Target: workspace.Mount},
@@ -380,7 +383,8 @@ func (p *Pipeline) implement(ctx context.Context, jc scheduler.JobContext) (any,
 	if err != nil {
 		return nil, err
 	}
-	message := fmt.Sprintf("%s\n\nImplements design revision %d, approved by %s.", jc.Task.Title, design.Revision, jc.Task.Approval.Approver.Login)
+	header := commitHeader(pr, jc.Task.Title, res.Output)
+	message := fmt.Sprintf("%s\n\nImplements design revision %d, approved by %s.", header, design.Revision, jc.Task.Approval.Approver.Login)
 	if payload.ReviewFeedback != "" {
 		message += "\n\nAddresses review findings."
 	}
@@ -480,9 +484,14 @@ func (p *Pipeline) publish(ctx context.Context, jc scheduler.JobContext) (any, e
 		return nil, err
 	}
 	change := p.describeChange(ctx, jc, pr, design.Body, payload.SHA, branch)
+	title, err := publishedTitle(ctx, pr, jc.Task, change)
+	if err != nil {
+		return nil, err
+	}
 	pull, created, err := pr.SCM.EnsurePullRequest(ctx, core.PullRequestDraft{
 		IdempotencyKey: jc.Task.ID + "/pr", Repo: pr.Repo, Head: branch, Base: pr.BaseBranch, Draft: true,
-		Title: jc.Task.Title, Body: pullRequestBody(jc.Task, design.Body, change, issue, payload),
+		Title: title,
+		Body:  pullRequestBody(jc.Task, design.Body, change, issue, payload),
 	})
 	if err != nil {
 		return nil, err
