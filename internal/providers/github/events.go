@@ -133,6 +133,7 @@ type pullRequest struct {
 	Title   string `json:"title"`
 	State   string `json:"state"`
 	Draft   bool   `json:"draft"`
+	Merged  bool   `json:"merged"`
 	HTMLURL string `json:"html_url"`
 	User    user   `json:"user"`
 	Head    struct {
@@ -142,13 +143,15 @@ type pullRequest struct {
 	Base struct {
 		Ref string `json:"ref"`
 	} `json:"base"`
+	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func (p pullRequest) canonical(repo string) core.PullRequest {
 	return core.PullRequest{
 		Repo: core.RepoRef{Slug: repo}, Number: strconv.FormatInt(p.Number, 10), URL: p.HTMLURL, Title: p.Title, Head: p.Head.Ref, HeadSHA: p.Head.SHA,
-		Base: p.Base.Ref, Draft: p.Draft, Open: p.State == "open", Author: actorOf(p.User),
+		Base: p.Base.Ref, Draft: p.Draft, Open: p.State == "open", Merged: p.Merged,
+		Author:   actorOf(p.User),
 		FetchRef: "refs/pull/" + strconv.FormatInt(p.Number, 10) + "/head",
 	}
 }
@@ -166,12 +169,8 @@ type payload struct {
 	Comment     *comment     `json:"comment"`
 	PullRequest *pullRequest `json:"pull_request"`
 	Label       *label       `json:"label"`
-	Review      *struct {
-		ID          int64     `json:"id"`
-		State       string    `json:"state"`
-		SubmittedAt time.Time `json:"submitted_at"`
-	} `json:"review"`
-	CheckRun *struct {
+	Review      *review      `json:"review"`
+	CheckRun    *struct {
 		ID         int64     `json:"id"`
 		Name       string    `json:"name"`
 		HeadSHA    string    `json:"head_sha"`
@@ -249,6 +248,8 @@ func prEvent(repo string, typ core.EventType, p pullRequest, actor core.Actor) c
 		key = "sync:" + p.Head.SHA
 	case core.EventPRReopened:
 		key = "reopened:" + strconv.FormatInt(p.UpdatedAt.Unix(), 10)
+	case core.EventPRClosed:
+		key = "closed:" + strconv.FormatInt(p.UpdatedAt.Unix(), 10)
 	}
 	return core.Event{Type: typ, Subject: prSubject(repo, p.Number), Actor: actor, PullRequest: &c, OccurredAt: p.UpdatedAt,
 		DedupKey: fmt.Sprintf("github:%s:pr:%d:%s", repo, p.Number, key)}
@@ -288,18 +289,15 @@ func normalize(event string, p payload, repo string) []core.Event {
 			return []core.Event{prEvent(repo, core.EventPRSynchronized, *p.PullRequest, actor)}
 		case "reopened":
 			return []core.Event{prEvent(repo, core.EventPRReopened, *p.PullRequest, actor)}
+		case "closed":
+			return []core.Event{prEvent(repo, core.EventPRClosed, *p.PullRequest, actor)}
 		}
-	case event == "pull_request_review" && p.Action == "submitted" && p.PullRequest != nil && p.Review != nil:
-		c := p.PullRequest.canonical(repo)
-		verdict := core.VerdictComment
-		switch p.Review.State {
-		case "approved":
-			verdict = core.VerdictApprove
-		case "changes_requested":
-			verdict = core.VerdictChangesRequested
+	case event == "pull_request_review_comment" && p.Action == "created" && p.PullRequest != nil && p.Comment != nil:
+		return []core.Event{reviewCommentEvent(repo, *p.PullRequest, *p.Comment)}
+	case event == "pull_request_review" && p.PullRequest != nil && p.Review != nil:
+		if p.Action == "submitted" || p.Action == "dismissed" {
+			return []core.Event{reviewEvent(repo, *p.PullRequest, p.Action, *p.Review, actor)}
 		}
-		return []core.Event{{Type: core.EventPRReviewed, Subject: prSubject(repo, p.PullRequest.Number), Actor: actor, PullRequest: &c, Verdict: verdict,
-			OccurredAt: p.Review.SubmittedAt, DedupKey: fmt.Sprintf("github:%s:review:%d", repo, p.Review.ID)}}
 	case event == "check_run" && p.Action == "completed" && p.CheckRun != nil:
 		state := core.CheckFailed
 		if p.CheckRun.Conclusion == "success" || p.CheckRun.Conclusion == "neutral" || p.CheckRun.Conclusion == "skipped" {
@@ -448,20 +446,17 @@ func (s *Source) Poll(ctx context.Context, req core.PollRequest) (core.PollResul
 		return core.PollResult{}, err
 	}
 
-	err = s.c.list(ctx, repo, "/repos/"+repo+"/pulls?state=open&sort=updated&direction=desc&per_page=100", func(raw json.RawMessage) error {
-		var p pullRequest
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return core.Wrap(core.KindTransient, "github.poll", err)
-		}
-		if p.UpdatedAt.Before(since) {
-			return errStopList // newest first, so nothing further can be relevant
-		}
-		seen(p.UpdatedAt)
-		evs = append(evs, prEvent(repo, core.EventPROpened, p, actorOf(p.User)))
-		return nil
-	})
+	prs, err := s.updatedPulls(ctx, repo, since)
 	if err != nil {
 		return core.PollResult{}, err
+	}
+	for _, p := range prs {
+		seen(p.UpdatedAt)
+		pevs, err := s.pullEvents(ctx, repo, p, since)
+		if err != nil {
+			return core.PollResult{}, err
+		}
+		evs = append(evs, pevs...)
 	}
 	for i := range evs {
 		evs[i].Source = s.name

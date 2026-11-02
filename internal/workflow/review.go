@@ -24,12 +24,6 @@ func (m *machine) onPublishDone(o *core.JobOutcome) {
 	if pr.HeadSHA != "" {
 		m.t.HeadSHA = pr.HeadSHA
 	}
-	if res.Created {
-		m.comment(fmt.Sprintf("Draft pull request opened: %s", prLink(pr)))
-	} else {
-		m.comment(fmt.Sprintf("Pull request updated: %s, now at commit `%s`.", prLink(pr),
-			m.t.HeadSHA))
-	}
 	m.moveTo(core.StatePROpen, "pull request "+pr.Number+" open")
 	if m.t.ReviewedKey == reviewKey(m.t.HeadSHA) {
 		m.startFinalValidation("this commit was already reviewed")
@@ -59,7 +53,11 @@ func (m *machine) onReviewDone(o *core.JobOutcome) {
 	if m.t.Kind == core.TaskReviewOnly {
 		// Publishing the review was the whole job; what to do about it is the author's call.
 		m.t.CurrentJob = nil
-		m.moveTo(core.StateCompleted, "review published")
+		if m.p.StopAtReport {
+			m.moveTo(core.StateCompleted, "review published")
+			return
+		}
+		m.moveTo(core.StateAwaitingReview, "review published")
 		return
 	}
 	actionable := m.actionable(res.Result.Findings)
@@ -88,6 +86,12 @@ func (m *machine) actionable(findings []core.ReviewFinding) []core.ReviewFinding
 // The approval still has to hold, as the findings are data and cannot widen the design.
 func (m *machine) correct(res core.ReviewResult, findings []core.ReviewFinding, sha string) {
 	feedback := RenderReviewFeedback(findings, sha)
+	m.sendBack(cmp.Or(res.Provider, "the reviewer"), feedback, findings, sha)
+}
+
+// sendBack queues a correction round from a source that a person can recognize.
+func (m *machine) sendBack(source, feedback string, findings []core.ReviewFinding, sha string) {
+	m.t.PendingReport = "" // it describes the commit being replaced
 	retry := ImplementPayload{Revision: m.t.DesignRevision, Hash: m.t.DesignHash,
 		ReviewFeedback: feedback}
 	if m.t.Approval == nil {
@@ -99,16 +103,17 @@ func (m *machine) correct(res core.ReviewResult, findings []core.ReviewFinding, 
 		m.t.CurrentJob = &core.JobDraft{Kind: JobImplement, IdempotencyKey: m.nextKey(JobImplement),
 			Payload: mustJSON(retry), LimitKey: m.p.ImplementerLimitKey, MaxAttempts: 3}
 		m.t.CorrectionFeedback = feedback
-		m.blockWithDetail(fmt.Sprintf("the review still raises %d findings after %d correction rounds", len(findings), m.p.MaxReviewFixLoops), RenderFindingList(findings))
+		m.blockWithDetail(fmt.Sprintf("the review still raises findings after %d correction rounds",
+			m.p.MaxReviewFixLoops), RenderFindingList(findings))
 		return
 	}
 	m.t.Loops["review_fix"]++
 	m.t.Loops["implement"] = 1
 	m.t.CorrectionFeedback = feedback
 	m.enqueueMain(JobImplement, retry, m.p.ImplementerLimitKey, 3)
-	m.moveTo(core.StateImplementing, fmt.Sprintf("review raised %d findings on %s", len(findings),
-		sha))
-	m.comment(fmt.Sprintf("The review by %s raised %d findings on `%s`. Correction round %d of %d is queued.", cmp.Or(res.Provider, "the reviewer"), len(findings), sha, m.t.Loops["review_fix"], m.p.MaxReviewFixLoops))
+	m.moveTo(core.StateImplementing, fmt.Sprintf("feedback on %s from %s", sha, source))
+	m.comment(m.pullRequestLine() + fmt.Sprintf("Feedback from %s on `%s`: %d findings. Correction round %d of %d is queued.",
+		source, sha, len(findings), m.t.Loops["review_fix"], m.p.MaxReviewFixLoops))
 }
 
 func (m *machine) startFinalValidation(reason string) {

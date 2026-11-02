@@ -101,3 +101,48 @@ func TestRebind(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestFindTaskByPullRequest(t *testing.T) {
+	ctx := context.Background()
+	s, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "g.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	now := time.Unix(1000, 0).UTC()
+	add := func(id string, state core.State, number string) {
+		t.Helper()
+		seq := appendForTest(t, s, id)
+		task := core.Task{ID: id, Project: "p", Kind: core.TaskIssue, State: state, CreatedAt: now,
+			Subject:     core.Subject{Kind: core.SubjectIssue, Container: "o/r", ExternalID: id},
+			PullRequest: &core.PullRequest{Repo: core.RepoRef{Slug: "o/r"}, Number: number}}
+		if err := s.Commit(ctx, core.StateCommit{EventSeq: seq, EventOwner: "o", Task: &task, Now: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("a", core.StateAwaitingReview, "7")
+	add("b", core.StateCompleted, "8")
+	got, err := s.FindTaskByPullRequest(ctx, "p", "o/r", "7")
+	if err != nil || got.ID != "a" {
+		t.Fatalf("task = %+v, %v", got, err)
+	}
+	for _, tc := range [][3]string{{"p", "o/r", "8"}, {"p", "o/r", "9"}, {"p", "o/other", "7"}, {"q", "o/r", "7"}} {
+		if _, err := s.FindTaskByPullRequest(ctx, tc[0], tc[1], tc[2]); !core.IsKind(err, core.KindNotFound) {
+			t.Errorf("%v: %v", tc, err)
+		}
+	}
+}
+
+func appendForTest(t *testing.T, s *Store, key string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Unix(1000, 0).UTC()
+	if _, _, err := s.AppendEvent(ctx, core.Event{Project: "p", Type: core.EventIssueOpened, DedupKey: key, Subject: core.Subject{ExternalID: key}, ReceivedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	ev, err := s.ClaimEvent(ctx, "o", time.Minute, now)
+	if err != nil || ev == nil {
+		t.Fatalf("claim: %+v, %v", ev, err)
+	}
+	return ev.Seq
+}

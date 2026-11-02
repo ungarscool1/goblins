@@ -144,7 +144,7 @@ projects:
     event_sources: [forge]
     repository: %[5]s
     validation: checks
-    policy: {allow_skipped_review: true}
+    policy: {allow_skipped_review: true, stop_at_report: true}
     workspace: {git_image: %[6]s}
     stages:
       planner: {agent: claude, runtime: engine}

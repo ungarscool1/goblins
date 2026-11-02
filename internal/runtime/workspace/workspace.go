@@ -120,7 +120,8 @@ func base(name, image, volume string, labels map[string]string, network core.Net
 func InspectSpec(name, image, volume string, labels map[string]string) core.WorkloadSpec {
 	script := preamble + `
 if [ -f /workspace/.goblins-base ]; then
-  result "{\"prepared\":true,\"base_sha\":\"$(cat /workspace/.goblins-base)\"}"
+  head=$(git -c safe.directory='*' -C /workspace/repo rev-parse HEAD)
+  result "{\"prepared\":true,\"base_sha\":\"$(cat /workspace/.goblins-base)\",\"head_sha\":\"$head\"}"
 else
   result '{"prepared":false}'
 fi

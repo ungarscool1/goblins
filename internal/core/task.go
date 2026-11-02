@@ -19,6 +19,7 @@ const (
 	StatePROpen         State = "pr-open"
 	StateReviewing      State = "reviewing"
 	StateTesting        State = "testing"
+	StateAwaitingReview State = "awaiting-review"
 	StateCompleted      State = "completed"
 	StateBlocked        State = "blocked"
 	StateFailed         State = "failed"
@@ -81,6 +82,15 @@ type Task struct {
 	// ReviewedKey identifies the commit and review prompt version last reviewed, so that
 	// nothing reviews the same thing twice.
 	ReviewedKey string `json:"reviewed_key,omitempty"`
+	// Findings are the normalized review remarks on the pull request, bounded.
+	Findings []ReviewFinding `json:"findings,omitempty"`
+	// Gate is the merge policy's latest verdict; GateDigest what was last told to people.
+	Gate       *MergeGate `json:"gate,omitempty"`
+	GateDigest string     `json:"gate_digest,omitempty"`
+	// PendingReport is a report that goes out with the merge policy's next verdict.
+	PendingReport string `json:"pending_report,omitempty"`
+	// ChecksHandledSHA is the commit whose failed CI was already sent to the implementer.
+	ChecksHandledSHA string `json:"checks_handled_sha,omitempty"`
 	// CorrectionFeedback is what the review asked of the implementer in the current round.
 	CorrectionFeedback string       `json:"correction_feedback,omitempty"`
 	PullRequest        *PullRequest `json:"pull_request,omitempty"`
@@ -242,6 +252,8 @@ type StateStore interface {
 
 	GetTask(ctx context.Context, id string) (Task, error)
 	FindTask(ctx context.Context, project string, subject Subject) (Task, error)
+	// FindTaskByPullRequest finds the unfinished task that opened a pull request.
+	FindTaskByPullRequest(ctx context.Context, project, container, number string) (Task, error)
 	ListTasks(ctx context.Context, project string) ([]Task, error)
 	// DueTasks lists tasks paused until a time that has passed.
 	DueTasks(ctx context.Context, now time.Time) ([]Task, error)
@@ -279,4 +291,6 @@ type StateStore interface {
 }
 
 // IsWaiting reports whether the task is idle until a person replies.
-func (s State) IsWaiting() bool { return s == StateWaitingForUser || s == StateDesignProposed }
+func (s State) IsWaiting() bool {
+	return s == StateWaitingForUser || s == StateDesignProposed || s == StateAwaitingReview
+}

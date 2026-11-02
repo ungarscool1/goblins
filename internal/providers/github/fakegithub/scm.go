@@ -23,6 +23,7 @@ type PullRequest struct {
 	Body      string    `json:"body"`
 	State     string    `json:"state"`
 	Draft     bool      `json:"draft"`
+	Merged    bool      `json:"merged"`
 	User      User      `json:"user"`
 	Head      gitRef    `json:"head"`
 	Base      gitRef    `json:"base"`
@@ -81,6 +82,17 @@ func (s *Server) routeSCM(w http.ResponseWriter, r *http.Request, repo string, s
 			return true
 		}
 		writeJSON(w, 200, map[string]any{"name": seg[1], "commit": map[string]string{"sha": sha}})
+	case seg[0] == "branches" && len(seg) == 3 && seg[2] == "protection" && r.Method == http.MethodGet:
+		if s.ProtectionDenied {
+			fail(w, 403, "Resource not accessible by integration")
+			return true
+		}
+		p, ok := st.protection[seg[1]]
+		if !ok {
+			fail(w, 404, "Branch not protected")
+			return true
+		}
+		writeJSON(w, 200, p)
 	case seg[0] == "commits" && len(seg) == 2:
 		writeJSON(w, 200, map[string]any{"sha": seg[1], "commit": map[string]any{"message": "commit " + seg[1], "author": map[string]string{"name": "someone"}}})
 	case seg[0] == "commits" && len(seg) == 3 && seg[2] == "check-runs":
@@ -202,6 +214,24 @@ func (s *Server) routePulls(w http.ResponseWriter, r *http.Request, repo string,
 					"state": state, "commit_id": rev["commit_id"]})
 			}
 			writeJSON(w, 200, out)
+		case len(seg) == 3 && seg[2] == "files" && r.Method == http.MethodGet:
+			out := []map[string]any{}
+			for _, f := range st.files[n] {
+				out = append(out, map[string]any{"filename": f})
+			}
+			writeJSON(w, 200, out)
+		case len(seg) == 3 && seg[2] == "merge" && r.Method == http.MethodPut:
+			var b struct {
+				SHA string `json:"sha"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&b)
+			if b.SHA != p.Head.SHA {
+				fail(w, 409, "Head branch was modified")
+				return
+			}
+			s.Merges = append(s.Merges, b.SHA)
+			p.State, p.Merged, p.UpdatedAt = "closed", true, now
+			writeJSON(w, 200, map[string]any{"merged": true})
 		case len(seg) == 3 && seg[2] == "comments" && r.Method == http.MethodGet:
 			writeJSON(w, 200, append(reviewComments(st.reviews[n]), st.replies[n]...))
 		default:
@@ -212,6 +242,9 @@ func (s *Server) routePulls(w http.ResponseWriter, r *http.Request, repo string,
 	}
 }
 
+// reviewCommentID gives each inline comment an ID of its own, as GitHub does.
+func reviewCommentID(review, comment int) int { return review*1000 + comment + 1 }
+
 func reviewComments(reviews []map[string]any) []map[string]any {
 	out := []map[string]any{}
 	for r, rev := range reviews {
@@ -221,13 +254,19 @@ func reviewComments(reviews []map[string]any) []map[string]any {
 		}
 		for i, comment := range comments {
 			m, _ := comment.(map[string]any)
+			author, ok := rev["user"]
+			if !ok {
+				author = BotUser
+			}
 			out = append(out, map[string]any{
-				"id":   i + 1,
+				"id":   reviewCommentID(r, i),
 				"path": m["path"],
 				"line": m["line"],
 				"body": m["body"],
-				"user": BotUser,
+				"user": author,
 
+				"commit_id":              rev["commit_id"],
+				"created_at":             rev["submitted_at"],
 				"pull_request_review_id": r + 1,
 			})
 		}
@@ -246,7 +285,30 @@ func (s *Server) AddReview(repo string, n int64, author User, commit, state, bod
 		comments[i] = c
 	}
 	st.reviews[n] = append(st.reviews[n], map[string]any{"user": author, "commit_id": commit,
-		"state": state, "body": body, "comments": comments})
+		"state": state, "body": body, "comments": comments, "submitted_at": s.Now().UTC()})
+}
+
+// SetFiles seeds what a pull request changes.
+func (s *Server) SetFiles(repo string, n int64, files ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.repo(repo).files[n] = files
+}
+
+// SetProtection seeds a branch's protection, in the REST shape.
+func (s *Server) SetProtection(repo, branch string, p map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.repo(repo).protection[branch] = p
+}
+
+// ClosePullRequest closes or merges a pull request as a person would.
+func (s *Server) ClosePullRequest(repo string, n int64, merged bool) PullRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.repo(repo).pulls[n]
+	p.State, p.Merged, p.UpdatedAt = "closed", merged, s.Now().UTC().Truncate(time.Second)
+	return *p
 }
 
 // AddReviewReply answers a review comment, as a person would on GitHub.
@@ -304,10 +366,10 @@ func (s *Server) serveGraphQL(w http.ResponseWriter, r *http.Request, bearer str
 		return
 	}
 	var ids []int
-	for _, rev := range st.reviews[v.Number] {
+	for r, rev := range st.reviews[v.Number] {
 		if cs, ok := rev["comments"].([]any); ok {
 			for i := range cs {
-				ids = append(ids, i+1)
+				ids = append(ids, reviewCommentID(r, i))
 			}
 		}
 	}

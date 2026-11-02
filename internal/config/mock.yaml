@@ -22,7 +22,7 @@ projects:
     repository: example/demo
     base_branch: main
     # Mock mode tries out the workflow, with nothing real to test or review.
-    policy: {allow_unvalidated_draft_pr: true, allow_skipped_review: true}
+    policy: {allow_unvalidated_draft_pr: true, allow_skipped_review: true, stop_at_report: true}
     stages:
       planner: {agent: mock, runtime: mock}
       implementer: {agent: mock, runtime: mock}

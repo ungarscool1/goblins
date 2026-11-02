@@ -589,3 +589,74 @@ func TestRegistryFactories(t *testing.T) {
 		t.Fatalf("no allow-list: %v", err)
 	}
 }
+
+func TestPullRequestWebhooksNormalize(t *testing.T) {
+	srv, _ := setup(t)
+	bob := fakegithub.Human(7, "bob")
+	pr := srv.AddPullRequest(repo, "t", bob)
+	source := gh.NewSource("s", nil, gh.SourceOptions{WebhookSecret: core.NewSecret("x"), Repositories: []string{repo}})
+	deliver := func(event string, body map[string]any) []core.Event {
+		t.Helper()
+		body["repository"] = map[string]any{"full_name": repo}
+		raw, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		evs, err := source.HandleWebhook(ctx, core.WebhookRequest{Body: raw, Headers: map[string][]string{
+			"X-Hub-Signature-256": {fakegithub.Sign("x", raw)}, "X-GitHub-Event": {event}}})
+		if err != nil || len(evs) != 1 {
+			t.Fatalf("%s: %+v, %v", event, evs, err)
+		}
+		return evs
+	}
+
+	review := map[string]any{"id": 9, "state": "changes_requested", "commit_id": "abc", "user": bob}
+	ev := deliver("pull_request_review", map[string]any{"action": "submitted", "pull_request": pr, "sender": bob, "review": review})[0]
+	if ev.Type != core.EventPRReviewed || ev.Verdict != core.VerdictChangesRequested || ev.Subject.Kind != core.SubjectPullRequest {
+		t.Fatalf("event = %+v", ev)
+	}
+	dis := deliver("pull_request_review", map[string]any{"action": "dismissed", "pull_request": pr, "sender": bob, "review": review})[0]
+	if dis.DedupKey == ev.DedupKey || dis.Verdict != core.VerdictComment {
+		t.Fatalf("a dismissal must be its own fact: %+v", dis)
+	}
+	c := map[string]any{"id": 11, "body": "here", "user": bob, "created_at": time.Now()}
+	rc := deliver("pull_request_review_comment", map[string]any{"action": "created", "pull_request": pr, "sender": bob, "comment": c})[0]
+	if rc.Type != core.EventReviewComment || rc.Comment.Body != "here" || rc.Actor.Login != "bob" {
+		t.Fatalf("event = %+v", rc)
+	}
+	pr.State, pr.Merged = "closed", true
+	cl := deliver("pull_request", map[string]any{"action": "closed", "pull_request": pr, "sender": bob})[0]
+	if cl.Type != core.EventPRClosed || !cl.PullRequest.Merged || cl.PullRequest.Open {
+		t.Fatalf("event = %+v", cl)
+	}
+}
+
+func TestPollReportsReviewsWithWebhookIdentity(t *testing.T) {
+	srv, c := setup(t)
+	bob := fakegithub.Human(7, "bob")
+	pr := srv.AddPullRequest(repo, "t", bob)
+	srv.AddReview(repo, pr.Number, bob, "abc", "CHANGES_REQUESTED", "fix", map[string]any{"path": "a.go", "line": 1, "body": "x"})
+	source := gh.NewSource("s", c, gh.SourceOptions{Repositories: []string{repo}})
+	res, err := source.Poll(ctx, core.PollRequest{Container: repo, Since: time.Now().Add(-time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys []string
+	for _, e := range res.Events {
+		keys = append(keys, e.DedupKey)
+	}
+	got := strings.Join(keys, " ")
+	for _, want := range []string{fmt.Sprintf("github:%s:review:1", repo), fmt.Sprintf("github:%s:review_comment:1", repo)} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%s not in %s", want, got)
+		}
+	}
+	closed := srv.ClosePullRequest(repo, pr.Number, true)
+	res, err = source.Poll(ctx, core.PollRequest{Container: repo, Since: closed.UpdatedAt.Add(-time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(res.Events, func(e core.Event) bool { return e.Type == core.EventPRClosed && e.PullRequest.Merged }) {
+		t.Fatalf("events = %+v", res.Events)
+	}
+}

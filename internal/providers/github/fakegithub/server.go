@@ -93,6 +93,10 @@ type Server struct {
 	DenyPullRequests bool
 	// BranchLookup, when set, answers branch heads, so a real Git remote can back them.
 	BranchLookup func(repo, branch string) (string, bool)
+	// ProtectionDenied refuses reading branch protection, as for an App without access.
+	ProtectionDenied bool
+	// Merges lists the commits merged through the API.
+	Merges []string
 }
 
 type tokenInfo struct {
@@ -101,17 +105,19 @@ type tokenInfo struct {
 }
 
 type repoState struct {
-	issues   map[int64]*Issue
-	comments map[int64][]*Comment
-	events   []issueEvent
-	perms    map[string]string
-	pulls    map[int64]*PullRequest
-	reviews  map[int64][]map[string]any
-	replies  map[int64][]map[string]any
-	resolved map[string]bool
-	branches map[string]string
-	checks   map[string][]map[string]any
-	nextNum  int64
+	issues     map[int64]*Issue
+	comments   map[int64][]*Comment
+	events     []issueEvent
+	perms      map[string]string
+	pulls      map[int64]*PullRequest
+	reviews    map[int64][]map[string]any
+	replies    map[int64][]map[string]any
+	resolved   map[string]bool
+	branches   map[string]string
+	checks     map[string][]map[string]any
+	files      map[int64][]string
+	protection map[string]map[string]any
+	nextNum    int64
 }
 
 // New starts a fake with a fresh key. It is closed when the test ends.
@@ -136,7 +142,9 @@ func (s *Server) repo(name string) *repoState {
 	r, ok := s.repos[name]
 	if !ok {
 		r = &repoState{issues: map[int64]*Issue{}, comments: map[int64][]*Comment{}, perms: map[string]string{}, pulls: map[int64]*PullRequest{},
-			reviews: map[int64][]map[string]any{}, branches: map[string]string{}, checks: map[string][]map[string]any{}}
+			reviews: map[int64][]map[string]any{}, branches: map[string]string{},
+			checks: map[string][]map[string]any{},
+			files:  map[int64][]string{}, protection: map[string]map[string]any{}}
 		s.repos[name] = r
 	}
 	return r

@@ -105,3 +105,16 @@ polling can run together, since one fact has one identity and is processed once.
 - Asking another service's bot for a review by comment, such as `@codex review`, is not
   implemented. It has not been verified that a bot comment triggers one, so review goes
   through the provider-independent review stage (#13, #19).
+
+## Following pull requests
+
+To follow what happens after the report, the App also subscribes to `Pull request`, `Pull request
+review`, `Pull request review comment` and `Check run` events; polling observes the same facts. It
+reads reviews, review comments and check runs, which `Pull requests: read` and `Checks: read` allow.
+
+Reading branch protection needs `Administration: read`. Without it the protection is reported as
+unknown, which `require_branch_protection` treats as not protected, and required checks from
+protection cannot be added to the gate. Configure `required_checks` in that case.
+
+Merging needs `Contents: write` and is used only by an `auto_merge` rule. Goblins publishes reviews as
+comments, so it can neither satisfy nor block branch protection with its own reviews.

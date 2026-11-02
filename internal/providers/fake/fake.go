@@ -30,6 +30,11 @@ type World struct {
 	prComments map[string][]string
 	reviews    map[string][]core.ReviewDraft
 	checks     map[string][]core.StatusCheck
+	submitted  map[string][]core.Review
+	threads    map[string][]core.ReviewThread
+	files      map[string][]string
+	protection map[string]core.BranchProtection
+	merges     []string
 	notes      []core.Notification
 	noteKeys   map[string]bool
 	seq        int
@@ -49,6 +54,10 @@ func NewWorld() *World {
 		prComments: map[string][]string{},
 		reviews:    map[string][]core.ReviewDraft{},
 		checks:     map[string][]core.StatusCheck{},
+		submitted:  map[string][]core.Review{},
+		threads:    map[string][]core.ReviewThread{},
+		files:      map[string][]string{},
+		protection: map[string]core.BranchProtection{},
 		noteKeys:   map[string]bool{},
 		Bot:        core.Actor{ID: "bot-1", Login: "goblins-bot", Type: core.ActorBot},
 	}
@@ -280,7 +289,9 @@ type SCM struct {
 }
 
 // AllSCMCaps lists every SCM capability.
-var AllSCMCaps = []core.Capability{core.CapSCMPullRequests, core.CapSCMDraft, core.CapSCMInlineReview, core.CapSCMStatusChecks}
+var AllSCMCaps = []core.Capability{core.CapSCMPullRequests, core.CapSCMDraft,
+	core.CapSCMInlineReview,
+	core.CapSCMStatusChecks, core.CapSCMBranchProtection, core.CapSCMMerge}
 
 // NewSCM returns a fully capable fake SCM.
 func NewSCM(w *World, name string) *SCM { return &SCM{W: w, Name: name, Caps: AllSCMCaps} }
@@ -390,10 +401,16 @@ func (w *World) ReviewsOn(repo, number string) []core.ReviewDraft {
 func (s *SCM) ReviewThreads(_ context.Context, repo core.RepoRef, number string) ([]core.ReviewThread, error) {
 	s.W.mu.Lock()
 	defer s.W.mu.Unlock()
-	out := []core.ReviewThread{}
+	out := slices.Clone(s.W.threads[repo.Slug+"#"+number])
+	if out == nil {
+		out = []core.ReviewThread{}
+	}
 	for i, r := range s.W.reviews[repo.Slug+"#"+number] {
 		for j, c := range r.Comments {
-			out = append(out, core.ReviewThread{ID: fmt.Sprintf("%d-%d", i, j), Path: c.Path, Line: c.Line, Body: c.Body, Author: s.W.Bot})
+			id := fmt.Sprintf("%d-%d", i, j)
+			out = append(out, core.ReviewThread{ID: id, ThreadID: id, Path: c.Path, Line: c.Line,
+				Body:   c.Body,
+				Author: s.W.Bot, CommitSHA: r.CommitSHA, Own: true})
 		}
 	}
 	return out, nil

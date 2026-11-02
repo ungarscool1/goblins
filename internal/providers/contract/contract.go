@@ -226,6 +226,33 @@ func SourceControl(t *testing.T, build func(t *testing.T) SCMHarness) {
 		if _, err := h.SCM.ReviewThreads(ctx, h.Repo, pr.Number); err != nil {
 			t.Fatal(err)
 		}
+		reviews, err := h.SCM.ListReviews(ctx, h.Repo, pr.Number)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range reviews {
+			if !r.Own || r.Author.Type == core.ActorHuman {
+				t.Fatalf("the integration's own review must be recognized as such: %+v", r)
+			}
+		}
+		if _, err := h.SCM.ChangedFiles(ctx, h.Repo, pr.Number); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("protection and merging are capabilities", func(t *testing.T) {
+		h := build(t)
+		_, err := h.SCM.BranchProtection(ctx, h.Repo, h.BaseBranch)
+		if h.SCM.Info().Has(core.CapSCMBranchProtection) {
+			if err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			wantKind(t, err, core.KindUnsupported)
+		}
+		if !h.SCM.Info().Has(core.CapSCMMerge) {
+			wantKind(t, h.SCM.MergePullRequest(ctx, h.Repo, "1", h.BaseSHA), core.KindUnsupported)
+		}
 	})
 
 	t.Run("status checks capability", func(t *testing.T) {

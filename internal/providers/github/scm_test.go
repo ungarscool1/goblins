@@ -304,3 +304,72 @@ func TestNativeReviewReadsOnlyTheExactCommit(t *testing.T) {
 		}
 	})
 }
+
+func TestPullRequestFactsFromTheSCM(t *testing.T) {
+	srv, s := scmSetup(t)
+	r := core.RepoRef{Slug: repo}
+	pr, _, err := s.EnsurePullRequest(ctx, core.PullRequestDraft{Repo: r, Head: "goblins/t1", Base: "main", Title: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, _ := strconv.ParseInt(pr.Number, 10, 64)
+	bob := fakegithub.Human(7, "bob")
+	srv.AddReview(repo, n, bob, "bbb", "CHANGES_REQUESTED", "fix", map[string]any{"path": "a.go", "line": 3, "body": "here"},
+		map[string]any{"path": "b.go", "line": nil, "body": "lines are gone"})
+	srv.AddReview(repo, n, bob, "bbb", "DISMISSED", "old")
+	if err := s.PostReview(ctx, r, pr.Number, core.ReviewDraft{Verdict: core.VerdictComment, Body: "mine"}); err != nil {
+		t.Fatal(err)
+	}
+
+	reviews, err := s.ListReviews(ctx, r, pr.Number)
+	if err != nil || len(reviews) != 3 {
+		t.Fatalf("reviews = %+v, %v", reviews, err)
+	}
+	if v := reviews[0]; v.Verdict != core.VerdictChangesRequested || v.CommitSHA != "bbb" || v.Own || v.Author.Type != core.ActorHuman {
+		t.Fatalf("review = %+v", v)
+	}
+	if !reviews[1].Dismissed || !reviews[2].Own {
+		t.Fatalf("reviews = %+v", reviews)
+	}
+
+	threads, err := s.ReviewThreads(ctx, r, pr.Number)
+	if err != nil || len(threads) != 2 {
+		t.Fatalf("threads = %+v, %v", threads, err)
+	}
+	if v := threads[0]; v.Line != 3 || v.Outdated || v.CommitSHA != "bbb" || v.ThreadID != v.ID || v.Own {
+		t.Fatalf("thread = %+v", v)
+	}
+	if !threads[1].Outdated || threads[1].Line != 0 {
+		t.Fatalf("a remark without a line is outdated: %+v", threads[1])
+	}
+
+	srv.SetFiles(repo, n, "a.go", "b.go")
+	if files, err := s.ChangedFiles(ctx, r, pr.Number); err != nil || strings.Join(files, ",") != "a.go,b.go" {
+		t.Fatalf("files = %v, %v", files, err)
+	}
+
+	if p, err := s.BranchProtection(ctx, r, "main"); err != nil || p.Enabled {
+		t.Fatalf("unprotected = %+v, %v", p, err)
+	}
+	srv.SetProtection(repo, "main", map[string]any{"required_status_checks": map[string]any{"contexts": []string{"ci"}},
+		"required_pull_request_reviews": map[string]any{"required_approving_review_count": 2}})
+	p, err := s.BranchProtection(ctx, r, "main")
+	if err != nil || !p.Enabled || p.RequiredApprovals != 2 || strings.Join(p.RequiredChecks, ",") != "ci" {
+		t.Fatalf("protected = %+v, %v", p, err)
+	}
+	srv.ProtectionDenied = true
+	if _, err := s.BranchProtection(ctx, r, "main"); err == nil {
+		t.Fatal("a refusal must not read as unprotected")
+	}
+
+	if err := s.MergePullRequest(ctx, r, pr.Number, "other"); !core.IsKind(err, core.KindConflict) {
+		t.Fatalf("merging a moved head: %v", err)
+	}
+	if err := s.MergePullRequest(ctx, r, pr.Number, "bbb"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetPullRequest(ctx, r, pr.Number)
+	if err != nil || got.Open || !got.Merged {
+		t.Fatalf("pull request = %+v, %v", got, err)
+	}
+}

@@ -47,6 +47,7 @@ type world struct {
 	now     atomic.Int64
 	issue   core.Issue
 	seq     int
+	policy  workflow.Policy
 }
 
 func (w *world) clock() time.Time { return time.Unix(0, w.now.Load()).UTC() }
@@ -92,9 +93,11 @@ func setup(t *testing.T) *world {
 		Validation:  w.val, MinInput: core.PermissionWrite, WebResearch: true, AllowSkippedReview: true,
 	}
 	pipe := &pipeline.Pipeline{Installation: "inst", Projects: map[string]*pipeline.Project{"p": w.project}, Designs: store, Log: discard}
-	policy := workflow.DefaultPolicy()
+	// Tests here end at the report; those about what follows it clear this.
+	w.policy = workflow.DefaultPolicy()
+	w.policy.StopAtReport = true
 	engine := &workflow.Engine{Store: store, Owner: "e", Log: discard, Now: w.clock, Auth: tracker{w},
-		Policies: func(string) (workflow.Policy, bool) { return policy, true }}
+		Policies: func(string) (workflow.Policy, bool) { return w.policy, true }}
 	inbox := scheduler.NewInbox(store, discard, []scheduler.Route{{Source: "src", Container: repo, Project: "p", Tracker: "t", SCM: "s"}})
 	inbox.Now = w.clock
 	w.sched = &scheduler.Scheduler{Store: store, Engine: engine, Handlers: pipe.Handlers(), Inbox: inbox, Log: discard, Now: w.clock, Runtimes: []core.ExecutionRuntime{w.rt},
