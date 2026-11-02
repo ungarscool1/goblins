@@ -704,3 +704,40 @@ func TestPublishingGoesOnWithoutADescription(t *testing.T) {
 		t.Fatalf("the design should stand in:\n%s", body)
 	}
 }
+
+func TestPublishingTitlesThePullRequestFromTheDiff(t *testing.T) {
+	w, _ := describing(t, "```goblins-description\n"+
+		`{"title":"feat(api): add a thing","summary":"Added a thing."}`+"\n```")
+	if got := w.w.PullRequests()[0].Title; got != "feat(api): add a thing" {
+		t.Fatal(got)
+	}
+}
+
+func TestCommitsAreWordedByTheImplementer(t *testing.T) {
+	w := setup(t)
+	var message string
+	inner := w.rt.Behavior
+	w.rt.Behavior = func(s core.WorkloadSpec) fake.WorkloadResult {
+		if m, ok := s.Env["GOBLINS_MESSAGE"]; ok {
+			message = m
+		}
+		return inner(s)
+	}
+	w.agent.Script(fake.AgentStep{Output: designJSON("the design")})
+	var prompt string
+	w.impl.Script(fake.AgentStep{Run: func(_ context.Context,
+		req core.AgentRequest) (string, error) {
+		prompt = req.Prompt
+		return "Done.\n```goblins-commit\nfix(api): handle nil\n```", nil
+	}})
+	w.open()
+	w.say(maintainer, "/approve-design 1")
+	w.want(core.StateCompleted)
+	if !strings.HasPrefix(message, "fix(api): handle nil\n\nImplements design revision 1") {
+		t.Fatal(message)
+	}
+	// It has to reach a session resumed from before the request existed, so it ends the prompt.
+	if !strings.Contains(prompt[strings.LastIndex(prompt, ">>>END"):], "goblins-commit") {
+		t.Fatalf("the commit request does not end the prompt:\n%s", prompt)
+	}
+}

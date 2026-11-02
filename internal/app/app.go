@@ -191,6 +191,7 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 		policy := policyFor(pc)
 		pr.MinInput, pr.MinApprove = policy.MinInputPermission, policy.MinApprovePermission
 		pr.TrustedReviewBots = policy.TrustedReviewBots
+		pr.PlainCommits = pc.Policy.CommitStyle == "plain"
 		sys.Projects[pc.ID] = pr
 		policies[pc.ID] = policy
 		sys.Warnings = append(sys.Warnings, preflight(pc, pr)...)
