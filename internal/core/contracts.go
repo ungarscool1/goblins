@@ -136,6 +136,15 @@ type AgentEvent struct {
 type AgentResult struct {
 	SessionID string
 	Output    string
+	Usage     AgentUsage
+}
+
+// AgentUsage is what a run reported using. It is zero when the CLI does not say, and is never
+// an estimate.
+type AgentUsage struct {
+	InputTokens  int64
+	OutputTokens int64
+	Turns        int
 }
 
 // AuthState is the login state of an agent installation.
@@ -167,8 +176,9 @@ type AgentProvider interface {
 	// Run launches or resumes a conversation in req.Runtime and blocks until it
 	// ends. Cancelling ctx cancels the run. Events are delivered to sink in
 	// order, and the session ID is delivered as soon as it is known so a crashed
-	// run can be resumed. Exhausted quota and missing login are returned as
-	// KindQuotaExhausted and KindAuthRequired.
+	// run can be resumed. Exhausted quota, rate limits and missing login are returned as
+	// KindQuotaExhausted, KindRateLimited and KindAuthRequired, with RetryAt set if the CLI
+	// said when the limit ends.
 	Run(ctx context.Context, req AgentRequest, sink func(AgentEvent)) (AgentResult, error)
 	AuthStatus(ctx context.Context, rt ExecutionRuntime) (AuthStatus, error)
 	Models(ctx context.Context) ([]Model, error)

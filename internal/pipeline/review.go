@@ -164,7 +164,8 @@ func ParseReview(output, sha string) (core.ReviewResult, error) {
 // review being in trouble. The last attempt also gives up on a merely flaky reviewer.
 func unavailable(err error, lastAttempt bool) bool {
 	for _, k := range []core.ErrorKind{core.KindUnsupported, core.KindAuthRequired,
-		core.KindQuotaExhausted, core.KindForbidden, core.KindUnauthorized, core.KindNotFound} {
+		core.KindQuotaExhausted, core.KindRateLimited, core.KindForbidden,
+		core.KindUnauthorized, core.KindNotFound} {
 		if core.IsKind(err, k) {
 			return true
 		}

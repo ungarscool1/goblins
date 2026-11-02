@@ -65,7 +65,11 @@ func (p *Pipeline) triage(ctx context.Context, jc scheduler.JobContext) (any, er
 	if err := p.syncWorkspace(ctx, jc, pr, payload.SHA); err != nil {
 		return nil, err
 	}
-	res, err := p.runAgent(ctx, jc, pr.Implementer, core.RoleTriager, core.AgentRequest{
+	stage := pr.Implementer
+	if pr.Triager.Agent != nil {
+		stage = pr.Triager
+	}
+	res, err := p.runAgent(ctx, jc, stage, core.RoleTriager, core.AgentRequest{
 		SystemPrompt: triagerSystem,
 		Prompt:       TriagePrompt(jc.Task, design, payload),
 		Policy:       core.ToolPolicy{},

@@ -426,6 +426,7 @@ func (m *machine) onOperatorCommand(cmd string, c *core.Comment) {
 		delete(m.t.Loops, "implement")
 		delete(m.t.Loops, "review_fix")
 		delete(m.t.Loops, "triage")
+		m.releaseHold()
 		m.resume("resumed by " + c.Author.Login)
 	}
 }
@@ -563,7 +564,7 @@ func (m *machine) onJobFinished() {
 		return
 	}
 	switch o.Kind {
-	case JobComment, JobNotify, JobCleanup, JobReply:
+	case JobComment, JobNotify, JobCleanup, JobReply, JobReleaseHold:
 		m.onSideJob(o)
 		return
 	}
@@ -582,6 +583,7 @@ func (m *machine) onJobFinished() {
 		m.onJobFailed(o)
 		return
 	}
+	delete(m.t.Loops, loopLimitPause)
 	switch o.Kind {
 	case JobPlan:
 		m.onPlanDone(o)
@@ -641,13 +643,8 @@ func (m *machine) onJobFailed(o *core.JobOutcome) {
 		msg = string(o.ErrorKind)
 	}
 	switch o.ErrorKind {
-	case core.KindQuotaExhausted:
-		m.interrupt(core.StateQuotaPaused, "agent usage limit reached: "+msg, m.f.Now.Add(m.p.QuotaPause))
-		m.notify(core.SeverityInfo, "Task paused: usage limit", msg)
-	case core.KindAuthRequired:
-		m.interrupt(core.StateQuotaPaused, "agent login is required: "+msg, m.f.Now.Add(m.p.AuthPause))
-		m.notify(core.SeverityAction, "Agent login required", msg)
-		m.comment("Goblins paused: the agent needs a person to log in again on the installation. Work resumes automatically afterwards.")
+	case core.KindQuotaExhausted, core.KindRateLimited, core.KindAuthRequired:
+		m.pauseForLimit(o, msg)
 	case core.KindUnsupported, core.KindForbidden, core.KindUnauthorized, core.KindInvalid, core.KindNotFound:
 		m.block(msg)
 	case core.KindCancelled:
@@ -719,6 +716,9 @@ func (m *machine) onImplementDone(o *core.JobOutcome) {
 	m.t.HeadSHA = res.HeadSHA
 	if !res.Changed || unchanged {
 		m.block("the implementer finished without changing anything")
+		return
+	}
+	if m.overFileBudget(res) {
 		return
 	}
 	m.enqueueMain(JobValidate, ValidatePayload{Stage: StagePrePR, SHA: res.HeadSHA}, "", 3)
