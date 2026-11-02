@@ -2,6 +2,7 @@ package pipeline_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -739,5 +740,39 @@ func TestCommitsAreWordedByTheImplementer(t *testing.T) {
 	// It has to reach a session resumed from before the request existed, so it ends the prompt.
 	if !strings.Contains(prompt[strings.LastIndex(prompt, ">>>END"):], "goblins-commit") {
 		t.Fatalf("the commit request does not end the prompt:\n%s", prompt)
+	}
+}
+
+func TestChecksTakeTheManifestFromTheBaseCommit(t *testing.T) {
+	w := setup(t)
+	w.project.ValidationManifest = ".goblins/validation.yaml"
+	w.project.TrustedPaths = []string{"conformance"}
+	manifest := "version: 1\n"
+	changed := "conformance/a.sh\n@someone`.sh\n"
+	var trusted []core.WorkloadSpec
+	inner := w.rt.Behavior
+	w.rt.Behavior = func(s core.WorkloadSpec) fake.WorkloadResult {
+		if !strings.Contains(s.Name, "trusted") {
+			return inner(s)
+		}
+		trusted = append(trusted, s)
+		return fake.WorkloadResult{Stdout: `GOBLINS_RESULT {"manifest":"` +
+			base64.StdEncoding.EncodeToString([]byte(manifest)) + `","trusted_changed":"` +
+			base64.StdEncoding.EncodeToString([]byte(changed)) + `"}` + "\n"}
+	}
+	w.agent.Script(fake.AgentStep{Output: designJSON("d")})
+	w.open()
+	w.say(maintainer, "/approve-design 1")
+	w.want(core.StateCompleted)
+	if len(trusted) == 0 || trusted[0].Env["GOBLINS_BASE"] != baseSHA {
+		t.Fatalf("trusted = %+v", trusted)
+	}
+	if len(w.val.Calls) == 0 || string(w.val.Calls[0].Manifest) != manifest {
+		t.Fatalf("calls = %+v", w.val.Calls)
+	}
+	posted := w.posted()
+	if !strings.Contains(posted, "`conformance/a.sh`") ||
+		!strings.Contains(posted, "`?someone?.sh`") {
+		t.Fatalf("what the checks left out is not reported safely:\n%s", posted)
 	}
 }

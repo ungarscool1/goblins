@@ -12,6 +12,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	gopath "path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -126,6 +127,10 @@ type Policy struct {
 	QuotaPause           time.Duration `yaml:"quota_pause,omitempty"`
 	AuthPause            time.Duration `yaml:"auth_pause,omitempty"`
 	WebResearch          bool          `yaml:"web_research,omitempty"`
+	// ValidationManifest is where the repository keeps its checks, read from the base commit.
+	ValidationManifest string `yaml:"validation_manifest,omitempty"`
+	// TrustedPaths are files checks always take from the base commit.
+	TrustedPaths []string `yaml:"trusted_paths,omitempty"`
 	// CommitStyle words commits and pull request titles: conventional, the default, or plain.
 	CommitStyle string `yaml:"commit_style,omitempty"`
 	// StopAtReport ends a task at its report and leaves the pull request to people entirely.
@@ -383,6 +388,11 @@ func (c *Config) Validate(known TypeChecker) error {
 				add("%s.policy.merge.auto_merge[%d]: a rule needs a name and paths", path, j)
 			}
 		}
+		for _, tp := range append(slices.Clone(p.Policy.TrustedPaths), p.Policy.ValidationManifest) {
+			if tp != "" && !plainRepoPath(tp) {
+				add("%s.policy: %q must be a plain path inside the repository", path, tp)
+			}
+		}
 		if p.Policy.Merge.MinHumanApprovals < 0 {
 			add("%s.policy.merge.min_human_approvals: cannot be negative", path)
 		}
@@ -536,4 +546,10 @@ func redactValue(v any) any {
 		return observability.RedactText(tv)
 	}
 	return v
+}
+
+// plainRepoPath accepts a path that stays in the repository and needs no shell or git quoting.
+func plainRepoPath(p string) bool {
+	return p != "." && p != ".." && !strings.HasPrefix(p, "../") && !strings.HasPrefix(p, "/") &&
+		!strings.HasPrefix(p, "-") && gopath.Clean(p) == p && !strings.ContainsAny(p, "\n:")
 }

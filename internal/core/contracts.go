@@ -360,6 +360,10 @@ type ValidationCheck struct {
 	Status   ValidationStatus `json:"status"`
 	Output   string           `json:"output,omitempty"`
 	ExitCode int              `json:"exit_code"`
+	Stage    string           `json:"stage,omitempty"`
+	Image    string           `json:"image,omitempty"`
+	// Optional checks are reported, but do not decide the report's status.
+	Optional bool `json:"optional,omitempty"`
 }
 
 // ValidationRequest asks to run a project's checks on a workspace. Workloads
@@ -372,6 +376,9 @@ type ValidationRequest struct {
 	WorkDir        string
 	Runtime        ExecutionRuntime
 	Labels         map[string]string
+	// Manifest is the project's checks from the base commit, if it keeps them there. It is
+	// never read from the change being checked.
+	Manifest []byte
 }
 
 // ValidationReport aggregates check results.

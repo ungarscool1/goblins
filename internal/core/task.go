@@ -112,7 +112,9 @@ type Task struct {
 	// ResumeState is the state to return to when leaving a pause or block.
 	ResumeState State     `json:"resume_state,omitempty"`
 	PausedUntil time.Time `json:"paused_until,omitzero"`
-	Reason      string    `json:"reason,omitempty"`
+	// ValidatedReport is what the commit in ValidatedSHA passed, without check output.
+	ValidatedReport *ValidationReport `json:"validated_report,omitempty"`
+	Reason          string            `json:"reason,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
