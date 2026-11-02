@@ -484,9 +484,13 @@ func (p *Pipeline) publish(ctx context.Context, jc scheduler.JobContext) (any, e
 		return nil, err
 	}
 	change := p.describeChange(ctx, jc, pr, design.Body, payload.SHA, branch)
+	title, err := publishedTitle(ctx, pr, jc.Task, change)
+	if err != nil {
+		return nil, err
+	}
 	pull, created, err := pr.SCM.EnsurePullRequest(ctx, core.PullRequestDraft{
 		IdempotencyKey: jc.Task.ID + "/pr", Repo: pr.Repo, Head: branch, Base: pr.BaseBranch, Draft: true,
-		Title: pullRequestTitle(pr, jc.Task.Title, change),
+		Title: title,
 		Body:  pullRequestBody(jc.Task, design.Body, change, issue, payload),
 	})
 	if err != nil {

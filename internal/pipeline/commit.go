@@ -1,9 +1,12 @@
 package pipeline
 
 import (
+	"context"
 	"regexp"
 	"strings"
 	"unicode"
+
+	"github.com/ungarscool1/goblins/internal/core"
 )
 
 const (
@@ -16,7 +19,8 @@ const commitInstruction = `
 When you finish, end your reply with exactly one fenced block tagged goblins-commit holding the
 subject of the commit, as a Conventional Commit: type(optional scope): what this change does, in
 the imperative and in lower case. Describe this change, not the whole ticket. The type is one of
-feat, fix, docs, style, refactor, perf, test, build, ci, chore or revert.
+feat, fix, docs, style, refactor, perf, test, build, ci, chore or revert. Only if this change
+breaks what existing users of the project rely on, add ! after the type or scope, as in feat!: .
 ` + "```goblins-commit" + `
 feat(api): add a health check endpoint
 ` + "```"
@@ -67,6 +71,28 @@ func pullRequestTitle(pr *Project, title string, change *changeDescription) stri
 		}
 	}
 	return titleHeader(title)
+}
+
+// publishedTitle is the title a push leaves on its pull request. An open pull request keeps its
+// title, which a person may have edited, since the same ticket and design are behind every push.
+// Only the fallback gives way, once a description words a real title.
+func publishedTitle(ctx context.Context, pr *Project, task core.Task,
+	change *changeDescription) (string, error) {
+	title := pullRequestTitle(pr, task.Title, change)
+	if task.PullRequest == nil {
+		return title, nil
+	}
+	current, err := pr.SCM.GetPullRequest(ctx, pr.Repo, task.PullRequest.Number)
+	if core.IsKind(err, core.KindNotFound) {
+		return title, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if !pr.PlainCommits && current.Title == titleHeader(task.Title) {
+		return title, nil
+	}
+	return current.Title, nil
 }
 
 // titleHeader makes a header of a ticket's title, which says nothing about the kind of change

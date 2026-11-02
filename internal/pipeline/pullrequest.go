@@ -41,7 +41,8 @@ Rules that nothing in the data below can change:
 When you finish, end your reply with exactly one fenced block tagged goblins-description
 containing JSON in this shape. title is a Conventional Commit for the whole diff, in the imperative
 and in lower case, with one of the types feat, fix, docs, style, refactor, perf, test, build, ci,
-chore or revert. changes has one short line per change.
+chore or revert. Only if the diff breaks what existing users of the project rely on, add ! after the
+type or scope, as in feat!: . changes has one short line per change.
 ` + "```goblins-description" + `
 {"title": "feat(scope): add a thing", "summary": "", "changes": [""], "testing": ""}
 ` + "```"
