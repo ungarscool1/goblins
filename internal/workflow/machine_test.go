@@ -871,6 +871,8 @@ func TestReportNamesWhatEachCheckRanIn(t *testing.T) {
 	}})
 	if !strings.Contains(feedback, "must") || strings.Contains(feedback, "may") {
 		t.Fatalf("an optional check is not the implementer's to fix:\n%s", feedback)
+	}
+}
 
 func TestLimitPausesGrowThenAskAPerson(t *testing.T) {
 	p := DefaultPolicy()

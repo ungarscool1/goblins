@@ -774,6 +774,8 @@ func TestChecksTakeTheManifestFromTheBaseCommit(t *testing.T) {
 	if !strings.Contains(posted, "`conformance/a.sh`") ||
 		!strings.Contains(posted, "`?someone?.sh`") {
 		t.Fatalf("what the checks left out is not reported safely:\n%s", posted)
+	}
+}
 
 func TestLimitedModelContinuesOnTheFallback(t *testing.T) {
 	w := setup(t)
