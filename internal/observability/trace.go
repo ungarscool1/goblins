@@ -23,13 +23,23 @@ func RootSpanID(taskID string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// LogSpan records a finished span as a log line. Attributes go through the logger's redaction.
-func LogSpan(ctx context.Context, log *slog.Logger, taskID, name string, start time.Time,
-	d time.Duration, status string, attrs ...any) {
+// Span is one finished piece of work on a task.
+type Span struct {
+	TaskID   string
+	Name     string
+	Start    time.Time
+	Duration time.Duration
+	Status   string
+	// Attrs are key and value pairs. They go through the logger's redaction.
+	Attrs []any
+}
+
+// LogSpan records a finished span as a log line.
+func LogSpan(ctx context.Context, log *slog.Logger, s Span) {
 	id := make([]byte, 8)
 	_, _ = rand.Read(id)
-	all := append([]any{"trace_id", TraceID(taskID), "span_id", hex.EncodeToString(id),
-		"parent_span_id", RootSpanID(taskID), "span", name, "start", start.UTC(),
-		"duration_ms", d.Milliseconds(), "status", status}, attrs...)
+	all := append([]any{"trace_id", TraceID(s.TaskID), "span_id", hex.EncodeToString(id),
+		"parent_span_id", RootSpanID(s.TaskID), "span", s.Name, "start", s.Start.UTC(),
+		"duration_ms", s.Duration.Milliseconds(), "status", s.Status}, s.Attrs...)
 	log.InfoContext(ctx, "span", all...)
 }

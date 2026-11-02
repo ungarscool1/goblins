@@ -48,8 +48,8 @@ func TestTraceIsStablePerTaskAndSpansAreRedacted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	LogSpan(t.Context(), log.With(slog.String("x", "y")), "t1", "job.plan", time.Now(), time.Second,
-		"ok", "api_key", "s3cret")
+	LogSpan(t.Context(), log.With(slog.String("x", "y")), Span{TaskID: "t1", Name: "job.plan",
+		Start: time.Now(), Duration: time.Second, Status: "ok", Attrs: []any{"api_key", "s3cret"}})
 	got := b.String()
 	if !strings.Contains(got, TraceID("t1")) || !strings.Contains(got, RootSpanID("t1")) ||
 		!strings.Contains(got, `"duration_ms":1000`) || strings.Contains(got, "s3cret") {
