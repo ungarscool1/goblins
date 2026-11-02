@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -31,11 +32,17 @@ type Policy struct {
 
 	MaxPlanLoops      int
 	MaxImplementLoops int
+	// MaxReviewFixLoops bounds how often a review can send the implementer back.
+	MaxReviewFixLoops int
+	// ReviewMinSeverity is the least severity of a finding worth a correction round. Those
+	// below it, and those the reviewer has low confidence in, are published suggestions.
+	ReviewMinSeverity core.ReviewSeverity
 	QuotaPause        time.Duration
 	AuthPause         time.Duration
 	// AgentLimitKeys groups agent jobs per account, for concurrency limits.
 	PlannerLimitKey     string
 	ImplementerLimitKey string
+	ReviewerLimitKey    string
 }
 
 // DefaultPolicy returns conservative defaults.
@@ -46,6 +53,8 @@ func DefaultPolicy() Policy {
 		MinInputPermission:   core.PermissionWrite,
 		MaxPlanLoops:         8,
 		MaxImplementLoops:    3,
+		MaxReviewFixLoops:    3,
+		ReviewMinSeverity:    core.ReviewMedium,
 		QuotaPause:           30 * time.Minute,
 		AuthPause:            time.Hour,
 	}
@@ -60,8 +69,8 @@ var transitions = map[core.State][]core.State{
 	core.StateDesignProposed: {core.StateAgentReady, core.StateInvestigating},
 	core.StateAgentReady:     {core.StateImplementing, core.StateInvestigating},
 	core.StateImplementing:   {core.StatePROpen, core.StateInvestigating},
-	core.StatePROpen:         {core.StateReviewing},
-	core.StateReviewing:      {core.StateTesting, core.StateCompleted},
+	core.StatePROpen:         {core.StateReviewing, core.StateTesting},
+	core.StateReviewing:      {core.StateTesting, core.StateCompleted, core.StateImplementing},
 	core.StateTesting:        {core.StateCompleted},
 }
 
@@ -182,7 +191,8 @@ func decideNew(ev core.Event, f Facts, p Policy) Decision {
 			State: core.StateDiscovered, Title: ev.PullRequest.Title, PullRequest: ev.PullRequest, HeadSHA: ev.PullRequest.HeadSHA, CreatedAt: f.Now,
 		})
 		m := &machine{t: t, from: core.StateDiscovered, ev: ev, f: f, p: p}
-		m.enqueueMain(JobReview, struct{}{}, p.ImplementerLimitKey, 3)
+		m.enqueueMain(JobReview, ReviewPayload{SHA: ev.PullRequest.HeadSHA},
+			cmp.Or(p.ReviewerLimitKey, p.ImplementerLimitKey), 3)
 		m.moveTo(core.StateReviewing, "pull request accepted for review")
 		d := m.decision()
 		d.IsNew = true
@@ -448,6 +458,7 @@ func (m *machine) onOperatorCommand(cmd string, c *core.Comment) {
 		// A person asked to continue, so bounded loops start over.
 		delete(m.t.Loops, "plan")
 		delete(m.t.Loops, "implement")
+		delete(m.t.Loops, "review_fix")
 		m.resume("resumed by " + c.Author.Login)
 	}
 }
@@ -721,9 +732,13 @@ func (m *machine) onImplementDone(o *core.JobOutcome) {
 	if res.SessionID != "" {
 		m.t.Sessions[core.RoleImplementer] = res.SessionID
 	}
+	var p ImplementPayload
+	_ = json.Unmarshal(m.t.CurrentJob.Payload, &p)
+	// A correction starts from a commit, so the base comparison would always see a change.
+	unchanged := p.ReviewFeedback != "" && res.HeadSHA == m.t.HeadSHA
 	m.t.Workspace, m.t.Branch, m.t.BaseSHA = res.Workspace, res.Branch, res.BaseSHA
 	m.t.HeadSHA = res.HeadSHA
-	if !res.Changed {
+	if !res.Changed || unchanged {
 		m.block("the implementer finished without changing anything")
 		return
 	}
@@ -756,7 +771,7 @@ func (m *machine) onValidateDone(o *core.JobOutcome) {
 		m.t.ValidatedSHA = p.SHA // only a pass records this
 	}
 	if p.Stage == StagePrePR {
-		m.enqueueMain(JobPublish, PublishPayload{SHA: p.SHA, Revision: m.t.DesignRevision}, "", 5)
+		m.enqueuePublish(p.SHA)
 		m.reason = "validation passed before publishing"
 		if skipped {
 			m.reason = "no validation configured, publishing an untested commit as allowed"
@@ -777,7 +792,8 @@ func (m *machine) onValidationFailed(p ValidatePayload, rep core.ValidationRepor
 		m.blockWithDetail("validation failed on the pull request: "+rep.Summary, RenderFailedChecks(rep))
 		return
 	}
-	retry := ImplementPayload{Revision: m.t.DesignRevision, Hash: m.t.DesignHash, Feedback: RenderFailure(rep)}
+	retry := ImplementPayload{Revision: m.t.DesignRevision, Hash: m.t.DesignHash,
+		Feedback: RenderFailure(rep), ReviewFeedback: m.t.CorrectionFeedback}
 	if m.t.Loops["implement"] >= m.p.MaxImplementLoops {
 		// Not enqueued, but recorded: if a person resumes, this is the work to do.
 		m.t.CurrentJob = &core.JobDraft{Kind: JobImplement, IdempotencyKey: m.nextKey(JobImplement), Payload: mustJSON(retry), LimitKey: m.p.ImplementerLimitKey, MaxAttempts: 3}
@@ -787,45 +803,4 @@ func (m *machine) onValidationFailed(p ValidatePayload, rep core.ValidationRepor
 	m.t.Loops["implement"]++
 	m.enqueueMain(JobImplement, retry, m.p.ImplementerLimitKey, 3)
 	m.reason = "validation failed, another implementation round"
-}
-
-func (m *machine) onPublishDone(o *core.JobOutcome) {
-	res, ok := decode[PublishResult](o)
-	if !ok || res.PullRequest.Number == "" {
-		m.block("publishing returned no pull request")
-		return
-	}
-	pr := res.PullRequest
-	m.t.PullRequest = &pr
-	if pr.HeadSHA != "" {
-		m.t.HeadSHA = pr.HeadSHA
-	}
-	m.enqueueMain(JobReview, struct{}{}, m.p.ImplementerLimitKey, 3)
-	m.comment(fmt.Sprintf("Draft pull request opened: %s", prLink(pr)))
-	m.moveTo(core.StatePROpen, "pull request "+pr.Number+" open")
-}
-
-func (m *machine) onReviewDone(o *core.JobOutcome) {
-	res, ok := decode[ReviewResult](o)
-	if !ok || res.Result.Verdict == "" {
-		m.block("the review returned no verdict")
-		return
-	}
-	if res.Result.Verdict == core.VerdictChangesRequested {
-		m.block("review requested changes: " + res.Result.Summary)
-		return
-	}
-	if m.t.Kind == core.TaskReviewOnly {
-		m.t.CurrentJob = nil
-		m.moveTo(core.StateCompleted, "review published")
-		return
-	}
-	reuse := m.t.ValidatedSHA != "" && m.t.ValidatedSHA == m.t.HeadSHA
-	m.enqueueMain(JobValidate, ValidatePayload{Stage: StageFinal, SHA: m.t.HeadSHA, Reuse: reuse}, "", 3)
-	m.moveTo(core.StateTesting, "review finished: "+string(res.Result.Verdict))
-}
-
-func (m *machine) finish(reason string) {
-	m.jobs = append(m.jobs, core.JobDraft{Kind: JobCleanup, IdempotencyKey: m.nextKey(JobCleanup), MaxAttempts: 5})
-	m.moveTo(core.StateCompleted, reason)
 }

@@ -44,6 +44,8 @@ type ImplementPayload struct {
 	Revision int    `json:"revision"`
 	Hash     string `json:"hash"`
 	Feedback string `json:"feedback,omitempty"`
+	// ReviewFeedback carries a review's actionable findings, for a correction round.
+	ReviewFeedback string `json:"review_feedback,omitempty"`
 }
 
 // ImplementResult reports an implementer run.
@@ -91,9 +93,20 @@ type PublishResult struct {
 	Created     bool             `json:"created"`
 }
 
+// ReviewPromptVersion pins what reviews are asked. A review is done once per commit and
+// version, and every published review says which version produced it. Changing the prompt
+// means changing this; a test holds the two together.
+const ReviewPromptVersion = "2026-11-01.1"
+
+// ReviewPayload parametrizes a review. SHA is the one commit to review.
+type ReviewPayload struct {
+	SHA string `json:"sha,omitempty"`
+}
+
 // ReviewResult reports a review; Skipped reviews say why in Result.Summary.
 type ReviewResult struct {
 	Result core.ReviewResult `json:"result"`
+	SHA    string            `json:"sha,omitempty"`
 }
 
 // CommentPayload is a message for the ticket conversation.

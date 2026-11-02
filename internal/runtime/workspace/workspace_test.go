@@ -384,3 +384,68 @@ func TestParseResult(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestReviewCheckoutIsPinnedAndTheDiffNeedsNoToken(t *testing.T) {
+	w := setup(t)
+	seed := filepath.Join(t.TempDir(), "seed")
+	gitOut(t, filepath.Dir(seed), "clone", "-q", w.remote, seed)
+	gitOut(t, seed, "checkout", "-q", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(seed, "new.txt"), []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitOut(t, seed, "add", "-A")
+	gitOut(t, seed, "commit", "-qm", "first")
+	pinned := gitOut(t, seed, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(seed, "later.txt"), []byte("two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitOut(t, seed, "add", "-A")
+	gitOut(t, seed, "commit", "-qm", "second")
+	gitOut(t, seed, "push", "-q", w.remote, "feature")
+
+	spec, err := workspace.ReviewPrepareSpec("fetch", "img", "rv", nil, w.access, workspace.ReviewTarget{BaseBranch: "main", HeadBranch: "feature", FetchRef: "refs/pull/1/head", SHA: pinned})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := runtime.RunToCompletion(ctx, w.rt, spec)
+	if err != nil || res.Status.Phase != core.WorkloadSucceeded {
+		t.Fatalf("fetch: %+v, %v", res, err)
+	}
+	parsed, err := workspace.ParseResult(res.Stdout)
+	if err != nil || parsed.HeadSHA != pinned || parsed.BaseSHA != w.base {
+		t.Fatalf("result = %+v, %v", parsed, err)
+	}
+	repo := filepath.Join(w.rt.VolumePath("rv"), "repo")
+	if gitOut(t, repo, "rev-parse", "HEAD") != pinned {
+		t.Fatal("not at the pinned commit")
+	}
+	if _, err := os.Stat(filepath.Join(repo, "later.txt")); err == nil {
+		t.Fatal("the checkout has a newer commit's files")
+	}
+	diff, err := workspace.DiffSpec("diff", "img", "rv", nil, pinned, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.Network != core.NetworkNone || len(diff.Secrets) != 0 || !diff.Mounts[0].ReadOnly {
+		t.Fatalf("diff spec = %+v", diff)
+	}
+	out, err := runtime.RunToCompletion(ctx, w.rt, diff)
+	if err != nil || !strings.Contains(out.Stdout, "+++ b/new.txt") || strings.Contains(out.Stdout, "later.txt") {
+		t.Fatalf("diff = %+v, %v", out, err)
+	}
+	for _, bad := range []func() error{
+		func() error {
+			_, e := workspace.ReviewPrepareSpec("x", "i", "v", nil, w.access, workspace.ReviewTarget{BaseBranch: "main", HeadBranch: "feature", FetchRef: "not/a-ref; rm -rf /", SHA: pinned})
+			return e
+		},
+		func() error {
+			_, e := workspace.ReviewPrepareSpec("x", "i", "v", nil, w.access, workspace.ReviewTarget{BaseBranch: "main", HeadBranch: "feature", SHA: "HEAD"})
+			return e
+		},
+		func() error { _, e := workspace.DiffSpec("x", "i", "v", nil, "HEAD", 1); return e },
+	} {
+		if !core.IsKind(bad(), core.KindInvalid) {
+			t.Fatal("bad input accepted")
+		}
+	}
+}

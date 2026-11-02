@@ -35,8 +35,8 @@ inside job results.
 | `design-proposed`  | `agent-ready`, `investigating`                             |
 | `agent-ready`      | `implementing`, `investigating` (requirements changed)     |
 | `implementing`     | `pr-open`, `investigating` (requirements changed)          |
-| `pr-open`          | `reviewing`                                                |
-| `reviewing`        | `testing`, `completed` (review-only tasks)                 |
+| `pr-open`          | `reviewing`, `testing` (commit already reviewed)           |
+| `reviewing`        | `testing`, `implementing` (findings to correct), `completed` (review-only tasks) |
 | `testing`          | `completed`                                                |
 | any active         | `blocked`, `quota-paused`, `failed`, `cancelled`           |
 | `blocked`, `quota-paused` | the state recorded when they were entered, or `investigating` if requirements changed meanwhile |
@@ -103,6 +103,32 @@ output, up to 4 KiB per check. The ticket can be public, so credential-shaped te
 redacted first. Redaction only recognizes common shapes, and validation workloads receive
 no credentials: keep secrets out of what your checks print. Notifications and the task's
 stored reason carry only the summary.
+
+## Review
+
+A review looks at one exact commit, once per commit and prompt version. Reviewers are tried in
+order: the project's `review` provider, then each of `stages.reviewers`. No reviewer is required by
+the code, and none is assumed.
+
+| Situation                                        | Effect                                        |
+| ------------------------------------------------ | --------------------------------------------- |
+| Reviewer has no login, no quota or lacks a feature | The next reviewer takes over                |
+| Reviewer keeps crashing                          | Retried, then the next one takes over         |
+| None left, and `allow_skipped_review`            | Continues; the review is reported as skipped  |
+| None left, no opt-in                             | Pauses or blocks for the reason of the first  |
+| Finding at or above `review_min_severity`, not low confidence | Correction round, within the approved design |
+| Below that                                       | Published as a suggestion                     |
+| `changes_requested` with no finding              | Blocks: there is nothing to act on, but it is a gate |
+| Unreadable review                                | Retried, never a pass                         |
+
+A correction goes back to the implementer with the findings as data. Checks run on the new commit,
+it is pushed to the same pull request, and that commit is reviewed. `max_review_fix_loops` (default
+3) bounds this, after which the task blocks with the findings on the ticket. Findings cannot widen
+the design: implementation still rechecks the approval.
+
+Automated reviews are published as comments and never as an approval or a change request, so they
+can neither satisfy nor block a person's branch protection, and each one says that it proves
+nothing about safety. Goblins' own reviews do not trigger anything, as they come from automation.
 
 ## Storage
 

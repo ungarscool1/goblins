@@ -13,7 +13,6 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ungarscool1/goblins/internal/core"
@@ -39,19 +38,24 @@ type Stage struct {
 
 // Project holds a project's resolved providers.
 type Project struct {
-	ID           string
-	Repo         core.RepoRef
-	BaseBranch   string
-	Tracker      core.IssueTracker
-	SCM          core.SourceControl
-	Planner      Stage
-	Implementer  Stage
-	Validation   core.ValidationProvider
-	Review       core.ReviewProvider
-	Notification core.NotificationProvider
-	GitImage     string
-	Identity     workspace.Identity
-	WebResearch  bool
+	ID          string
+	Repo        core.RepoRef
+	BaseBranch  string
+	Tracker     core.IssueTracker
+	SCM         core.SourceControl
+	Planner     Stage
+	Implementer Stage
+	// Describer writes pull request descriptions from their diff. Without an agent, a
+	// description comes from the approved design.
+	Describer  Stage
+	Validation core.ValidationProvider
+	Review     core.ReviewProvider
+	// ReviewFallbacks are tried in order when the reviewer before them is unavailable.
+	ReviewFallbacks []core.ReviewProvider
+	Notification    core.NotificationProvider
+	GitImage        string
+	Identity        workspace.Identity
+	WebResearch     bool
 	// AllowUnvalidated accepts pull requests from commits nothing tested, if no validation
 	// is configured. AllowSkippedReview likewise accepts having no independent reviewer.
 	AllowUnvalidated   bool
@@ -357,7 +361,7 @@ func (p *Pipeline) implement(ctx context.Context, jc scheduler.JobContext) (any,
 	}
 	res, err := p.runAgent(ctx, jc, pr.Implementer, core.RoleImplementer, core.AgentRequest{
 		SystemPrompt: implementerSystem,
-		Prompt:       ImplementerPrompt(issue, design, payload.Feedback),
+		Prompt:       ImplementerPrompt(issue, design, payload.Feedback, payload.ReviewFeedback),
 		Policy:       core.ToolPolicy{WriteFiles: true},
 		Workspace:    core.Mount{Volume: volume, Target: workspace.Mount},
 		WorkDir:      workspace.RepoDir,
@@ -366,6 +370,9 @@ func (p *Pipeline) implement(ctx context.Context, jc scheduler.JobContext) (any,
 		return nil, err
 	}
 	message := fmt.Sprintf("%s\n\nImplements design revision %d, approved by %s.", jc.Task.Title, design.Revision, jc.Task.Approval.Approver.Login)
+	if payload.ReviewFeedback != "" {
+		message += "\n\nAddresses review findings."
+	}
 	spec, err := workspace.CommitSpec(workloadName(jc, "commit"), gitImage(pr), volume, p.labels(jc), pr.Identity, branch, message)
 	if err != nil {
 		return nil, err
@@ -431,7 +438,8 @@ func (p *Pipeline) publish(ctx context.Context, jc scheduler.JobContext) (any, e
 	if err != nil {
 		return nil, err
 	}
-	if _, err := p.approvedDesign(ctx, jc.Task, payload.Revision); err != nil {
+	design, err := p.approvedDesign(ctx, jc.Task, payload.Revision)
+	if err != nil {
 		return nil, err
 	}
 	if payload.SHA != jc.Task.ValidatedSHA && (pr.Validation != nil || !pr.AllowUnvalidated) {
@@ -457,60 +465,15 @@ func (p *Pipeline) publish(ctx context.Context, jc scheduler.JobContext) (any, e
 	if err != nil {
 		return nil, err
 	}
+	change := p.describeChange(ctx, jc, pr, design.Body, payload.SHA, branch)
 	pull, created, err := pr.SCM.EnsurePullRequest(ctx, core.PullRequestDraft{
 		IdempotencyKey: jc.Task.ID + "/pr", Repo: pr.Repo, Head: branch, Base: pr.BaseBranch, Draft: true,
-		Title: jc.Task.Title, Body: pullRequestBody(jc.Task, issue, payload),
+		Title: jc.Task.Title, Body: pullRequestBody(jc.Task, design.Body, change, issue, payload),
 	})
 	if err != nil {
 		return nil, err
 	}
 	return workflow.PublishResult{PullRequest: pull, Created: created}, nil
-}
-
-func pullRequestBody(task core.Task, issue core.Issue, payload workflow.PublishPayload) string {
-	var b strings.Builder
-	link := issue.URL
-	if link == "" {
-		link = issue.Ref.ExternalID
-	}
-	fmt.Fprintf(&b, "Goblins opened this draft for %s.\n\n", link)
-	fmt.Fprintf(&b, "- Design: revision %d (`%s`), approved by @%s\n", payload.Revision, task.Approval.Hash[:12], task.Approval.Approver.Login)
-	fmt.Fprintf(&b, "- Validated commit: `%s`\n\n", payload.SHA)
-	b.WriteString("It was written by an automated agent and has not been reviewed by a person. Goblins does not merge pull requests.")
-	return b.String()
-}
-
-func (p *Pipeline) review(ctx context.Context, jc scheduler.JobContext) (any, error) {
-	pr, err := p.project(jc.Task.Project)
-	if err != nil {
-		return nil, err
-	}
-	if pr.Review == nil {
-		if !pr.AllowSkippedReview {
-			return nil, core.Errorf(core.KindForbidden, "pipeline.review", "this project configures no reviewer and does not allow skipping review")
-		}
-		return workflow.ReviewResult{Result: core.ReviewResult{Verdict: core.VerdictSkipped, Summary: "no independent reviewer is configured"}}, nil
-	}
-	if jc.Task.PullRequest == nil {
-		return nil, core.Errorf(core.KindInvalid, "pipeline.review", "the task has no pull request to review")
-	}
-	design := ""
-	if a := jc.Task.Approval; a != nil {
-		if d, err := p.approvedDesign(ctx, jc.Task, a.Revision); err == nil {
-			design = d.Body
-		}
-	}
-	res, err := pr.Review.Review(ctx, core.ReviewRequest{IdempotencyKey: jc.Job.IdempotencyKey, Repo: pr.Repo, PullRequest: *jc.Task.PullRequest, Design: design})
-	if err != nil {
-		return nil, err
-	}
-	if res.Verdict != core.VerdictSkipped {
-		err := pr.SCM.PostReview(ctx, pr.Repo, jc.Task.PullRequest.Number, core.ReviewDraft{IdempotencyKey: jc.Job.IdempotencyKey, Verdict: res.Verdict, Body: res.Summary, Comments: res.Findings})
-		if err != nil {
-			return nil, err
-		}
-	}
-	return workflow.ReviewResult{Result: res}, nil
 }
 
 // comment posts to the conversation. If the tracker cannot take comments, the message goes
@@ -571,7 +534,8 @@ func (p *Pipeline) cleanup(ctx context.Context, jc scheduler.JobContext) (any, e
 	for _, v := range []struct {
 		runtime core.ExecutionRuntime
 		purpose string
-	}{{pr.Planner.Runtime, "plan"}, {pr.Implementer.Runtime, "impl"}, {pr.Implementer.Runtime, "scratch"}} {
+	}{{pr.Planner.Runtime, "plan"}, {pr.Implementer.Runtime, "impl"}, {pr.Implementer.Runtime,
+		"scratch"}, {pr.Implementer.Runtime, "review"}} {
 		if err := v.runtime.RemoveVolume(ctx, p.volume(jc.Task, v.purpose)); err != nil {
 			errs = append(errs, err)
 		}
