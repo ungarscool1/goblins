@@ -199,3 +199,39 @@ func (s *SCM) MergePullRequest(ctx context.Context, repo core.RepoRef, number, s
 	}
 	return err
 }
+
+// ReplyToThread implements core.SourceControl. GitHub threads are identified by the comment
+// that started them. As with comments, a marker makes a retry after a lost response safe.
+func (s *SCM) ReplyToThread(ctx context.Context, repo core.RepoRef, number, threadID string,
+	d core.CommentDraft) error {
+	own, err := s.c.AppLogin(ctx)
+	if err != nil {
+		return err
+	}
+	base := "/repos/" + repo.Slug + "/pulls/" + number + "/comments"
+	marker, done := idemMarker(d.IdempotencyKey), false
+	err = s.c.list(ctx, repo.Slug, base+"?per_page=100", func(raw json.RawMessage) error {
+		var c comment
+		if err := json.Unmarshal(raw, &c); err != nil {
+			return core.Wrap(core.KindTransient, "github.reply", err)
+		}
+		a := actorOf(c.User)
+		done = done || (a.Type == core.ActorBot && a.Login == own && strings.Contains(c.Body,
+			marker))
+		return nil
+	})
+	if err != nil || done {
+		return err
+	}
+	in := map[string]string{"body": d.Body + "\n\n" + marker}
+	return s.c.repoCall(ctx, repo.Slug, http.MethodPost,
+		base+"/"+url.PathEscape(threadID)+"/replies", in, nil)
+}
+
+// PullRequestComments implements core.SourceControl. The general conversation of a pull
+// request consists of issue comments on GitHub.
+func (s *SCM) PullRequestComments(ctx context.Context, repo core.RepoRef,
+	number string) ([]core.Comment, error) {
+	return s.tracker.ListComments(ctx, core.IssueRef{Container: repo.Slug, ExternalID: number},
+		time.Time{})
+}

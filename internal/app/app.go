@@ -268,6 +268,16 @@ func policyFor(pc config.Project) workflow.Policy {
 	p.StopAtReport = c.StopAtReport
 	p.TrustedReviewBots = c.TrustedReviewBots
 	p.Merge = mergePolicy(c.Merge)
+	p.SkipReviewTriage = c.SkipReviewTriage
+	if c.MaxDebateRounds > 0 {
+		p.MaxDebateRounds = c.MaxDebateRounds
+	}
+	if c.MaxTriageRounds > 0 {
+		p.MaxTriageRounds = c.MaxTriageRounds
+	}
+	if c.ReplyTimeout > 0 {
+		p.ReplyTimeout = c.ReplyTimeout
+	}
 	if len(pc.Stages.Reviewers) > 0 {
 		p.ReviewerLimitKey = limitKey(pc.Stages.Reviewers[0].Agent)
 	}
@@ -307,6 +317,9 @@ func preflight(pc config.Project, pr *pipeline.Project) []string {
 		warn(pr.Tracker, "(no notification provider is configured as a fallback)", core.CapTrackerCommentWrite)
 	}
 	warn(pr.SCM, "(pull requests cannot be opened)", core.CapSCMPullRequests, core.CapSCMDraft)
+	if !pc.Policy.SkipReviewTriage && !pc.Policy.StopAtReport {
+		warn(pr.SCM, "(review conversations block for a person)", core.CapSCMThreadReply)
+	}
 	warn(pr.Implementer.Runtime, "(workspaces cannot be provided)", core.CapRuntimeVolumes, core.CapRuntimeNetworkNone)
 	warn(pr.Planner.Agent, "(sessions restart from scratch)", core.CapAgentResume)
 	if pr.Validation == nil {

@@ -159,8 +159,9 @@ func reviewReasons(in GateInput, sha string) []string {
 	open := 0
 	for _, f := range in.Task.Findings {
 		// A remark outside a thread has nothing to resolve: a change request stands through its
-		// verdict above, and a general comment holds nothing up. A commit moving the lines makes
-		// a remark stale as work to do, but only its reviewer can close the conversation.
+		// verdict above, and a general comment holds nothing up. A commit moving the lines, or a
+		// model judging a remark superseded, ends it as work to do, but only its reviewer can
+		// close the conversation.
 		if f.ThreadID != "" && f.Author.Type == core.ActorHuman && f.Status != core.FindingResolved {
 			open++
 		}
