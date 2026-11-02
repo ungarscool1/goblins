@@ -18,10 +18,10 @@ const commitInstruction = `
 
 Your reply is not complete without this: end it with exactly one fenced block tagged
 goblins-commit holding the subject of the commit, as a Conventional Commit: type(optional
-scope): what this change does, in the imperative and in lower case. Describe this change, not
-the whole ticket. The type is one of feat, fix, docs, style, refactor, perf, test, build, ci,
-chore or revert. Only if this change breaks what existing users of the project rely on, add !
-after the type or scope, as in feat!: .
+scope): what this change does, in the imperative, starting with a lower case verb and keeping
+names like GET as they are. Describe this change, not the whole ticket. The type is one of feat,
+fix, docs, style, refactor, perf, test, build, ci, chore or revert. Only if this change breaks
+what existing users of the project rely on, add ! after the type or scope, as in feat!: .
 ` + "```goblins-commit" + `
 feat(api): add a health check endpoint
 ` + "```"
