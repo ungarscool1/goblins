@@ -75,7 +75,7 @@ func (r trustedResult) note() string {
 	if n := len(r.ignored) - len(names); n > 0 {
 		more = fmt.Sprintf(" and %d more", n)
 	}
-	return " This change also edits trusted files, and the checks used the base commit's " +
+	return ". This change also edits trusted files, and the checks used the base commit's " +
 		"version of them: " + strings.Join(names, ", ") + more + "."
 }
 
