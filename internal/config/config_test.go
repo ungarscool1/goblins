@@ -80,6 +80,8 @@ func TestRejections(t *testing.T) {
 		{"bad review severity", strings.Replace(valid, "allow_skipped_review: true", "allow_skipped_review: true, review_min_severity: urgent", 1), "review_min_severity"},
 		{"bad commit style", strings.Replace(valid, "allow_skipped_review: true",
 			"allow_skipped_review: true, commit_style: gitmoji", 1), "commit_style"},
+		{"negative budget", strings.Replace(valid, "allow_skipped_review: true",
+			"allow_skipped_review: true, max_changed_files: -1", 1), "max_changed_files"},
 		{"no reviewer, no opt-in", strings.Replace(valid, ", allow_skipped_review: true", "", 1), "allow_skipped_review"},
 		{"bad storage", "version: 1\nstorage: {driver: mongo}", "unknown driver"},
 		{"postgres dsn", "version: 1\nstorage: {driver: postgres}", "dsn_env"},

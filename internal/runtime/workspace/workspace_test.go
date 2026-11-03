@@ -113,6 +113,9 @@ func TestFullCycleRealGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = w.run(workspace.CommitSpec("commit", "img", "ws", nil, id, "goblins/t1", "Implement feature"))
+	if got.ChangedFiles != 1 {
+		t.Fatalf("changed files = %d", got.ChangedFiles)
+	}
 	if !got.Changed || got.HeadSHA == w.base {
 		t.Fatalf("commit = %+v", got)
 	}
