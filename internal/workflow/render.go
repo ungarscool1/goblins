@@ -62,7 +62,7 @@ func RenderFailure(rep core.ValidationReport) string {
 func RenderFailedChecks(rep core.ValidationReport) string {
 	var b strings.Builder
 	for _, c := range rep.Checks {
-		if c.Status == core.ValidationPassed {
+		if c.Status == core.ValidationPassed || c.Optional {
 			continue
 		}
 		if b.Len() >= maxTicketOutput {
