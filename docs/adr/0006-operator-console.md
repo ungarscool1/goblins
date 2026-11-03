@@ -22,7 +22,7 @@ its own. The options were:
 - Roles are `viewer`, who reads everything, and `operator`, who can also act. `console.read_only`
   refuses every action whatever the role, for a work profile where only watching is allowed.
 - A browser logs in once with its token and gets a session cookie: random, in memory only,
-  `HttpOnly`, `SameSite=Strict`, `Secure` unless `insecure_cookie` is set, and lasting `session_ttl`
+  `HttpOnly`, `SameSite=Strict`, always `Secure`, and lasting `session_ttl`
   (12 hours by default). A restart logs everyone out. Every form also carries the session's own
   token, and requests a browser marks as coming from another site are refused.
 - The JSON API takes the token as a bearer token and nothing else, so a browser cannot be made to

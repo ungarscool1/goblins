@@ -40,12 +40,11 @@ type Options struct {
 	Policies workflow.Policies
 	// Agents describes who works on a project, one line per stage, such as
 	// "planner: main, model large".
-	Agents         func(project string) []string
-	ReadOnly       bool
-	SessionTTL     time.Duration
-	InsecureCookie bool
-	Log            *slog.Logger
-	Now            func() time.Time
+	Agents     func(project string) []string
+	ReadOnly   bool
+	SessionTTL time.Duration
+	Log        *slog.Logger
+	Now        func() time.Time
 }
 
 //go:embed ui

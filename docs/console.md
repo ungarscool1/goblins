@@ -24,12 +24,13 @@ console:
 | `operators[].token_env`, `token_file` | | The token, by reference. At least 32 characters |
 | `console.read_only` | false | Refuses every action, whatever the role |
 | `console.session_ttl` | 12h | How long a browser stays logged in |
-| `console.insecure_cookie` | false | Sends the session cookie over plain HTTP. Only for a console reached without TLS on another host than localhost |
 
 Create a token with `openssl rand -base64 32`. `GOBLINS_CONSOLE_LISTEN` overrides `console.listen`.
 
-Keep the console on loopback, or behind a reverse proxy that terminates TLS. Never publish it on
-the port that takes webhooks. In mock mode, set `GOBLINS_CONSOLE_LISTEN` and
+Keep the console on loopback, or behind a reverse proxy that terminates TLS. The session cookie
+is always `Secure`, which browsers accept on `localhost` and `127.0.0.1` only, so a console reached
+over plain HTTP on another address cannot keep anyone logged in. Never publish it on the port that
+takes webhooks. In mock mode, set `GOBLINS_CONSOLE_LISTEN` and
 `GOBLINS_CONSOLE_TOKEN` to try it.
 
 ## Pages

@@ -29,7 +29,7 @@ func serveConsole(ctx context.Context, cfg config.Config, store core.StateStore,
 		return err
 	}
 	h := console.Handler(console.Options{Store: store, Operators: ops, ReadOnly: con.ReadOnly,
-		SessionTTL: con.SessionTTL, InsecureCookie: con.InsecureCookie, Log: log,
+		SessionTTL: con.SessionTTL, Log: log,
 		Policies: consolePolicies(cfg), Agents: consoleAgents(cfg)})
 	ln, err := net.Listen("tcp", con.Listen)
 	if err != nil {

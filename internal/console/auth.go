@@ -167,9 +167,10 @@ func (c *console) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, _ := c.sessions.start(op)
+	// Always Secure: browsers still accept it on localhost, and anywhere else the console
+	// belongs behind TLS.
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: id, Path: "/", HttpOnly: true,
-		Secure: !c.o.InsecureCookie, SameSite: http.SameSiteStrictMode,
-		MaxAge: int(c.o.SessionTTL / time.Second)})
+		Secure: true, SameSite: http.SameSiteStrictMode, MaxAge: int(c.o.SessionTTL / time.Second)})
 	c.o.Log.Info("console login", "operator", op.Name, "remote", r.RemoteAddr)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -182,7 +183,7 @@ func (c *console) logout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", MaxAge: -1,
-		HttpOnly: true, Secure: !c.o.InsecureCookie, SameSite: http.SameSiteStrictMode})
+		HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 

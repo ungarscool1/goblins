@@ -14,10 +14,7 @@ type Console struct {
 	ReadOnly bool `yaml:"read_only,omitempty"`
 	// SessionTTL is how long a browser stays logged in.
 	SessionTTL time.Duration `yaml:"session_ttl,omitempty"`
-	// InsecureCookie drops the Secure flag of the session cookie, for a console reached over
-	// plain HTTP on another host than localhost. Use TLS instead wherever possible.
-	InsecureCookie bool       `yaml:"insecure_cookie,omitempty"`
-	Operators      []Operator `yaml:"operators,omitempty"`
+	Operators  []Operator    `yaml:"operators,omitempty"`
 }
 
 // Operator is one person, or one automation, allowed into the console. The token is given

@@ -101,7 +101,7 @@ func (c *console) actionForm(w http.ResponseWriter, r *http.Request) {
 // refuse says why an action was not taken. Unlike other errors, the reason is the operator's
 // own doing, so it is safe and useful to show.
 func (c *console) refuse(w http.ResponseWriter, err error) {
-	code := http.StatusInternalServerError
+	var code int
 	switch {
 	case core.IsKind(err, core.KindForbidden):
 		code = http.StatusForbidden
