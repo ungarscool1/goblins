@@ -94,9 +94,21 @@ retries right away.
 
 ## Metrics
 
-Set `server.metrics: true` to serve Prometheus metrics on `/metrics`. It has no login and shows project
-names and counts, so keep it away from the internet, such as behind the same proxy rule that only lets
-`/webhooks/` through.
+Set `server.metrics_listen` to serve Prometheus metrics on `/metrics` at that address, or set
+`GOBLINS_METRICS_LISTEN`. Metrics are off by default. They have a port of their own, which must
+differ from `server.listen`: that port serves nothing else, and the port that takes webhooks never
+serves metrics, so a proxy that lets `/webhooks/` through cannot leak them.
+
+The metrics port has no login and shows project names and counts, so never publish it to the
+internet. With Compose, use `metrics_listen: 0.0.0.0:9090` and run Prometheus on the same Docker
+network, where it scrapes `goblins:9090` with no port published. To scrape from the host instead,
+publish it on loopback only, in a `compose.override.yaml`:
+
+```yaml
+services:
+  goblins:
+    ports: ["127.0.0.1:9090:9090"]
+```
 
 | Metric | Meaning |
 | --- | --- |

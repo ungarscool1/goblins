@@ -54,6 +54,16 @@ func TestEnvOverrides(t *testing.T) {
 	if cfg.Server.Listen != "0.0.0.0:1" || cfg.Log.Level != "debug" || cfg.Server.ShutdownTimeout != 3*time.Second {
 		t.Fatalf("overrides not applied: %+v", cfg)
 	}
+	if cfg.Server.MetricsListen != "" {
+		t.Fatalf("metrics are on without being asked for: %q", cfg.Server.MetricsListen)
+	}
+	metricsEnv := func(k string) (string, bool) {
+		return "0.0.0.0:9100", k == "GOBLINS_METRICS_LISTEN"
+	}
+	if cfg, err := LoadBytes([]byte(valid), metricsEnv, knownFake); err != nil ||
+		cfg.Server.MetricsListen != "0.0.0.0:9100" {
+		t.Fatalf("metrics address not applied: %v %q", err, cfg.Server.MetricsListen)
+	}
 	badEnv := func(k string) (string, bool) { return "soon", k == "GOBLINS_SHUTDOWN_TIMEOUT" }
 	if _, err := LoadBytes([]byte(valid), badEnv, knownFake); !core.IsKind(err, core.KindInvalid) {
 		t.Fatalf("bad duration: %v", err)
@@ -87,6 +97,10 @@ func TestRejections(t *testing.T) {
 		{"negative budget", strings.Replace(valid, "allow_skipped_review: true",
 			"allow_skipped_review: true, max_changed_files: -1", 1), "max_changed_files"},
 		{"no reviewer, no opt-in", strings.Replace(valid, ", allow_skipped_review: true", "", 1), "allow_skipped_review"},
+		{"metrics on the main port", "version: 1\nserver: {listen: ':80', metrics_listen: ':80'}",
+			"must differ from server.listen"},
+		{"metrics address without a port", "version: 1\nserver: {metrics_listen: localhost}",
+			"server.metrics_listen"},
 		{"bad storage", "version: 1\nstorage: {driver: mongo}", "unknown driver"},
 		{"postgres dsn", "version: 1\nstorage: {driver: postgres}", "dsn_env"},
 		{"bad level", "version: 1\nlog: {level: loud}", "invalid log level"},

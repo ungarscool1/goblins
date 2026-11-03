@@ -14,6 +14,14 @@ import (
 // StallCounter says how many tasks should be moving and are not.
 type StallCounter interface{ StalledTasks() int64 }
 
+// MetricsOnly routes GET /metrics to h and answers 404 for everything else. It is for a
+// listener of its own, so whoever can scrape metrics reaches neither webhooks nor health.
+func MetricsOnly(h http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", h)
+	return mux
+}
+
 // MetricsHandler serves Prometheus metrics: what was recorded, and what the store says now.
 func MetricsHandler(m *observability.Metrics, store core.StateStore, stalls StallCounter,
 	log *slog.Logger) http.Handler {

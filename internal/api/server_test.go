@@ -91,3 +91,43 @@ func TestServeGracefulShutdown(t *testing.T) {
 		t.Fatalf("Serve: %v", err)
 	}
 }
+
+func TestMetricsListenerServesNothingElse(t *testing.T) {
+	metrics := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "goblins_tasks_stalled 0\n")
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- ServeHandler(ctx, ln, MetricsOnly(metrics), 5*time.Second) }()
+
+	base := "http://" + ln.Addr().String()
+	for _, tc := range []struct {
+		method, path string
+		code         int
+	}{{http.MethodGet, "/metrics", http.StatusOK}, {http.MethodGet, "/healthz", http.StatusNotFound},
+		{http.MethodGet, "/readyz", http.StatusNotFound},
+		{http.MethodPost, "/webhooks/tracker", http.StatusNotFound},
+		{http.MethodPost, "/metrics", http.StatusMethodNotAllowed}} {
+		req, err := http.NewRequest(tc.method, base+tc.path, strings.NewReader("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != tc.code {
+			t.Errorf("%s %s = %d, want %d", tc.method, tc.path, resp.StatusCode, tc.code)
+		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("ServeHandler: %v", err)
+	}
+}

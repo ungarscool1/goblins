@@ -389,9 +389,6 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, o Options) er
 		{Name: "storage", Run: store.Ping},
 	})
 	srv.Handle("POST /webhooks/{source}", api.WebhookHandler(sys.Webhooks, sys.Inbox, log))
-	if cfg.Server.Metrics {
-		srv.Handle("GET /metrics", api.MetricsHandler(sys.Metrics, store, sys.Scheduler, log))
-	}
 	if o.Mock != nil {
 		mountMock(srv, sys, cfg, o.Mock, log)
 	}
@@ -405,6 +402,10 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, o Options) er
 	loopCtx, stopLoop := context.WithCancel(ctx)
 	defer stopLoop()
 	var wg sync.WaitGroup
+	if err := serveMetrics(loopCtx, cfg.Server, sys, store, log, &wg); err != nil {
+		_ = ln.Close()
+		return err
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
