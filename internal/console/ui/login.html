@@ -1,0 +1,12 @@
+{{template "top" "Log in"}}
+<main class="narrow">
+  <h1>Goblins console</h1>
+  {{if .Failed}}<p class="error">That token is not valid.</p>{{end}}
+  <form method="post" action="/login">
+    <label for="token">Operator token</label>
+    <input id="token" name="token" type="password" autocomplete="current-password" required autofocus>
+    <button type="submit">Log in</button>
+  </form>
+  <p class="hint">Tokens are set in the installation's configuration, under <code>console.operators</code>.</p>
+</main>
+{{template "bottom"}}

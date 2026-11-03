@@ -11,6 +11,9 @@ Put the subcommand before `--config`, as in `goblins status --config /etc/goblin
 
 ## Find out why a task stopped
 
+With the [console](console.md) on, open the task: it shows why it stopped, its conversation, jobs
+with their errors, and transcripts. From the shell:
+
 1. `goblins status` lists tasks and why each is paused or blocked.
 2. `goblins audit --task <id>` gives its transitions and jobs, with errors, and its trace ID.
 3. Search the logs for that trace ID: `docker compose logs goblins | grep <trace id>`. Each job attempt

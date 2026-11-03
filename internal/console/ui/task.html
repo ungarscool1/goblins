@@ -1,0 +1,97 @@
+{{template "top" .Task.ID}}
+{{template "nav" .View}}
+<main>
+  <p><a href="/">All tasks</a></p>
+  <h1>{{if .Task.Title}}{{.Task.Title}}{{else}}{{.Task.ID}}{{end}}</h1>
+  <dl class="facts">
+    <dt>State</dt><dd><span class="state {{.Task.State}}">{{.Task.State}}</span>{{if .Task.CurrentJob}} · {{.Task.CurrentJob.Kind}}{{end}}</dd>
+    {{if .Task.Reason}}<dt>Why</dt><dd>{{.Task.Reason}}</dd>{{end}}
+    {{if not .Task.PausedUntil.IsZero}}<dt>Paused until</dt><dd>{{when .Task.PausedUntil}}</dd>{{end}}
+    <dt>Task</dt><dd><code>{{.Task.ID}}</code> in {{.Task.Project}}, item {{.Task.Subject.Container}} {{.Task.Subject.ExternalID}}</dd>
+    {{range .Agents}}<dt>Agent</dt><dd>{{.}}</dd>{{end}}
+    {{with .Task.Approval}}<dt>Approved</dt><dd>revision {{.Revision}} by {{.Approver.Login}}, {{when .At}}</dd>{{end}}
+    {{with .Task.PullRequest}}<dt>Pull request</dt><dd>{{if .URL}}<a href="{{.URL}}" rel="noreferrer">#{{.Number}}</a>{{else}}#{{.Number}}{{end}}{{if .Merged}} (merged){{else if .Draft}} (draft){{end}}</dd>{{end}}
+    {{if .Task.HeadSHA}}<dt>Commit</dt><dd><code>{{.Task.HeadSHA}}</code></dd>{{end}}
+    {{with .Task.ValidatedReport}}<dt>Tests</dt><dd>{{.Status}} at <code>{{$.Task.ValidatedSHA}}</code>. {{.Summary}}</dd>{{end}}
+    {{range $k, $v := .Task.Loops}}{{if ne $k "seq"}}<dt>Rounds</dt><dd>{{$k}}: {{$v}}</dd>{{end}}{{end}}
+  </dl>
+
+  {{if .CanAct}}{{if .Can.approve}}{{with .Design}}
+  <section class="act">
+    <h2>Approve the design</h2>
+    <form method="post" action="/tasks/{{$.Task.ID}}/actions">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <input type="hidden" name="action" value="approve">
+      <input type="hidden" name="revision" value="{{.Revision}}">
+      <input type="hidden" name="hash" value="{{.Hash}}">
+      <button type="submit">Approve revision {{.Revision}}</button>
+    </form>
+  </section>
+  {{end}}{{end}}{{end}}
+
+  {{with .Design}}
+  <section>
+    <h2>Design, revision {{.Revision}}</h2>
+    <p class="hint">Proposed {{when .CreatedAt}}. Hash <code>{{.Hash}}</code>.
+    {{with earlier .Revision}}Earlier revisions:{{range .}} <a href="/tasks/{{$.Task.ID}}/designs/{{.}}">{{.}}</a>{{end}}.{{end}}</p>
+    <pre class="text">{{.Body}}</pre>
+  </section>
+  {{end}}
+
+  <section>
+    <h2>Conversation</h2>
+    {{range .Conversation}}
+    <article class="msg {{.From}}">
+      <header>{{.Author}}{{if eq .From "operator"}} (console){{end}} · {{when .At}}{{if .Edited}} · edited{{end}}{{if .Delivery}} · <em>{{.Delivery}}</em>{{end}}</header>
+      <pre class="text">{{.Text}}</pre>
+    </article>
+    {{else}}
+    <p class="empty">Nothing said yet.</p>
+    {{end}}
+  </section>
+
+  {{if .CanAct}}
+  {{if .Can.answer}}
+  <section class="act">
+    <h2>Answer</h2>
+    <p class="hint">Goes to the planner like a comment on the ticket. It is not posted on the ticket.</p>
+    <form method="post" action="/tasks/{{.Task.ID}}/actions">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="action" value="answer">
+      <textarea name="text" rows="5" required></textarea>
+      <button type="submit">Send</button>
+    </form>
+  </section>
+  {{end}}
+  <section class="act row">
+    {{if .Can.pause}}{{template "button" (button .Task.ID .CSRF "pause" "Pause, marking it blocked")}}{{end}}
+    {{if .Can.resume}}{{template "button" (button .Task.ID .CSRF "resume" "Resume, running the interrupted step again")}}{{end}}
+    {{if .Can.cancel}}{{template "button" (button .Task.ID .CSRF "cancel" "Cancel")}}{{end}}
+  </section>
+  {{end}}
+
+  <section>
+    <h2>Jobs</h2>
+    <p><a href="/tasks/{{.Task.ID}}/transcript">Full transcript</a></p>
+    <table>
+      <thead><tr><th>Created</th><th>Kind</th><th>State</th><th>Attempt</th><th>Error</th><th></th></tr></thead>
+      <tbody>
+      {{range .Jobs}}
+      <tr><td>{{when .CreatedAt}}</td><td>{{.Kind}}</td><td>{{.State}}</td><td>{{.Attempt}}</td><td>{{.LastError}}</td>
+      <td><a href="/tasks/{{$.Task.ID}}/transcript?job={{.ID}}">transcript</a></td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>History</h2>
+    <table>
+      <thead><tr><th>At</th><th>From</th><th>To</th><th>Why</th></tr></thead>
+      <tbody>
+      {{range .Transitions}}<tr><td>{{when .At}}</td><td>{{.From}}</td><td>{{.To}}</td><td>{{.Reason}}</td></tr>{{end}}
+      </tbody>
+    </table>
+  </section>
+</main>
+{{template "bottom"}}

@@ -9,10 +9,10 @@ import (
 	"github.com/ungarscool1/goblins/internal/observability"
 )
 
-// SourceOperator marks events entered by someone with shell access to the installation.
-// That access is itself the proof of permission. The inbox overwrites the source of
-// everything it accepts, and configuration refuses this name for event sources, so no
-// inbound signal can claim it.
+// SourceOperator marks events entered by an operator of the installation, from its shell or
+// through the console's login. That access is itself the proof of permission. The inbox
+// overwrites the source of everything it accepts, and configuration refuses this name for event
+// sources, so no inbound signal can claim it.
 const SourceOperator = "operator"
 
 // Authorizer looks up an actor's access on the tracker of a project.

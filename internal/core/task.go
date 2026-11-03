@@ -323,6 +323,10 @@ type StateStore interface {
 	AppendTranscript(ctx context.Context, entries []TranscriptEntry) error
 	ListTranscript(ctx context.Context, taskID string, limit int) ([]TranscriptEntry, error)
 
+	// ListEvents returns the newest events about one subject, oldest first, as they were
+	// received: what a person can be shown of the conversation after a restart.
+	ListEvents(ctx context.Context, project string, subject Subject, limit int) ([]Event, error)
+
 	GetCursor(ctx context.Context, name string) (string, error)
 	SetCursor(ctx context.Context, name, value string) error
 

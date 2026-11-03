@@ -11,6 +11,7 @@ it protects, how, and what it does not.
 | GitHub App private key   | Orchestrator only                  | Access to all installed repositories |
 | Installation tokens      | Orchestrator; prepare and publish workloads | One repository, about an hour |
 | Webhook secret           | Orchestrator                       | Forged events; still subject to permission checks |
+| Console tokens           | Orchestrator, by reference         | Reading every task; with `operator`, approving designs |
 | Docker API               | Orchestrator, through a proxy      | Root on the worker host            |
 | Merge to default branch  | Nobody: Goblins never merges       |                                    |
 
@@ -46,6 +47,10 @@ GitHub, Anthropic or Docker being compromised.
 | Runaway cost                          | Concurrency limits, bounded loops, deadlines, pause on quota | Go code |
 | Secrets in logs                       | `core.Secret`, redacting logger and transcript, no raw CLI output in messages | Go code |
 | Secrets in check output on the ticket | Validation gets no credentials; output is redacted, bounded and fenced. Redaction only knows common shapes, so a secret a repository already holds can still be printed | Go code, separate containers |
+| Console used by someone else          | A token per operator, 32 characters at least, compared in constant time; logins throttled; a port of its own, off by default | Go code |
+| Another site acts through a logged-in browser | `SameSite=Strict` session cookie, a per-session form token, cross-site requests refused; the API takes bearer tokens only | Go code |
+| Ticket or transcript text runs in the console | Everything escaped, no Markdown, a policy that allows no script, no framing | Go code, browser |
+| Console bypasses the workflow         | Actions are operator comments: the workflow applies its usual rules and records who acted | Go code |
 | Agent pushes to a protected branch    | Only `goblins/*`, never forced; App lacks workflow permission | Go code, GitHub |
 
 ### Review feedback
@@ -71,7 +76,8 @@ These are real and accepted for P0. Read them before pointing Goblins at anythin
    code. That is why every change is a draft for a person to review, and why nothing merges.
 4. **Prompt injection is reduced, not solved.** Delimiters and system prompts help; the hard boundaries
    above are what limit the damage.
-5. **`goblins comment` trusts shell access.** Whoever has a shell can approve under any name.
+5. **`goblins comment` trusts shell access.** Whoever has a shell can approve under any name. In the
+   console, an operator acts under their configured name, and anyone holding their token is them.
 6. **Tests with network access** can reach anything the bridge routes to, including your LAN, if you
    set `network: egress`. They still have no credentials.
 7. **Restricted mode is only partly verified.** One real run, on CLI 2.1.310 on macOS rather than the

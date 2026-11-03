@@ -331,11 +331,13 @@ Prompts guide the model; they are not the security boundary. These are enforced 
 
 If a tracker cannot accept comments, messages go to the project's notification provider
 instead. With no provider, the task becomes `blocked` with the reason rather than waiting for
-an answer nobody could give. Replies can be entered by anyone with shell access:
+an answer nobody could give. Replies can be entered in the [operator console](console.md), or by
+anyone with shell access:
 
 ```bash
 goblins comment --config goblins.yaml --task <task-id> --as alice --body "/approve-design 2"
 ```
 
-The same rules apply to the content, and shell access on the installation stands in for
-tracker permission. The name you give is recorded as the approver.
+The same rules apply to the content, and shell access on the installation, or a console login with
+the `operator` role, stands in for tracker permission. The name given, or the operator's name in the
+console, is recorded as the approver.
