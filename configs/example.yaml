@@ -8,6 +8,11 @@ server:
   shutdown_timeout: 20s
   # Prometheus metrics, on a port of their own with no login. Off unless set.
   # metrics_listen: 127.0.0.1:9090
+# The operator console, on a port of its own. Off unless listen is set. See docs/console.md.
+# console:
+#   listen: 127.0.0.1:8081
+#   operators:
+#     - {name: alice, role: operator, token_file: /run/secrets/console-alice}
 log:
   level: info
   format: json

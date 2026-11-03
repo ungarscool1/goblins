@@ -1,0 +1,9 @@
+{{template "top" "Design"}}
+{{template "nav" .View}}
+<main>
+  <p><a href="/tasks/{{.Design.TaskID}}">Back to the task</a></p>
+  <h1>Design, revision {{.Design.Revision}}</h1>
+  <p class="hint">Proposed {{when .Design.CreatedAt}}. Hash <code>{{.Design.Hash}}</code>.</p>
+  <pre class="text">{{.Design.Body}}</pre>
+</main>
+{{template "bottom"}}

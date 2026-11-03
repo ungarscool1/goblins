@@ -26,3 +26,8 @@ projects:
     stages:
       planner: {agent: mock, runtime: mock}
       implementer: {agent: mock, runtime: mock}
+# The operator console is off unless GOBLINS_CONSOLE_LISTEN is set. Its one operator logs in
+# with the token in GOBLINS_CONSOLE_TOKEN, at least 32 characters.
+console:
+  operators:
+    - {name: operator, role: operator, token_env: GOBLINS_CONSOLE_TOKEN}

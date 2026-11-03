@@ -101,6 +101,17 @@ func TestRejections(t *testing.T) {
 			"must differ from server.listen"},
 		{"metrics address without a port", "version: 1\nserver: {metrics_listen: localhost}",
 			"server.metrics_listen"},
+		{"console on the main port",
+			"version: 1\nserver: {listen: ':80'}\nconsole: {listen: ':80'}",
+			"console.listen: must differ"},
+		{"console without operators", "version: 1\nconsole: {listen: ':81'}",
+			"at least one is required"},
+		{"console operator without a token", "version: 1\nconsole: {listen: ':81', " +
+			"operators: [{name: ops, role: operator}]}", "exactly one of token_env and token_file"},
+		{"console operator with a bad role", "version: 1\nconsole: {listen: ':81', " +
+			"operators: [{name: ops, role: admin, token_env: T}]}", "must be viewer or operator"},
+		{"console operator with an inline token", "version: 1\nconsole: {listen: ':81', " +
+			"operators: [{name: ops, role: viewer, token: abc}]}", "field token not found"},
 		{"bad storage", "version: 1\nstorage: {driver: mongo}", "unknown driver"},
 		{"postgres dsn", "version: 1\nstorage: {driver: postgres}", "dsn_env"},
 		{"bad level", "version: 1\nlog: {level: loud}", "invalid log level"},

@@ -507,6 +507,18 @@ func Run(t *testing.T, build func(t *testing.T) core.StateStore) {
 		if err != nil || len(got) != 2 || got[0].Text != "two" || got[1].Text != "three" {
 			t.Fatalf("transcript = %+v, %v", got, err)
 		}
+		subject := core.Subject{Kind: core.SubjectIssue, Provider: "p", Container: "r",
+			ExternalID: "9"}
+		for _, k := range []string{"a", "b", "c"} {
+			if _, _, err := s.AppendEvent(ctx, core.Event{Project: "listed", Subject: subject,
+				DedupKey: "listed-" + k, Type: core.EventCommentCreated}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		evs, err := s.ListEvents(ctx, "listed", subject, 2)
+		if err != nil || len(evs) != 2 || evs[0].DedupKey != "listed-b" || evs[1].Seq == 0 {
+			t.Fatalf("events = %+v, %v", evs, err)
+		}
 		if err := s.Ping(ctx); err != nil {
 			t.Fatal(err)
 		}

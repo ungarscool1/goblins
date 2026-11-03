@@ -405,6 +405,12 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, o Options) er
 		_ = ln.Close()
 		return err
 	}
+	if err := serveConsole(loopCtx, cfg, store, log, &wg); err != nil {
+		_ = ln.Close()
+		stopLoop()
+		wg.Wait()
+		return err
+	}
 	log.Info("goblins started", "version", Version, "installation", cfg.Installation.Name, "listen", ln.Addr().String(), "projects", len(cfg.Projects))
 	wg.Add(1)
 	go func() {
@@ -437,20 +443,12 @@ func checkDataDir(dir string) error {
 }
 
 // OperatorComment records a comment from someone with shell access to this installation.
-// It is the manual inbox for trackers that cannot carry a conversation: the same rules
-// apply to its content, and the shell access itself is the proof of permission.
 func OperatorComment(ctx context.Context, store core.StateStore, taskID, login, body string, now time.Time) error {
 	task, err := store.GetTask(ctx, taskID)
 	if err != nil {
 		return err
 	}
-	actor := core.Actor{ID: "operator:" + login, Login: login, Type: core.ActorHuman}
-	id := core.Digest(taskID, login, body, now.String())[:24]
-	_, _, err = store.AppendEvent(ctx, core.Event{
-		Project: task.Project, Source: workflow.SourceOperator, Type: core.EventCommentCreated, Subject: task.Subject,
-		DedupKey: "operator:" + id, Actor: actor, OccurredAt: now, ReceivedAt: now,
-		Comment: &core.Comment{ID: "operator-" + id, Author: actor, Body: body, CreatedAt: now, UpdatedAt: now},
-	})
+	_, _, err = store.AppendEvent(ctx, workflow.OperatorComment(task, login, body, now))
 	return err
 }
 
