@@ -872,6 +872,13 @@ func TestReportNamesWhatEachCheckRanIn(t *testing.T) {
 	if !strings.Contains(feedback, "must") || strings.Contains(feedback, "may") {
 		t.Fatalf("an optional check is not the implementer's to fix:\n%s", feedback)
 	}
+	ticket := RenderFailedChecks(core.ValidationReport{Checks: []core.ValidationCheck{
+		{Name: "must", Status: core.ValidationFailed},
+		{Name: "may", Status: core.ValidationFailed, Optional: true},
+	}})
+	if !strings.Contains(ticket, "must") || strings.Contains(ticket, "may") {
+		t.Fatalf("an optional check did not stop this:\n%s", ticket)
+	}
 }
 
 func TestLimitPausesGrowThenAskAPerson(t *testing.T) {
