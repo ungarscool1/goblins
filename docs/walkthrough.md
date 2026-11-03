@@ -40,7 +40,9 @@ GitHub and a fake CLI.
    output goes back to the agent, for up to three rounds.
 7. **A draft pull request appears** on `goblins/<task-id>`, linking the issue and the approved
    design. Review it like any other. **Goblins never merges.**
-8. **A status report** on the issue lists the pull request, commit, approver and check results.
+8. **A status comment** on the issue lists the pull request, commit, approver and check results,
+   and says what you need to do next. It is edited as things move, so it notifies nobody. Anything
+   that needs you, such as a block, gets a comment of its own.
 
 ## Commands
 

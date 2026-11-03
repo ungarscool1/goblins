@@ -127,7 +127,7 @@ policy:
   trusted_paths: [conformance, Makefile, scripts/vm-suite]
 ```
 
-Whatever a change does in those paths is replaced for the checks, and the status report names what it
+Whatever a change does in those paths is replaced for the checks, and the status comment names what it
 edited. List everything the checks run. A trusted test suite run through an untrusted `Makefile` can
 still be subverted. A real change to these files needs merging first.
 
@@ -143,5 +143,5 @@ name a `review` or list `stages.reviewers`, or set `policy.allow_skipped_review:
 is refused at startup, and a task that still reaches such a step blocks.
 
 With the opt-in, the step reports `skipped`, never a pass: the commit is not recorded as
-validated, and the status report says that nothing was tested. Use these only when a person
+validated, and the status comment says that nothing was tested. Use these only when a person
 reviews every draft pull request.

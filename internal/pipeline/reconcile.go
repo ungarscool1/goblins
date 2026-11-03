@@ -221,7 +221,7 @@ func reviewFindings(ctx context.Context, reviews []core.Review, threads []core.R
 		f := core.ReviewFinding{ID: "review:" + r.ID, Author: r.Author, Severity: core.ReviewHigh,
 			Confidence: core.ConfidenceHigh,
 			Body:       capText(r.Body, maxFindingBytes), HeadSHA: r.CommitSHA,
-			Provenance: r.Author.Login, Status: core.FindingOpen}
+			Provenance: r.Author.Login, Status: core.FindingOpen, Summary: spoke}
 		if r.Dismissed || (r.Body != "" && r.CommitSHA != head) {
 			f.Status = core.FindingStale
 		}

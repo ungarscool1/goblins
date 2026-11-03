@@ -141,6 +141,10 @@ func renderFinding(f core.ReviewFinding, max int) string {
 	if f.Path != "" {
 		fmt.Fprintf(&b, "Location: %s:%d\n", f.Path, f.Line)
 	}
+	if f.Summary {
+		b.WriteString("This is the text of a review whose author also left inline remarks, " +
+			"which are findings of their own. Judge only what it asks beyond them.\n")
+	}
 	b.WriteString("\n" + f.Body + "\n")
 	for i, d := range f.Discussion {
 		if i == 0 {

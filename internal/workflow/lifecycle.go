@@ -191,7 +191,7 @@ func mergeFindings(known, seen []core.ReviewFinding) []core.ReviewFinding {
 		case spoke && reopensOnReply(out[i].Status, s.Discussion):
 			out[i].Status = core.FindingOpen // the reviewer answered
 		}
-		out[i].Body, out[i].Path, out[i].Line = s.Body, s.Path, s.Line
+		out[i].Body, out[i].Path, out[i].Line, out[i].Summary = s.Body, s.Path, s.Line, s.Summary
 		out[i].Discussion, out[i].LastCommentID = s.Discussion, s.LastCommentID
 	}
 	if extra := len(out) - maxFindings; extra > 0 {

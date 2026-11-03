@@ -72,7 +72,8 @@ func TestOneStatusCommentIsEditedInPlace(t *testing.T) {
 			t.Fatalf("%q is missing from:\n%s", want, posted)
 		}
 	}
-	if strings.Contains(posted, "Status report") || strings.Count(posted, "## Goblins status") != 1 {
+	if strings.Contains(posted, "Status report") ||
+		strings.Count(posted, "## Goblins status") != 1 {
 		t.Fatalf("more than one status:\n%s", posted)
 	}
 
