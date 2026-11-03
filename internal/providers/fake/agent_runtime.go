@@ -17,6 +17,8 @@ type AgentStep struct {
 	Output string
 	Events []core.AgentEvent
 	Err    error
+	// Usage is what the run reports using, whether it fails or not.
+	Usage core.AgentUsage
 	// Run, when set, computes the result dynamically and may touch the workspace.
 	Run func(ctx context.Context, req core.AgentRequest) (string, error)
 }
@@ -93,7 +95,7 @@ func (a *Agent) Run(ctx context.Context, req core.AgentRequest, sink func(core.A
 		sink(ev)
 	}
 	if step.Err != nil {
-		return core.AgentResult{SessionID: session}, step.Err
+		return core.AgentResult{SessionID: session, Usage: step.Usage}, step.Err
 	}
 	out := step.Output
 	if step.Run != nil {
@@ -103,7 +105,7 @@ func (a *Agent) Run(ctx context.Context, req core.AgentRequest, sink func(core.A
 		}
 	}
 	sink(core.AgentEvent{Kind: core.AgentEventResult, SessionID: session, Text: out})
-	return core.AgentResult{SessionID: session, Output: out}, nil
+	return core.AgentResult{SessionID: session, Output: out, Usage: step.Usage}, nil
 }
 
 func (a *Agent) AuthStatus(context.Context, core.ExecutionRuntime) (core.AuthStatus, error) {
