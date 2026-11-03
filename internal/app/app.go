@@ -397,7 +397,6 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, o Options) er
 	if err != nil {
 		return core.Wrap(core.KindInvalid, "app.listen", err)
 	}
-	log.Info("goblins started", "version", Version, "installation", cfg.Installation.Name, "listen", ln.Addr().String(), "projects", len(cfg.Projects))
 
 	loopCtx, stopLoop := context.WithCancel(ctx)
 	defer stopLoop()
@@ -406,6 +405,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, o Options) er
 		_ = ln.Close()
 		return err
 	}
+	log.Info("goblins started", "version", Version, "installation", cfg.Installation.Name, "listen", ln.Addr().String(), "projects", len(cfg.Projects))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

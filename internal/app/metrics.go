@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"sync"
@@ -21,7 +22,8 @@ func serveMetrics(ctx context.Context, cfg config.Server, sys *System, store cor
 	}
 	ln, err := net.Listen("tcp", cfg.MetricsListen)
 	if err != nil {
-		return core.Wrap(core.KindInvalid, "app.metrics_listen", err)
+		return core.Wrap(core.KindInvalid, "app.metrics_listen",
+			fmt.Errorf("server.metrics_listen %s: %w", cfg.MetricsListen, err))
 	}
 	log.Info("metrics listening", "listen", ln.Addr().String())
 	h := api.MetricsOnly(api.MetricsHandler(sys.Metrics, store, sys.Scheduler, log))
