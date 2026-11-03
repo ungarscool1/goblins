@@ -63,6 +63,10 @@ type Project struct {
 	GitImage        string
 	Identity        workspace.Identity
 	WebResearch     bool
+	// ValidationManifest is where the repository keeps its checks. TrustedPaths are files
+	// checks always take from the base commit, so a change cannot pass by weakening them.
+	ValidationManifest string
+	TrustedPaths       []string
 	// PlainCommits words commits and pull request titles as the ticket's title, rather than as
 	// Conventional Commits.
 	PlainCommits bool
@@ -420,7 +424,7 @@ func (p *Pipeline) validate(ctx context.Context, jc scheduler.JobContext) (any, 
 		return nil, err
 	}
 	if payload.Reuse {
-		return workflow.ValidateResult{Report: core.ValidationReport{Status: core.ValidationPassed, Summary: "this exact commit already passed before publishing"}}, nil
+		return workflow.ValidateResult{Report: reusedReport(jc.Task)}, nil
 	}
 	if pr.Validation == nil {
 		if !pr.AllowUnvalidated {
@@ -443,15 +447,20 @@ func (p *Pipeline) validate(ctx context.Context, jc scheduler.JobContext) (any, 
 	if _, _, err := runStep(ctx, runtime, spec); err != nil {
 		return nil, err
 	}
+	trusted, err := p.applyTrusted(ctx, jc, pr, scratch)
+	if err != nil {
+		return nil, err
+	}
 	report, err := pr.Validation.Validate(ctx, core.ValidationRequest{
 		IdempotencyKey: jc.Job.IdempotencyKey, WorkloadName: workloadName(jc, "check"), HeadSHA: payload.SHA,
 		Workspace: core.Mount{Volume: scratch, Target: workspace.ScratchMount},
 		WorkDir:   workspace.ScratchMount + "/repo",
-		Runtime:   runtime, Labels: p.labels(jc),
+		Runtime:   runtime, Labels: p.labels(jc), Manifest: trusted.manifest,
 	})
 	if err != nil {
 		return nil, err
 	}
+	report.Summary += trusted.note()
 	for _, c := range report.Checks {
 		jc.Log("validation", fmt.Sprintf("%s: %s (exit %d)\n%s", c.Name, c.Status, c.ExitCode, c.Output))
 	}

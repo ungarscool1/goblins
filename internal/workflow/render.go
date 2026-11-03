@@ -46,7 +46,7 @@ func RenderFailure(rep core.ValidationReport) string {
 	var b strings.Builder
 	b.WriteString(rep.Summary + "\n")
 	for _, c := range rep.Checks {
-		if c.Status == core.ValidationPassed {
+		if c.Status == core.ValidationPassed || c.Optional {
 			continue
 		}
 		fmt.Fprintf(&b, "\n### %s (exit %d)\n%s\n", c.Name, c.ExitCode, c.Output)
@@ -62,7 +62,7 @@ func RenderFailure(rep core.ValidationReport) string {
 func RenderFailedChecks(rep core.ValidationReport) string {
 	var b strings.Builder
 	for _, c := range rep.Checks {
-		if c.Status == core.ValidationPassed {
+		if c.Status == core.ValidationPassed || c.Optional {
 			continue
 		}
 		if b.Len() >= maxTicketOutput {
@@ -163,7 +163,7 @@ func RenderReport(t *core.Task, rep core.ValidationReport) string {
 	}
 	fmt.Fprintf(&b, "- Validation: %s. %s\n", rep.Status, rep.Summary)
 	for _, c := range rep.Checks {
-		fmt.Fprintf(&b, "  - %s: %s\n", c.Name, c.Status)
+		fmt.Fprintf(&b, "  - %s\n", checkLine(c))
 	}
 	return b.String()
 }
@@ -187,4 +187,29 @@ func RenderTriagedFeedback(findings []core.ReviewFinding, sha string) string {
 		}
 	}
 	return tail(b.String(), maxFeedback)
+}
+
+// checkLine says what ran, and in what, so a result can be reproduced.
+func checkLine(c core.ValidationCheck) string {
+	line := fmt.Sprintf("%s: %s", c.Name, c.Status)
+	if c.Optional {
+		line += " (optional)"
+	}
+	if c.Image != "" {
+		line += ", in `" + c.Image + "`"
+	}
+	return line
+}
+
+// recordValidated remembers what a commit passed, for the status report once it is published.
+// Output stays out: it is long, and a pass does not need it.
+func (m *machine) recordValidated(sha string, rep core.ValidationReport) {
+	m.t.ValidatedSHA = sha
+	kept := rep
+	kept.Checks = make([]core.ValidationCheck, len(rep.Checks))
+	for i, c := range rep.Checks {
+		c.Output = ""
+		kept.Checks[i] = c
+	}
+	m.t.ValidatedReport = &kept
 }

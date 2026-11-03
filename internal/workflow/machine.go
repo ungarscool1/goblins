@@ -747,7 +747,7 @@ func (m *machine) onValidateDone(o *core.JobOutcome) {
 		return
 	}
 	if !skipped {
-		m.t.ValidatedSHA = p.SHA // only a pass records this
+		m.recordValidated(p.SHA, rep) // only a pass records this
 	}
 	if p.Stage == StagePrePR {
 		m.enqueuePublish(p.SHA)

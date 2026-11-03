@@ -853,6 +853,34 @@ func TestReviewOutcomes(t *testing.T) {
 	})
 }
 
+func TestReportNamesWhatEachCheckRanIn(t *testing.T) {
+	tk := at(core.StateTesting, JobValidate)
+	got := RenderReport(tk, core.ValidationReport{Status: core.ValidationPassed, Summary: "s",
+		Checks: []core.ValidationCheck{
+			{Name: "a", Status: core.ValidationPassed, Image: "tool:1"},
+			{Name: "b", Status: core.ValidationFailed, Optional: true},
+		}})
+	for _, want := range []string{"- a: passed, in `tool:1`", "- b: failed (optional)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q is missing from:\n%s", want, got)
+		}
+	}
+	feedback := RenderFailure(core.ValidationReport{Summary: "s", Checks: []core.ValidationCheck{
+		{Name: "must", Status: core.ValidationFailed},
+		{Name: "may", Status: core.ValidationFailed, Optional: true},
+	}})
+	if !strings.Contains(feedback, "must") || strings.Contains(feedback, "may") {
+		t.Fatalf("an optional check is not the implementer's to fix:\n%s", feedback)
+	}
+	ticket := RenderFailedChecks(core.ValidationReport{Checks: []core.ValidationCheck{
+		{Name: "must", Status: core.ValidationFailed},
+		{Name: "may", Status: core.ValidationFailed, Optional: true},
+	}})
+	if !strings.Contains(ticket, "must") || strings.Contains(ticket, "may") {
+		t.Fatalf("an optional check did not stop this:\n%s", ticket)
+	}
+}
+
 func TestLimitPausesGrowThenAskAPerson(t *testing.T) {
 	p := DefaultPolicy()
 	p.MaxLimitPauses = 3

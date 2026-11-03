@@ -86,6 +86,55 @@ description run words a real one.
 To commit under the ticket's title as it is, set `policy.commit_style: plain`. Either way, a subject
 cannot carry a directive like `[skip ci]`, a mention or a closing reference to another ticket.
 
+## Validation
+
+The `command` provider runs named checks with no credentials and, unless a check asks otherwise, no
+network, against the exact commit. Checks live in the provider's `checks`, or in the repository with
+`policy.validation_manifest`:
+
+```yaml
+version: 1
+image: golang:1.27-alpine        # the default for checks below
+checks:
+  - {name: lint, stage: lint, run: "go vet ./..."}
+  - name: test
+    stage: test
+    run: "go test -json ./... > report.json"
+    timeout: 20m
+    artifacts: [report.json]     # shown after the output, up to 4 KiB each
+  - {name: vms, stage: integration, run: "./scripts/vm-suite", kvm: true, optional: true}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `image` | Tools for this check. Use a fixed version: each report names the image it ran in |
+| `timeout` | Longest this check may take. Defaults to the provider's `timeout` |
+| `optional` | Reported, but does not stop a change or go back to the implementer |
+| `network` | `none` or `egress` |
+| `kvm` | Needs virtualization. A runtime without it refuses, and the task blocks saying so instead of the check failing |
+| `artifacts` | Files the check leaves in the repository, up to 5 |
+| `stage` | A label for the kind of check |
+
+**What a change cannot do to its own checks.** A manifest is read from the base commit, so editing it
+has no effect until a person merges that edit. In a manifest, `network: egress` and `kvm` are refused
+unless the provider sets `manifest_network` or `manifest_kvm`. Set `policy.trusted_paths` to files the
+checks must always take from the base commit, such as conformance tests:
+
+```yaml
+policy:
+  validation_manifest: .goblins/validation.yaml
+  trusted_paths: [conformance, Makefile, scripts/vm-suite]
+```
+
+Whatever a change does in those paths is replaced for the checks, and the status report names what it
+edited. List everything the checks run. A trusted test suite run through an untrusted `Makefile` can
+still be subverted. A real change to these files needs merging first.
+
+With `manifest_only: true` on the provider, its `checks` can be empty, and a base commit with no
+manifest blocks the task instead of checking nothing. Each check runs on its own, so a mock backend it
+needs has to start inside its `run`. Separate service containers and staging environments with test
+credentials are not supported yet.
+
 ## Skipping checks is an explicit choice
 
 A project must name a `validation`, or set `policy.allow_unvalidated_draft_pr: true`. It must
