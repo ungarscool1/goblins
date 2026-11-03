@@ -196,7 +196,8 @@ func TestEverythingButTheLoginNeedsAnOperator(t *testing.T) {
 	}
 	if resp := w.get("/login", ""); resp.StatusCode != 200 ||
 		!strings.Contains(resp.Header.Get("Content-Security-Policy"), "default-src 'none'") ||
-		resp.Header.Get("X-Frame-Options") != "DENY" {
+		resp.Header.Get("X-Frame-Options") != "DENY" ||
+		resp.Header.Get("Referrer-Policy") != "same-origin" {
 		t.Errorf("login page headers: %v", resp.Header)
 	}
 	// Guessing is slowed down, and the right token still has to wait.
@@ -269,8 +270,9 @@ func TestFormsRefuseOtherSites(t *testing.T) {
 		url.Values{"action": {"pause"}, "csrf": {otherToken}}); resp.StatusCode != 403 {
 		t.Errorf("another session's token: %d", resp.StatusCode)
 	}
-	for header, value := range map[string]string{"Origin": "https://evil.example",
-		"Sec-Fetch-Site": "cross-site"} {
+	for _, h := range [][2]string{{"Origin", "https://evil.example"}, {"Origin", "null"},
+		{"Sec-Fetch-Site", "cross-site"}} {
+		header, value := h[0], h[1]
 		req, _ := http.NewRequest(http.MethodPost, w.srv.URL+"/tasks/t-design/actions",
 			strings.NewReader(url.Values{"action": {"pause"}, "csrf": {token}}.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -409,7 +411,7 @@ func TestAFullTaskPageRenders(t *testing.T) {
 	w.seed(core.Task{ID: "t-full", Project: "p", Kind: core.TaskIssue, Subject: issue("4"),
 		State: core.StateBlocked, Reason: "paused by ops", Title: "Full", DesignRevision: 3,
 		DesignHash: "abcdef0123", PausedUntil: t0.Add(time.Hour), HeadSHA: "deadbeef",
-		ValidatedSHA: "deadbeef", Loops: map[string]int{"review_fix": 2},
+		ValidatedSHA: "deadbeef", Loops: map[string]int{"review_fix": 2, "seq": 9},
 		Approval: &core.Approval{Revision: 3, Approver: core.Actor{Login: "alice"}, At: t0},
 		PullRequest: &core.PullRequest{Number: "7", URL: "https://example.test/pr/7",
 			Draft: true},
@@ -429,6 +431,9 @@ func TestAFullTaskPageRenders(t *testing.T) {
 		if !strings.Contains(page, want) {
 			t.Errorf("%q is missing", want)
 		}
+	}
+	if strings.Contains(page, "seq: 9") {
+		t.Error("an internal counter is shown as rounds")
 	}
 	if strings.Contains(page, "Approve revision") {
 		t.Error("a blocked task offers an approval")

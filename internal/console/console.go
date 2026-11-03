@@ -117,7 +117,9 @@ func headers(next http.Handler) http.Handler {
 			"form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
-		h.Set("Referrer-Policy", "no-referrer")
+		// Not no-referrer: browsers then send "Origin: null" with forms, which sameOrigin refuses.
+		// Other sites still get nothing.
+		h.Set("Referrer-Policy", "same-origin")
 		h.Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r)
 	})

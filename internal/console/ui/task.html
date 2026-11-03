@@ -13,7 +13,7 @@
     {{with .Task.PullRequest}}<dt>Pull request</dt><dd>{{if .URL}}<a href="{{.URL}}" rel="noreferrer">#{{.Number}}</a>{{else}}#{{.Number}}{{end}}{{if .Merged}} (merged){{else if .Draft}} (draft){{end}}</dd>{{end}}
     {{if .Task.HeadSHA}}<dt>Commit</dt><dd><code>{{.Task.HeadSHA}}</code></dd>{{end}}
     {{with .Task.ValidatedReport}}<dt>Tests</dt><dd>{{.Status}} at <code>{{$.Task.ValidatedSHA}}</code>. {{.Summary}}</dd>{{end}}
-    {{range $k, $v := .Task.Loops}}<dt>Rounds</dt><dd>{{$k}}: {{$v}}</dd>{{end}}
+    {{range $k, $v := .Task.Loops}}{{if ne $k "seq"}}<dt>Rounds</dt><dd>{{$k}}: {{$v}}</dd>{{end}}{{end}}
   </dl>
 
   {{if .CanAct}}{{if .Can.approve}}{{with .Design}}
