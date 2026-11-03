@@ -148,26 +148,6 @@ func prLink(pr core.PullRequest) string {
 	return "#" + pr.Number
 }
 
-// RenderReport formats the final status report for the ticket.
-func RenderReport(t *core.Task, rep core.ValidationReport) string {
-	var b strings.Builder
-	b.WriteString("## Status report\n\n")
-	if t.PullRequest != nil {
-		fmt.Fprintf(&b, "- Pull request: %s (not merged, it awaits your review)\n", prLink(*t.PullRequest))
-	}
-	if t.HeadSHA != "" {
-		fmt.Fprintf(&b, "- Commit: `%s`\n", t.HeadSHA)
-	}
-	if t.Approval != nil {
-		fmt.Fprintf(&b, "- Design: revision %d, approved by @%s\n", t.Approval.Revision, t.Approval.Approver.Login)
-	}
-	fmt.Fprintf(&b, "- Validation: %s. %s\n", rep.Status, rep.Summary)
-	for _, c := range rep.Checks {
-		fmt.Fprintf(&b, "  - %s\n", checkLine(c))
-	}
-	return b.String()
-}
-
 // RenderTriagedFeedback gives the implementer what was judged valid, with the plan and the
 // conversation about it. All of it is data, and none of it widens the design.
 func RenderTriagedFeedback(findings []core.ReviewFinding, sha string) string {

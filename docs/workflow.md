@@ -100,6 +100,44 @@ with at least `MinApprovePermission`:
 | `/goblins resume`       | Return from `blocked` or `quota-paused`               |
 | `/goblins cancel`       | Stop everything and clean up                          |
 
+## What Goblins posts, and where
+
+Goblins keeps the conversation for what people need to read or answer. Progress goes into **one
+status comment** per ticket, edited in place, so it notifies nobody.
+
+| Kind | Where | When |
+| --- | --- | --- |
+| Questions, each design revision | A comment of its own | Each time, so answers and approvals stay attached to what they answer |
+| Blocked, failed, login needed, unanswered review question | A comment of its own, and a notification | Each time it happens |
+| Approval, correction rounds, validation, the pull request, automated review, merge verdict, cancellation | The status comment | Edited when what it says changes |
+| Answers about a review remark | The remark's own thread | When a finding is fixed, disputed or unclear |
+| Everything, with exact times | The audit log, `goblins audit --task ID` | Always |
+
+The status comment appears once a design is approved. Before that, the questions and designs are the
+status. It says what stage the task is in, what a person needs to do next if anything, the approved
+revision, the pull request and its head, the validation of that head with each check, the latest
+automated review, correction rounds and the merge verdict. It holds no times, so looking again, a
+reconcile or the same commit seen twice change nothing and send nothing.
+
+- **One comment, found again after anything.** It carries a fixed idempotency marker, so a retry, a
+  restart or a lost comment ID finds it rather than posting another. One update is on its way at a
+  time, and each one catches up with whatever changed meanwhile. If someone deletes it, the next
+  update posts it again.
+- **Only its own.** Trackers refuse to edit a comment Goblins did not post, or one on another ticket.
+  Its edits come back as events by automation, which start nothing.
+- **Trackers that cannot edit** (`tracker.comment.edit`) get a new comment each time the status
+  changes, never twice for the same status. Trackers that cannot take comments get no status:
+  progress needs no one's attention, and what does goes out as a notification.
+
+On a pull request:
+
+- **Automated reviews that find nothing** go into the status comment, not on the pull request.
+  Reviews of someone else's pull request are always posted, as that is the whole job.
+- **A change request's own text**, when its author also left inline remarks, is judged as a summary
+  of them. If it asks for nothing more, it is closed without a reply at the top of the pull request:
+  the answers go in the inline threads. A dispute still gets an answer. The change request itself
+  still blocks the merge gate until its author clears it.
+
 ## What a blocked ticket shows
 
 When validation blocks a task, the ticket comment includes the end of each failed check's
@@ -130,7 +168,8 @@ it is pushed to the same pull request, and that commit is reviewed. `max_review_
 3) bounds this, after which the task blocks with the findings on the ticket. Findings cannot widen
 the design: implementation still rechecks the approval.
 
-Automated reviews are published as comments and never as an approval or a change request, so they
+Automated reviews with findings are published as comments and never as an approval or a change
+request, so they
 can neither satisfy nor block a person's branch protection, and each one says that it proves
 nothing about safety. Goblins' own reviews do not trigger anything, as they come from automation.
 
@@ -139,8 +178,8 @@ nothing about safety. Goblins' own reviews do not trigger anything, as they come
 A task follows its pull request until someone merges or closes it, which ends the task and removes
 its volumes. `policy.stop_at_report: true` ends it at the report instead.
 
-Each commit gets one status comment on the ticket: the pull request, the commit, the validation result
-and what stands between it and a merge. Later comments only come when that verdict changes.
+The status comment shows the pull request, its head, the validation result and what stands between
+it and a merge. It is edited when that changes.
 
 **Signals only prompt a look.** Any webhook or poll about the pull request, once deduplicated, queues
 one `reconcile` job. It asks the SCM where things stand now: head, reviews, threads, checks, changed
@@ -159,7 +198,7 @@ the merge gate until its reviewer resolves it.
 | Failed check on this commit             | One correction round per commit                                 |
 | A head Goblins did not push             | Reviewed once. Validated from a fresh checkout of that commit   |
 | Merged / closed                         | `completed` / `cancelled`, volumes removed                      |
-| Nothing to act on                       | The merge policy is evaluated, and people told if the outcome changed |
+| Nothing to act on                       | The merge policy is evaluated, and the status updated if the outcome changed |
 
 Corrections share `max_review_fix_loops` with automated reviews, and being sent to the implementer
 does not resolve anything: a finding counts as unresolved until the thread is resolved on the SCM. A branch that moved during a correction blocks the task, and resuming looks again.

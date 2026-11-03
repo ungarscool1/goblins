@@ -255,6 +255,9 @@ type ReviewFinding struct {
 	Discussion []DiscussionEntry `json:"discussion,omitempty"`
 	// LastCommentID tells whether someone has said something new.
 	LastCommentID string `json:"last_comment_id,omitempty"`
+	// Summary marks the text of a change request whose author also left inline remarks. Those
+	// are findings of their own, and this mostly sums them up.
+	Summary bool `json:"summary,omitempty"`
 	// Plan and Evidence are the agent's latest judgement, as data.
 	Plan     string `json:"plan,omitempty"`
 	Evidence string `json:"evidence,omitempty"`

@@ -84,6 +84,7 @@ type Server struct {
 	repos    map[string]*repoState
 	tokens   map[string]tokenInfo
 	seq      int64
+	edits    int
 	Requests []string
 	// TokenRepos records the repositories of each token request.
 	TokenRepos [][]string
@@ -477,6 +478,8 @@ func (s *Server) routeIssues(w http.ResponseWriter, r *http.Request, repo string
 		out := slices.Clone(st.events)
 		slices.Reverse(out) // newest first, as the real endpoint does
 		writePage(w, r, out)
+	case len(seg) == 3 && seg[1] == "comments":
+		s.routeComment(w, r, st, seg[2])
 	case len(seg) >= 2:
 		n, err := strconv.ParseInt(seg[1], 10, 64)
 		if err != nil {

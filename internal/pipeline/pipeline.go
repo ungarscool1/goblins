@@ -104,6 +104,7 @@ func (p *Pipeline) Handlers() map[core.JobKind]scheduler.Handler {
 		workflow.JobMerge:     p.merge,
 		workflow.JobTriage:    p.triage,
 		workflow.JobReply:     p.reply,
+		workflow.JobStatus:    p.status,
 		workflow.JobComment:   p.comment,
 		workflow.JobNotify:    p.notify,
 		workflow.JobCleanup:   p.cleanup,

@@ -206,25 +206,35 @@ func TestMockWorkflowToCompletion(t *testing.T) {
 	s.post("/mock/demo/issues/"+issue+"/comments", `{"body":"/approve-design 1"}`)
 	s.eventually(func() bool { return strings.Contains(s.status(), "completed") })
 
-	resp, err := http.Get("http://" + s.addr + "/mock/demo/issues/" + issue + "/comments")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	var comments []struct {
-		Body string `json:"body"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&comments); err != nil {
-		t.Fatal(err)
-	}
-	var all strings.Builder
-	for _, c := range comments {
-		all.WriteString(c.Body + "\n")
-	}
-	for _, want := range []string{"Proposed design, revision 1", "approved by @operator", "Pull request:", "Status report", "nothing was tested"} {
-		if !strings.Contains(all.String(), want) {
-			t.Errorf("missing %q in:\n%s", want, all.String())
+	conversation := func() string {
+		resp, err := http.Get("http://" + s.addr + "/mock/demo/issues/" + issue + "/comments")
+		if err != nil {
+			t.Fatal(err)
 		}
+		defer func() { _ = resp.Body.Close() }()
+		var comments []struct {
+			Body string `json:"body"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&comments); err != nil {
+			t.Fatal(err)
+		}
+		var all strings.Builder
+		for _, c := range comments {
+			all.WriteString(c.Body + "\n")
+		}
+		return all.String()
+	}
+	// The status comment's last edit can land just after the task completes.
+	s.eventually(func() bool { return strings.Contains(conversation(), "nothing was tested") })
+	all := conversation()
+	for _, want := range []string{"Proposed design, revision 1", "approved by @operator",
+		"Pull request:", "## Goblins status", "nothing was tested"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing %q in:\n%s", want, all)
+		}
+	}
+	if strings.Count(all, "## Goblins status") != 1 {
+		t.Errorf("more than one status in:\n%s", all)
 	}
 }
 

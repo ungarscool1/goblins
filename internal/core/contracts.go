@@ -15,6 +15,11 @@ type IssueTracker interface {
 	// PostComment is idempotent on draft.IdempotencyKey.
 	// Requires CapTrackerCommentWrite.
 	PostComment(ctx context.Context, ref IssueRef, draft CommentDraft) (Comment, error)
+	// UpdateComment replaces the body of a comment this integration posted, keeping
+	// draft.IdempotencyKey findable by PostComment. It refuses, with KindForbidden, a comment
+	// anyone else wrote, and returns KindNotFound if the comment is gone.
+	// Requires CapTrackerCommentEdit.
+	UpdateComment(ctx context.Context, ref IssueRef, id string, draft CommentDraft) (Comment, error)
 	// ActorPermission returns the actor's effective access on the issue's
 	// container. Requires CapTrackerPermissions. Callers treat an error as no
 	// permission: authorization always fails closed.

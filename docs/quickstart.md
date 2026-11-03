@@ -84,7 +84,7 @@ docker compose exec goblins goblins doctor --config /etc/goblins/goblins.yaml
 
 Open an issue on the repository as someone with write access. Goblins investigates, asks
 questions in the issue, and proposes a design. Comment `/approve-design <revision>` to
-start implementation. A draft pull request and a status report follow. **Nothing merges
+start implementation. A draft pull request and a status comment follow. **Nothing merges
 automatically.**
 
 ```bash

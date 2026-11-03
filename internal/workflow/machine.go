@@ -43,7 +43,7 @@ func Terminal(s core.State) bool {
 // the task's recorded state to return to.
 func CheckTransition(from, to, resume core.State) bool {
 	if Terminal(from) {
-		return false
+		return from == to // only a status update reaches a finished task
 	}
 	if from == to || slices.Contains(transitions[from], to) {
 		return true
@@ -83,7 +83,7 @@ func Decide(task *core.Task, ev core.Event, f Facts, p Policy) Decision {
 	if task == nil {
 		return decideNew(ev, f, p)
 	}
-	if Terminal(task.State) {
+	if Terminal(task.State) && !statusOutcome(ev) {
 		return Decision{Ignored: "task is in a terminal state"}
 	}
 	m := &machine{t: cloneTask(*task), from: task.State, ev: ev, f: f, p: p}
@@ -172,7 +172,7 @@ type machine struct {
 }
 
 func (m *machine) decision() Decision {
-	if !m.changed {
+	if m.syncStatus(); !m.changed {
 		return Decision{Ignored: m.ignored}
 	}
 	t := m.t
@@ -408,7 +408,7 @@ func (m *machine) onOperatorCommand(cmd string, c *core.Comment) {
 	switch cmd {
 	case "cancel":
 		m.cancelTask("cancelled by " + c.Author.Login)
-		m.comment("Cancelled by @" + c.Author.Login + ".")
+		m.progress("cancelled by @" + c.Author.Login + ".")
 	case "pause":
 		if m.t.State == core.StateBlocked || m.t.State == core.StateQuotaPaused {
 			m.ignore("already paused")
@@ -470,7 +470,7 @@ func (m *machine) onApproval(args string, c *core.Comment) {
 	m.t.Loops["implement"] = 1
 	m.enqueueMain(JobImplement, ImplementPayload{Revision: rev, Hash: m.t.DesignHash}, m.p.ImplementerLimitKey, 3)
 	m.moveTo(core.StateAgentReady, "design approved by "+c.Author.Login)
-	m.comment(fmt.Sprintf("Design revision %d approved by @%s. Implementation is queued.", rev, c.Author.Login))
+	m.progress(fmt.Sprintf("design revision %d approved by @%s. Implementation is queued.", rev, c.Author.Login))
 }
 
 func (m *machine) onIssueEdited() {
@@ -502,7 +502,7 @@ func (m *machine) onIssueEdited() {
 		// what was asked for.
 		m.t.Approval = nil
 		m.cancel = slices.Clone(mainKinds)
-		m.comment("The requirements changed, so the approval of this design no longer applies. Goblins will revise the design and ask again.")
+		m.progress("the requirements changed, so the approval of this design no longer applies. Goblins will revise the design and ask again.")
 		m.replan("requirements changed after approval")
 	case core.StatePROpen, core.StateReviewing, core.StateTesting, core.StateAwaitingReview:
 		m.cancel = slices.Clone(mainKinds)
@@ -525,7 +525,7 @@ func (m *machine) onEditWhilePaused() {
 	case core.StateAgentReady, core.StateImplementing:
 		m.t.Approval = nil
 		m.cancel = slices.Clone(mainKinds)
-		m.comment("The requirements changed, so the approval of this design no longer applies. Goblins will revise the design and ask again once it resumes.")
+		m.progress("the requirements changed, so the approval of this design no longer applies. Goblins will revise the design and ask again once it resumes.")
 		m.replanOnResume()
 	case core.StatePROpen, core.StateReviewing, core.StateTesting, core.StateAwaitingReview:
 		m.t.Approval = nil
@@ -564,7 +564,7 @@ func (m *machine) onJobFinished() {
 		return
 	}
 	switch o.Kind {
-	case JobComment, JobNotify, JobCleanup, JobReply, JobReleaseHold:
+	case JobComment, JobNotify, JobCleanup, JobReply, JobReleaseHold, JobStatus:
 		m.onSideJob(o)
 		return
 	}
@@ -607,8 +607,8 @@ func (m *machine) onJobFinished() {
 }
 
 func (m *machine) onSideJob(o *core.JobOutcome) {
-	if o.Kind == JobReply {
-		m.onReplyDone(o)
+	if done, ok := sideDone[o.Kind]; ok {
+		done(m, o)
 		return
 	}
 	if o.OK && o.Kind == JobComment && o.Key == m.t.DesignCommentKey {
@@ -758,11 +758,11 @@ func (m *machine) onValidateDone(o *core.JobOutcome) {
 		return
 	}
 	m.t.CurrentJob = nil
-	note := ""
+	note := "validation passed."
 	if res.Skipped {
-		note = "\n\nNote: this project configures no validation, so nothing was tested."
+		note = "nothing was tested, as this project configures no validation."
 	}
-	m.afterReport("validation passed", RenderReport(&m.t, rep)+note)
+	m.afterReport("validation passed", note)
 }
 
 func (m *machine) onValidationFailed(p ValidatePayload, rep core.ValidationReport) {
