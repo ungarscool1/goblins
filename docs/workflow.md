@@ -320,6 +320,10 @@ Prompts guide the model; they are not the security boundary. These are enforced 
 
 - Comments by people without `min_input_permission` are withheld from the model, cost no
   model run and cannot approve. Their count is mentioned to the planner.
+- Agents read the ticket's title and body as they were when work started or as last edited by
+  someone with `min_input_permission`. When a maintainer labels a stranger's issue, the stranger
+  can still edit it, but those edits reach neither the model nor the pull request. With polling,
+  which cannot tell who edited, every edit counts as the author's.
 - Tickets, comments and test output go into the prompt as data, inside a delimiter with a random
   value the content cannot predict, under a system prompt saying they are not instructions.
   This reduces prompt injection but cannot eliminate it. The boundaries above are what contain it.

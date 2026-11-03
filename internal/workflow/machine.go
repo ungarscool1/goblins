@@ -127,7 +127,7 @@ func decideNew(ev core.Event, f Facts, p Policy) Decision {
 		}
 		t := cloneTask(core.Task{
 			ID: TaskID(ev.Project, ev.Subject), Project: ev.Project, Kind: core.TaskIssue, Subject: ev.Subject,
-			State: core.StateDiscovered, Title: ev.Issue.Title, RequirementsHash: ev.Issue.RequirementsHash(), CreatedAt: f.Now,
+			State: core.StateDiscovered, Title: ev.Issue.Title, AcceptedBody: ev.Issue.Body, RequirementsHash: ev.Issue.RequirementsHash(), CreatedAt: f.Now,
 		})
 		m := &machine{t: t, from: core.StateDiscovered, ev: ev, f: f, p: p}
 		m.enqueuePlan("new issue")
@@ -489,7 +489,7 @@ func (m *machine) onIssueEdited() {
 		return
 	}
 	m.t.RequirementsHash = hash
-	m.t.Title = iss.Title
+	m.t.Title, m.t.AcceptedBody = iss.Title, iss.Body
 	m.changed = true
 	m.reason = "requirements changed"
 	switch m.t.State {
