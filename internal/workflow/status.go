@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"cmp"
 	"fmt"
 	"strings"
 
@@ -104,8 +103,8 @@ func RenderStatus(t *core.Task, p Policy) string {
 		}
 	}
 	if r := t.LastReview; r != nil {
-		fmt.Fprintf(&b, "- Automated review of `%s` by %s: %s\n", r.SHA,
-			cmp.Or(r.Provider, "the reviewer"), reviewLine(*r))
+		fmt.Fprintf(&b, "- Automated review of `%s`%s: %s\n", r.SHA, by(r.Provider),
+			reviewLine(*r))
 	}
 	if n := t.Loops["review_fix"]; n > 0 {
 		fmt.Fprintf(&b, "- Corrections after review: %d of %d\n", n, p.MaxReviewFixLoops)
@@ -122,13 +121,20 @@ func RenderStatus(t *core.Task, p Policy) string {
 func reviewLine(r core.ReviewNote) string {
 	switch {
 	case r.Verdict == core.VerdictSkipped:
-		return "skipped"
+		return "skipped, as no reviewer is configured or none was available"
 	case r.Findings == 0:
 		return "no findings"
 	case r.Findings == 1:
 		return "1 finding, in its review on the pull request"
 	}
 	return fmt.Sprintf("%d findings, in its review on the pull request", r.Findings)
+}
+
+func by(provider string) string {
+	if provider == "" {
+		return ""
+	}
+	return " by " + provider
 }
 
 func nextStep(t *core.Task, p Policy) string {
