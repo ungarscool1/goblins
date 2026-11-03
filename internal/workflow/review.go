@@ -48,6 +48,8 @@ func (m *machine) onReviewDone(o *core.JobOutcome) {
 		return
 	}
 	sha := cmp.Or(res.SHA, m.t.HeadSHA)
+	m.t.LastReview = &core.ReviewNote{SHA: sha, Provider: res.Result.Provider,
+		Verdict: res.Result.Verdict, Findings: len(res.Result.Findings)}
 	m.t.ReviewedKey = reviewKey(sha)
 	m.t.CorrectionFeedback = ""
 	if m.t.Kind == core.TaskReviewOnly {
@@ -112,7 +114,7 @@ func (m *machine) sendBack(source, feedback string, findings []core.ReviewFindin
 	m.t.CorrectionFeedback = feedback
 	m.enqueueMain(JobImplement, retry, m.p.ImplementerLimitKey, 3)
 	m.moveTo(core.StateImplementing, fmt.Sprintf("feedback on %s from %s", sha, source))
-	m.comment(m.pullRequestLine() + fmt.Sprintf("Feedback from %s on `%s`: %d findings. Correction round %d of %d is queued.",
+	m.progress(fmt.Sprintf("feedback from %s on `%s`: %d findings. Correction round %d of %d is queued.",
 		source, sha, len(findings), m.t.Loops["review_fix"], m.p.MaxReviewFixLoops))
 }
 

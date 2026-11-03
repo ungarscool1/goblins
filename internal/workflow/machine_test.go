@@ -362,7 +362,9 @@ func TestImplementationPipeline(t *testing.T) {
 
 	d = Decide(tk, finished(tk, true, "", "", ValidateResult{Report: core.ValidationReport{Status: core.ValidationPassed, Summary: "ok"}}), writeFacts(), p)
 	mustState(t, d, core.StateCompleted)
-	if !hasJob(d, JobComment) || !hasJob(d, JobCleanup) {
+	// The outcome goes into the status comment, which an earlier update is still sending.
+	if hasJob(d, JobComment) || !hasJob(d, JobCleanup) || d.Task.Status.Pending == "" ||
+		d.Task.Status.Note != "validation passed." {
 		t.Fatalf("decision = %+v", d)
 	}
 	if mustIgnoreTerminal := Decide(d.Task, comment(maintainer, "hello", t0), writeFacts(), p); mustIgnoreTerminal.Task != nil {
@@ -607,7 +609,7 @@ func TestEditWhilePausedTakesEffect(t *testing.T) {
 		if d.Task == nil || d.Task.Approval != nil || d.Task.CurrentJob != nil {
 			t.Fatalf("%s: approval or old job survived the edit: %+v", resume, d.Task)
 		}
-		if !slices.Contains(d.CancelKinds, JobImplement) || !hasJob(d, JobComment) || hasJob(d, JobPlan) {
+		if !slices.Contains(d.CancelKinds, JobImplement) || !hasJob(d, JobStatus) || hasJob(d, JobPlan) {
 			t.Fatalf("%s: decision = %+v", resume, d)
 		}
 		r := Decide(d.Task, comment(maintainer, "/goblins resume", t0), writeFacts(), p)
@@ -854,12 +856,14 @@ func TestReviewOutcomes(t *testing.T) {
 }
 
 func TestReportNamesWhatEachCheckRanIn(t *testing.T) {
-	tk := at(core.StateTesting, JobValidate)
-	got := RenderReport(tk, core.ValidationReport{Status: core.ValidationPassed, Summary: "s",
+	tk := at(core.StateAwaitingReview, JobValidate)
+	tk.Kind, tk.ValidatedSHA = core.TaskIssue, "abc"
+	tk.ValidatedReport = &core.ValidationReport{Status: core.ValidationPassed, Summary: "s",
 		Checks: []core.ValidationCheck{
 			{Name: "a", Status: core.ValidationPassed, Image: "tool:1"},
 			{Name: "b", Status: core.ValidationFailed, Optional: true},
-		}})
+		}}
+	got := RenderStatus(tk, DefaultPolicy())
 	for _, want := range []string{"- a: passed, in `tool:1`", "- b: failed (optional)"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("%q is missing from:\n%s", want, got)

@@ -13,15 +13,15 @@ import (
 const maxFindings = 200
 
 // afterReport is where a task stops being driven by Goblins and starts following what happens
-// to its pull request, until someone merges or closes it. The report then waits for the merge
-// policy's verdict, a moment later, so that people get one comment about the commit.
-func (m *machine) afterReport(reason, report string) {
+// to its pull request, until someone merges or closes it. What was validated and published, and
+// the merge policy's verdict a moment later, go into the status comment: nothing here needs a
+// comment of its own.
+func (m *machine) afterReport(reason, note string) {
+	m.progress(note)
 	if m.p.StopAtReport || m.t.PullRequest == nil {
-		m.comment(report)
 		m.finish(reason)
 		return
 	}
-	m.t.PendingReport = report
 	m.moveTo(core.StateAwaitingReview, reason)
 	m.confirmFixes()
 	m.enqueueReconcile()
@@ -244,15 +244,8 @@ func (m *machine) applyGate(res ReconcileResult) {
 		MinPerm: m.p.MinApprovePermission})
 	m.t.Gate = &gate
 	m.reason = "merge policy evaluated: " + string(gate.State)
-	digest := core.Digest(string(gate.State), gate.SHA, strings.Join(gate.Reasons, "\n"))
-	switch {
-	case m.t.PendingReport != "":
-		m.comment(strings.TrimSpace(m.t.PendingReport) + "\n\n" + renderGate(gate, "This commit"))
-		m.t.PendingReport = ""
-	case digest != m.t.GateDigest:
-		m.comment(RenderGate(gate))
-	}
-	m.t.GateDigest = digest
+	// The status comment shows the verdict. It is only edited when the verdict changes.
+	m.changed = true
 	if gate.State == core.GateAutoMerge {
 		m.enqueueMain(JobMerge, MergePayload{SHA: gate.SHA, Rule: gate.Rule}, "", 3)
 		m.reason = "merging under rule " + gate.Rule
@@ -261,8 +254,6 @@ func (m *machine) applyGate(res ReconcileResult) {
 
 // RenderGate tells people where a pull request stands, and is clear that nothing an automated
 // reviewer said is part of why.
-func RenderGate(g core.MergeGate) string { return renderGate(g, "`"+g.SHA+"`") }
-
 func renderGate(g core.MergeGate, subject string) string {
 	var b strings.Builder
 	switch g.State {

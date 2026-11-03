@@ -24,6 +24,7 @@ type World struct {
 	issues     map[string]*core.Issue
 	comments   map[string][]core.Comment
 	byKey      map[string]core.Comment
+	edits      int
 	perms      map[string]core.Permission
 	branches   map[string]string
 	prs        map[string]*core.PullRequest
@@ -174,7 +175,8 @@ type Tracker struct {
 }
 
 // AllTrackerCaps lists every tracker capability.
-var AllTrackerCaps = []core.Capability{core.CapTrackerCommentWrite, core.CapTrackerLabels, core.CapTrackerTransitions, core.CapTrackerPermissions}
+var AllTrackerCaps = []core.Capability{core.CapTrackerCommentWrite, core.CapTrackerCommentEdit,
+	core.CapTrackerLabels, core.CapTrackerTransitions, core.CapTrackerPermissions}
 
 // NewTracker returns a fully capable fake tracker.
 func NewTracker(w *World, name string) *Tracker {
@@ -241,6 +243,40 @@ func (t *Tracker) PostComment(_ context.Context, ref core.IssueRef, d core.Comme
 		t.W.byKey[key] = c
 	}
 	return c, nil
+}
+
+func (t *Tracker) UpdateComment(_ context.Context, ref core.IssueRef, id string,
+	d core.CommentDraft) (core.Comment, error) {
+	if !t.Info().Has(core.CapTrackerCommentEdit) {
+		return core.Comment{}, core.Unsupported(t.Info(), core.CapTrackerCommentEdit)
+	}
+	t.W.mu.Lock()
+	defer t.W.mu.Unlock()
+	comments := t.W.comments[refKey(ref)]
+	i := slices.IndexFunc(comments, func(c core.Comment) bool { return c.ID == id })
+	if i < 0 {
+		return core.Comment{}, core.Errorf(core.KindNotFound, "fake.update_comment", "comment %s not found", id)
+	}
+	if comments[i].Author.ID != t.W.Bot.ID {
+		return core.Comment{}, core.Errorf(core.KindForbidden, "fake.update_comment", "comment %s is not ours", id)
+	}
+	if comments[i].Body != d.Body {
+		comments[i].Body, comments[i].UpdatedAt = d.Body, t.W.Now()
+		t.W.edits++
+	}
+	c := comments[i]
+	if d.IdempotencyKey != "" {
+		t.W.byKey[refKey(ref)+"|"+d.IdempotencyKey] = c
+	}
+	c.Own = true
+	return c, nil
+}
+
+// Edits counts the comments the integration changed in place.
+func (w *World) Edits() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.edits
 }
 
 func (t *Tracker) ActorPermission(_ context.Context, ref core.IssueRef, a core.Actor) (core.Permission, error) {

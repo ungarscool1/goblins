@@ -191,6 +191,9 @@ func (l *listTracker) ListComments(_ context.Context, r core.IssueRef, _ time.Ti
 func (l *listTracker) PostComment(context.Context, core.IssueRef, core.CommentDraft) (core.Comment, error) {
 	return core.Comment{}, core.Unsupported(l.Info(), core.CapTrackerCommentWrite)
 }
+func (l *listTracker) UpdateComment(context.Context, core.IssueRef, string, core.CommentDraft) (core.Comment, error) {
+	return core.Comment{}, core.Unsupported(l.Info(), core.CapTrackerCommentEdit)
+}
 func (l *listTracker) ActorPermission(context.Context, core.IssueRef, core.Actor) (core.Permission, error) {
 	return core.PermissionNone, core.Unsupported(l.Info(), core.CapTrackerPermissions)
 }

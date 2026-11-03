@@ -60,44 +60,51 @@ func (w *world) remark(number, sha string, by core.Actor, body string) core.Revi
 	return th
 }
 
-// A commit gets one comment: where it is, whether it passed, and what stands in its way.
-func TestEachCommitGetsOneStatusComment(t *testing.T) {
+// A task has one status comment: where it is, whether it passed, and what stands in its way.
+// Looking again, a correction round and a new commit edit it, and post nothing new.
+func TestOneStatusCommentIsEditedInPlace(t *testing.T) {
 	w, number := live(t)
 	first := w.want(core.StateAwaitingReview).HeadSHA
-	posted := w.posted()
-	for _, want := range []string{"Pull request:", "Status report", first, "This commit is not ready to merge"} {
+	posted, comments, edits := w.posted(), w.botComments(), w.w.Edits()
+	for _, want := range []string{"## Goblins status", "Pull request:", first,
+		"is not ready to merge", "approvals by people"} {
 		if !strings.Contains(posted, want) {
 			t.Fatalf("%q is missing from:\n%s", want, posted)
 		}
 	}
-	for _, gone := range []string{"Draft pull request opened", "`" + first + "` is not ready"} {
-		if strings.Contains(posted, gone) {
-			t.Fatalf("%q is back in:\n%s", gone, posted)
-		}
-	}
-	if strings.Count(posted, "Status report") != 1 || strings.Count(posted, "not ready to merge") != 1 {
+	if strings.Contains(posted, "Status report") || strings.Count(posted, "## Goblins status") != 1 {
 		t.Fatalf("more than one status:\n%s", posted)
 	}
 
-	// Looking again says nothing new, and a correction gets one comment of its own.
+	// Looking again says nothing new, so nothing is sent.
 	w.pr(number, core.Event{Type: core.EventPRSynchronized, DedupKey: "again", OccurredAt: w.clock()})
-	if got := w.posted(); got != posted {
-		t.Fatalf("looking again posted:\n%s", strings.TrimPrefix(got, posted))
+	if w.posted() != posted || w.w.Edits() != edits {
+		t.Fatalf("looking again changed:\n%s", w.posted())
 	}
 	w.w.SubmitReview(repo, number, core.Review{ID: "r1", Author: alice, CommitSHA: first,
 		Verdict: core.VerdictChangesRequested, Body: "please rework", Permission: core.PermissionWrite})
 	w.pr(number, core.Event{Type: core.EventPRReviewed, DedupKey: "r1", Actor: alice, OccurredAt: w.clock()})
 	second := w.want(core.StateAwaitingReview).HeadSHA
-	got := strings.TrimPrefix(w.posted(), posted)
-	if second == first || strings.Contains(got, "Pull request updated") {
-		t.Fatalf("head %s:\n%s", second, got)
+	got := w.posted()
+	if second == first || w.botComments() != comments || w.w.Edits() <= edits {
+		t.Fatalf("head %s, %d comments then %d, edits %d then %d:\n%s", second, comments,
+			w.botComments(), edits, w.w.Edits(), got)
 	}
-	if strings.Count(got, "Status report") != 1 || !strings.Contains(got, second) {
-		t.Fatalf("no single status for %s:\n%s", second, got)
+	if strings.Count(got, "## Goblins status") != 1 || !strings.Contains(got, second) ||
+		!strings.Contains(got, "Corrections after review: 1 of") {
+		t.Fatalf("the status does not show the correction on %s:\n%s", second, got)
 	}
-	if !strings.Contains(got, "Feedback from") || !strings.Contains(got, "Pull request: ") {
-		t.Fatalf("the correction is not linked:\n%s", got)
+}
+
+// botComments counts what Goblins posted on the ticket.
+func (w *world) botComments() int {
+	n := 0
+	for _, c := range w.w.Comments(w.issue.Ref) {
+		if c.Author.Type == core.ActorBot {
+			n++
+		}
 	}
+	return n
 }
 
 func TestTaskWaitsForPeopleAfterItsReportAndEndsWithThePullRequest(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,6 +108,35 @@ func IssueTracker(t *testing.T, build func(t *testing.T) TrackerHarness) {
 		}
 	})
 
+	t.Run("own comments are edited in place, others never", func(t *testing.T) {
+		h := build(t)
+		ref := h.Seed(t, "T", "B")
+		if !h.Tracker.Info().Has(core.CapTrackerCommentEdit) {
+			t.Skip("no comment.edit")
+		}
+		draft := core.CommentDraft{IdempotencyKey: "status", Body: "first"}
+		a, err := h.Tracker.PostComment(ctx, ref, draft)
+		if err != nil {
+			t.Fatal(err)
+		}
+		draft.Body = "second"
+		if _, err := h.Tracker.UpdateComment(ctx, ref, a.ID, draft); err != nil {
+			t.Fatal(err)
+		}
+		// The key still finds the same comment, which now says the new thing.
+		again, err := h.Tracker.PostComment(ctx, ref, draft)
+		if err != nil || again.ID != a.ID || !strings.Contains(again.Body, "second") {
+			t.Fatalf("after an edit, the key found %+v, %v", again, err)
+		}
+		all, err := h.Tracker.ListComments(ctx, ref, time.Time{})
+		if err != nil || len(all) != 1 {
+			t.Fatalf("comments = %d, %v", len(all), err)
+		}
+		human := h.SeedComment(t, ref, "alice", "mine")
+		_, err = h.Tracker.UpdateComment(ctx, ref, human.ID, core.CommentDraft{Body: "hijacked"})
+		wantKind(t, err, core.KindForbidden)
+	})
+
 	t.Run("seeded comments keep their human author", func(t *testing.T) {
 		h := build(t)
 		ref := h.Seed(t, "T", "B")
@@ -140,6 +170,10 @@ func IssueTracker(t *testing.T, build func(t *testing.T) TrackerHarness) {
 		info := h.Tracker.Info()
 		if !info.Has(core.CapTrackerCommentWrite) {
 			_, err := h.Tracker.PostComment(ctx, ref, core.CommentDraft{Body: "x"})
+			wantKind(t, err, core.KindUnsupported)
+		}
+		if !info.Has(core.CapTrackerCommentEdit) {
+			_, err := h.Tracker.UpdateComment(ctx, ref, "1", core.CommentDraft{Body: "x"})
 			wantKind(t, err, core.KindUnsupported)
 		}
 		if !info.Has(core.CapTrackerPermissions) {

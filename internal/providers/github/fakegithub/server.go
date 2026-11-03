@@ -84,6 +84,7 @@ type Server struct {
 	repos    map[string]*repoState
 	tokens   map[string]tokenInfo
 	seq      int64
+	edits    int
 	Requests []string
 	// TokenRepos records the repositories of each token request.
 	TokenRepos [][]string
@@ -477,6 +478,8 @@ func (s *Server) routeIssues(w http.ResponseWriter, r *http.Request, repo string
 		out := slices.Clone(st.events)
 		slices.Reverse(out) // newest first, as the real endpoint does
 		writePage(w, r, out)
+	case len(seg) == 3 && seg[1] == "comments":
+		s.routeComment(w, r, st, seg[2])
 	case len(seg) >= 2:
 		n, err := strconv.ParseInt(seg[1], 10, 64)
 		if err != nil {
@@ -499,6 +502,41 @@ func (s *Server) routeIssues(w http.ResponseWriter, r *http.Request, repo string
 	default:
 		fail(w, 404, "unknown endpoint")
 	}
+}
+
+// routeComment serves one comment by its ID, as /issues/comments/{id} does.
+func (s *Server) routeComment(w http.ResponseWriter, r *http.Request, st *repoState, id string) {
+	var found *Comment
+	for _, n := range sortedKeys(st.comments) {
+		for _, c := range st.comments[n] {
+			if strconv.FormatInt(c.ID, 10) == id {
+				found = c
+			}
+		}
+	}
+	switch {
+	case found == nil:
+		fail(w, 404, "no comment")
+	case r.Method == http.MethodGet:
+		writeJSON(w, 200, found)
+	case r.Method == http.MethodPatch:
+		var body struct {
+			Body string `json:"body"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		found.Body, found.UpdatedAt = body.Body, s.Now().UTC().Truncate(time.Second)
+		s.edits++
+		writeJSON(w, 200, found)
+	default:
+		fail(w, 404, "unknown endpoint")
+	}
+}
+
+// Edits counts the comments changed in place.
+func (s *Server) Edits() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.edits
 }
 
 func (s *Server) routeIssue(w http.ResponseWriter, r *http.Request, repo string, st *repoState, i *Issue, n int64, seg []string) {

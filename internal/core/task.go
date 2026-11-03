@@ -89,6 +89,10 @@ type Task struct {
 	GateDigest string     `json:"gate_digest,omitempty"`
 	// PendingReport is a report that goes out with the merge policy's next verdict.
 	PendingReport string `json:"pending_report,omitempty"`
+	// Status is the one comment that says where the task stands, edited in place.
+	Status StatusComment `json:"status,omitzero"`
+	// LastReview is what the latest automated review of the pull request found.
+	LastReview *ReviewNote `json:"last_review,omitempty"`
 	// ChecksHandledSHA is the commit whose failed CI was already sent to the implementer.
 	ChecksHandledSHA string `json:"checks_handled_sha,omitempty"`
 	// CorrectionFeedback is what the review asked of the implementer in the current round.
@@ -338,4 +342,24 @@ func (s State) IsTerminal() bool {
 // IsWaiting reports whether the task is idle until a person replies.
 func (s State) IsWaiting() bool {
 	return s == StateWaitingForUser || s == StateDesignProposed || s == StateAwaitingReview
+}
+
+// StatusComment tracks the comment that tells people where a task stands. It is rendered from
+// the task alone, so it only changes when something material does.
+type StatusComment struct {
+	// CommentID is the tracker's ID for it, once posted.
+	CommentID string `json:"comment_id,omitempty"`
+	// Posted is the digest of what was last posted, and Pending that of an update on its way.
+	Posted  string `json:"posted,omitempty"`
+	Pending string `json:"pending,omitempty"`
+	// Note is the latest thing that happened, such as an approval or a correction round.
+	Note string `json:"note,omitempty"`
+}
+
+// ReviewNote sums up an automated review.
+type ReviewNote struct {
+	SHA      string        `json:"sha"`
+	Provider string        `json:"provider,omitempty"`
+	Verdict  ReviewVerdict `json:"verdict"`
+	Findings int           `json:"findings"`
 }
