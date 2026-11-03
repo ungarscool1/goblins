@@ -307,6 +307,22 @@ func Run(t *testing.T, build func(t *testing.T) core.StateStore) {
 		}
 	})
 
+	t.Run("stats and pruning", func(t *testing.T) {
+		s := build(t)
+		task := addTask(t, s, "open", core.JobDraft{Kind: "agent", IdempotencyKey: "a"})
+		entry := core.TranscriptEntry{TaskID: task.ID, JobID: "j", Kind: "text", Text: "x", At: t0}
+		if err := s.AppendTranscript(ctx, []core.TranscriptEntry{entry}); err != nil {
+			t.Fatal(err)
+		}
+		stats, err := s.Stats(ctx)
+		if err != nil || len(stats.Tasks) != 1 || stats.Tasks[0].Count != 1 || len(stats.Jobs) != 1 {
+			t.Fatalf("stats = %+v, %v", stats, err)
+		}
+		if n, err := s.PruneTranscripts(ctx, t0.Add(time.Hour)); err != nil || n != 0 {
+			t.Fatalf("an open task lost its transcript: %d, %v", n, err)
+		}
+	})
+
 	t.Run("limit holds", func(t *testing.T) {
 		s := build(t)
 		long := core.LimitHold{LimitKey: "acct", Until: t0.Add(2 * time.Hour),

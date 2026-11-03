@@ -22,6 +22,7 @@ import (
 	"github.com/ungarscool1/goblins/internal/api"
 	"github.com/ungarscool1/goblins/internal/config"
 	"github.com/ungarscool1/goblins/internal/core"
+	"github.com/ungarscool1/goblins/internal/observability"
 	"github.com/ungarscool1/goblins/internal/pipeline"
 	"github.com/ungarscool1/goblins/internal/providers"
 	"github.com/ungarscool1/goblins/internal/providers/fake"
@@ -52,6 +53,7 @@ type System struct {
 	Agents    map[string]core.AgentProvider
 	Runtimes  map[string]core.ExecutionRuntime
 	Warnings  []string
+	Metrics   *observability.Metrics
 }
 
 // OpenStore opens the configured database.
@@ -234,7 +236,11 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 	}
 	sys.Scheduler = &scheduler.Scheduler{Store: store, Engine: engine, Handlers: pipe.Handlers(), Sources: polls, Inbox: sys.Inbox, Runtimes: rts, Log: log, Now: now,
 		Cfg: scheduler.Config{Owner: owner, Installation: cfg.Installation.Name, Workers: cfg.Scheduler.Workers,
-			Limits: scheduler.Limits{MaxGlobal: cfg.Scheduler.MaxGlobal, MaxPerProject: cfg.Scheduler.MaxPerProject, MaxPerKey: limits}}}
+			Limits: scheduler.Limits{MaxGlobal: cfg.Scheduler.MaxGlobal,
+				MaxPerProject: cfg.Scheduler.MaxPerProject, MaxPerKey: limits},
+			TranscriptRetention: cfg.Scheduler.TranscriptRetention}}
+	sys.Metrics = observability.NewMetrics()
+	sys.Scheduler.Metrics, sys.Inbox.Metrics, engine.Metrics = sys.Metrics, sys.Metrics, sys.Metrics
 	return sys, nil
 }
 
@@ -391,11 +397,15 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, o Options) er
 	if err != nil {
 		return core.Wrap(core.KindInvalid, "app.listen", err)
 	}
-	log.Info("goblins started", "version", Version, "installation", cfg.Installation.Name, "listen", ln.Addr().String(), "projects", len(cfg.Projects))
 
 	loopCtx, stopLoop := context.WithCancel(ctx)
 	defer stopLoop()
 	var wg sync.WaitGroup
+	if err := serveMetrics(loopCtx, cfg.Server, sys, store, log, &wg); err != nil {
+		_ = ln.Close()
+		return err
+	}
+	log.Info("goblins started", "version", Version, "installation", cfg.Installation.Name, "listen", ln.Addr().String(), "projects", len(cfg.Projects))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

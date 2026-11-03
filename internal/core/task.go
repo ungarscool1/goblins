@@ -209,6 +209,25 @@ type StateCommit struct {
 	Now         time.Time
 }
 
+// StateCount is how many tasks are in a state.
+type StateCount struct {
+	State State
+	Count int64
+}
+
+// JobCount is how many jobs of a kind are in a state.
+type JobCount struct {
+	Kind  JobKind
+	State JobState
+	Count int64
+}
+
+// StoreStats counts tasks and unfinished jobs.
+type StoreStats struct {
+	Tasks []StateCount
+	Jobs  []JobCount
+}
+
 // JobClaim requests the next runnable job under concurrency limits.
 //
 // Limits apply to heavy jobs, those with a LimitKey. Light jobs such as posting a
@@ -291,6 +310,10 @@ type StateStore interface {
 	// owner or attempt yields KindConflict: results of a fenced worker are dropped.
 	FinishJob(ctx context.Context, f JobFinish) error
 	GetJob(ctx context.Context, id string) (Job, error)
+	// Stats counts what is in the store, for metrics read at scrape time.
+	Stats(ctx context.Context) (StoreStats, error)
+	// PruneTranscripts removes transcripts of finished tasks older than a time.
+	PruneTranscripts(ctx context.Context, before time.Time) (int64, error)
 	// HoldLimit keeps a limit key's jobs from starting until a time. It never shortens a hold.
 	HoldLimit(ctx context.Context, h LimitHold) error
 	ReleaseLimit(ctx context.Context, key string) error
@@ -305,6 +328,11 @@ type StateStore interface {
 
 	Ping(ctx context.Context) error
 	Close() error
+}
+
+// IsTerminal reports whether the task is finished for good.
+func (s State) IsTerminal() bool {
+	return s == StateCompleted || s == StateFailed || s == StateCancelled
 }
 
 // IsWaiting reports whether the task is idle until a person replies.

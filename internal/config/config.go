@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"os"
 	gopath "path"
 	"regexp"
@@ -59,6 +60,10 @@ type Installation struct {
 type Server struct {
 	Listen          string        `yaml:"listen"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
+	// MetricsListen serves Prometheus metrics on /metrics at this address, with no login.
+	// It must differ from Listen, so the port that takes webhooks never serves metrics.
+	// Empty turns metrics off.
+	MetricsListen string `yaml:"metrics_listen,omitempty"`
 }
 
 // Log configures structured logging.
@@ -81,6 +86,8 @@ type Scheduler struct {
 	Workers       int `yaml:"workers,omitempty"`
 	MaxGlobal     int `yaml:"max_concurrent_agents,omitempty"`
 	MaxPerProject int `yaml:"max_agents_per_project,omitempty"`
+	// TranscriptRetention removes transcripts of finished tasks after this long.
+	TranscriptRetention time.Duration `yaml:"transcript_retention,omitempty"`
 }
 
 // Provider is one named adapter instance.
@@ -275,6 +282,7 @@ func (c *Config) applyEnv(env func(string) (string, bool)) error {
 	set("GOBLINS_INSTALLATION_NAME", &c.Installation.Name)
 	set("GOBLINS_DATA_DIR", &c.Installation.DataDir)
 	set("GOBLINS_LISTEN", &c.Server.Listen)
+	set("GOBLINS_METRICS_LISTEN", &c.Server.MetricsListen)
 	set("GOBLINS_LOG_LEVEL", &c.Log.Level)
 	set("GOBLINS_LOG_FORMAT", &c.Log.Format)
 	set("GOBLINS_STORAGE_DRIVER", &c.Storage.Driver)
@@ -314,6 +322,13 @@ func (c *Config) Validate(known TypeChecker) error {
 	}
 	if c.Server.Listen == "" {
 		add("server.listen: required")
+	}
+	if m := c.Server.MetricsListen; m != "" {
+		if _, _, err := net.SplitHostPort(m); err != nil {
+			add("server.metrics_listen: %v", err)
+		} else if m == c.Server.Listen {
+			add("server.metrics_listen: must differ from server.listen")
+		}
 	}
 	if c.Server.ShutdownTimeout <= 0 {
 		add("server.shutdown_timeout: must be positive")

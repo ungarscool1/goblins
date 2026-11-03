@@ -82,8 +82,19 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 // Serve runs the HTTP server on ln until ctx is cancelled, then drains
 // in-flight requests for at most shutdownTimeout.
 func (s *Server) Serve(ctx context.Context, ln net.Listener, shutdownTimeout time.Duration) error {
+	return serve(ctx, ln, s.mux, shutdownTimeout, func() { s.SetReady(false) })
+}
+
+// ServeHandler runs h on ln like Server.Serve, for a listener that has no health endpoints.
+func ServeHandler(ctx context.Context, ln net.Listener, h http.Handler,
+	shutdownTimeout time.Duration) error {
+	return serve(ctx, ln, h, shutdownTimeout, func() {})
+}
+
+func serve(ctx context.Context, ln net.Listener, h http.Handler, shutdownTimeout time.Duration,
+	stopping func()) error {
 	srv := &http.Server{
-		Handler:           s.mux,
+		Handler:           h,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      60 * time.Second,
@@ -98,7 +109,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener, shutdownTimeout tim
 		return err
 	case <-ctx.Done():
 	}
-	s.SetReady(false)
+	stopping()
 	sctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	err := srv.Shutdown(sctx)

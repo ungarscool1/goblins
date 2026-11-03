@@ -12,6 +12,7 @@ startup errors, and all problems are reported at once.
 | `GOBLINS_INSTALLATION_NAME` | `installation.name`        |
 | `GOBLINS_DATA_DIR`          | `installation.data_dir`    |
 | `GOBLINS_LISTEN`            | `server.listen`            |
+| `GOBLINS_METRICS_LISTEN`    | `server.metrics_listen`    |
 | `GOBLINS_SHUTDOWN_TIMEOUT`  | `server.shutdown_timeout`  |
 | `GOBLINS_LOG_LEVEL`         | `log.level`                |
 | `GOBLINS_LOG_FORMAT`        | `log.format`               |
