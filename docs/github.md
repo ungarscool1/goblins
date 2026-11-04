@@ -95,7 +95,11 @@ polling can run together, since one fact has one identity and is processed once.
 ## Pull requests
 
 - Work is pushed to `goblins/<task-id>`, never to a default or protected branch and never
-  with force. A diverged branch blocks the task rather than overwriting anything.
+  with force. A diverged branch stops the task rather than overwriting anything.
+- Only git's own refusal (`fetch first`, `non-fast-forward`) counts as diverged. A push GitHub
+  turns down for a reason of its own, such as an error during an outage, is retried. If it
+  keeps failing, the task becomes `blocked`, keeping the validated commit, and
+  `/goblins resume` pushes it again. What git printed is in the task's transcript.
 - One head has one open pull request. Later iterations update it.
 - Pull requests are opened as drafts. On a private repository whose plan lacks draft pull
   requests, GitHub refuses them, and the task becomes `blocked` with that reason.

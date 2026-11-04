@@ -652,7 +652,7 @@ func (m *machine) onJobFailed(o *core.JobOutcome) {
 	case core.KindConflict:
 		m.onHeadConflict(msg)
 	default:
-		m.fail(fmt.Sprintf("%s job failed: %s", o.Kind, msg))
+		m.onJobGaveUp(o, msg)
 	}
 }
 

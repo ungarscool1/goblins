@@ -280,7 +280,7 @@ Comments and notifications never wait for a long agent run.
 | Handler result                                | Effect                                    |
 | --------------------------------------------- | ----------------------------------------- |
 | Success                                       | Outcome event, workflow continues         |
-| `transient`, `timeout` or `internal`          | Backoff and retry, then the task fails    |
+| `transient`, `timeout` or `internal`          | Backoff and retry, then the task fails. Publishing blocks instead, keeping the validated commit for `/goblins resume` |
 | `quota_exhausted`, `auth_required`            | Task moves to `quota-paused`              |
 | `unsupported`, `forbidden`, `invalid`, others | Task moves to `blocked` with the reason   |
 | Lease lost or job cancelled                   | Attempt stops, its result is discarded    |
