@@ -13,6 +13,17 @@ func (m *machine) enqueuePublish(sha string) {
 		m.p.ImplementerLimitKey, 5)
 }
 
+// onJobGaveUp handles a job that kept failing. It ends the task, except for publishing: the
+// commit is validated and kept, so the task waits for a person to resume it once the forge
+// works again, instead of throwing the work away.
+func (m *machine) onJobGaveUp(o *core.JobOutcome, msg string) {
+	if o.Kind == JobPublish {
+		m.block("publishing kept failing: " + msg)
+		return
+	}
+	m.fail(fmt.Sprintf("%s job failed: %s", o.Kind, msg))
+}
+
 func (m *machine) onPublishDone(o *core.JobOutcome) {
 	res, ok := decode[PublishResult](o)
 	if !ok || res.PullRequest.Number == "" {

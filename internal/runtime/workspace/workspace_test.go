@@ -452,3 +452,45 @@ func TestReviewCheckoutIsPinnedAndTheDiffNeedsNoToken(t *testing.T) {
 		}
 	}
 }
+
+// What git prints when a push fails, as GitHub words it. Branch names and hashes are part of
+// the output, so a number in them must not read as an HTTP status.
+func TestClassifyPush(t *testing.T) {
+	const repo = "'https://github.com/me/app.git/'"
+	rejected := func(reason string) string {
+		return " ! [remote rejected] 5c8630c4f5877ccfc2e67fa4a06ac50bd098b4f6 -> " +
+			"goblins/t-22e265d3310912c0986d (" + reason + ")\n" +
+			"error: failed to push some refs to " + repo + "\n"
+	}
+	cases := []struct {
+		name, stderr string
+		want         core.ErrorKind
+	}{
+		{"diverged", " ! [rejected]        x -> goblins/t1 (fetch first)\n" +
+			"hint: Updates were rejected because the remote contains work\n", core.KindConflict},
+		{"not a fast-forward", " ! [rejected] x -> goblins/t1 (non-fast-forward)\n",
+			core.KindConflict},
+		{"server error", rejected("Internal Server Error"), core.KindTransient},
+		{"server gave up", rejected("failed"), core.KindTransient},
+		{"hash with 403 in it", rejected("failed") + "x403y\n", core.KindTransient},
+		{"unavailable", "fatal: unable to access " + repo +
+			": The requested URL returned error: 503\n", core.KindTransient},
+		{"connection reset", "error: RPC failed; curl 56 Recv failure: Connection reset\n",
+			core.KindTransient},
+		{"workflow files", rejected("refusing to allow a GitHub App to create or update " +
+			"workflow `.github/workflows/ci.yml` without `workflows` permission"),
+			core.KindForbidden},
+		{"protected branch", rejected("protected branch hook declined"), core.KindForbidden},
+		{"no permission", "remote: Permission to me/app.git denied to goblins[bot].\n" +
+			"fatal: unable to access " + repo + ": The requested URL returned error: 403\n",
+			core.KindForbidden},
+		{"bad login", "remote: Invalid username or password.\n" +
+			"fatal: Authentication failed for " + repo + "\n", core.KindForbidden},
+		{"no repository", "remote: Repository not found.\n", core.KindForbidden},
+	}
+	for _, tc := range cases {
+		if err := workspace.ClassifyPush(tc.stderr); !core.IsKind(err, tc.want) {
+			t.Errorf("%s: %v, want %s", tc.name, err, tc.want)
+		}
+	}
+}
