@@ -128,7 +128,14 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	upstream, err := p.dial(r.Context(), host, port)
 	if err != nil {
-		p.deny(w, r.Host, err.Error(), http.StatusBadGateway)
+		var refused refusal
+		if errors.As(err, &refused) {
+			p.deny(w, r.Host, err.Error(), http.StatusBadGateway)
+			return
+		}
+		p.o.Metrics.Inc("goblins_egress_tunnels_total", observability.Labels{"outcome", "failed"})
+		p.o.Log.Warn("egress failed", "target", r.Host, "reason", err.Error())
+		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer func() { _ = upstream.Close() }()
@@ -161,19 +168,38 @@ func (p *Proxy) dial(ctx context.Context, host string, port int) (net.Conn, erro
 	}
 	for _, a := range addrs {
 		if !p.o.AllowPrivate && !public(a) {
-			return nil, errors.New("the destination resolves to a private address")
+			return nil, refusal{"the destination resolves to a private address"}
 		}
 	}
+	// IPv4 first, each address briefly: a host with no IPv6 route must not spend the client's
+	// patience on an address it cannot reach.
+	slices.SortStableFunc(addrs, func(a, b netip.Addr) int {
+		return boolInt(a.Unmap().Is6()) - boolInt(b.Unmap().Is6())
+	})
 	var last error
 	for _, a := range addrs {
-		c, err := p.o.Dialer.DialContext(ctx, "tcp", netip.AddrPortFrom(a.Unmap(),
+		actx, stop := context.WithTimeout(ctx, 3*time.Second)
+		c, err := p.o.Dialer.DialContext(actx, "tcp", netip.AddrPortFrom(a.Unmap(),
 			uint16(port)).String())
+		stop()
 		if err == nil {
 			return c, nil
 		}
 		last = err
 	}
 	return nil, errors.New("cannot connect to the destination: " + errText(last))
+}
+
+// refusal is a destination the policy refuses, as opposed to one that cannot be reached.
+type refusal struct{ why string }
+
+func (r refusal) Error() string { return r.why }
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func errText(err error) string {
