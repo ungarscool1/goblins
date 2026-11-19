@@ -68,21 +68,7 @@ func TestChartIsLeastPrivilege(t *testing.T) {
 		case "ClusterRole", "ClusterRoleBinding":
 			t.Errorf("the chart asks for cluster-wide access: %s", o.Metadata["name"])
 		case "Role":
-			if o.Metadata["namespace"] != "goblins-workloads" {
-				t.Errorf("role outside the workloads namespace: %v", o.Metadata)
-			}
-			for _, r := range o.Rules {
-				for _, v := range r.Verbs {
-					if v == "*" || v == "escalate" || v == "bind" || v == "impersonate" {
-						t.Errorf("verb %s on %v", v, r.Resources)
-					}
-				}
-				for _, res := range r.Resources {
-					if res == "pods/exec" || res == "pods/attach" || res == "*" {
-						t.Errorf("resource %s granted", res)
-					}
-				}
-			}
+			checkRole(t, o)
 		case "Namespace":
 			labels := o.Metadata["labels"].(map[string]any)
 			if labels["pod-security.kubernetes.io/enforce"] != "restricted" {
@@ -104,6 +90,27 @@ func TestChartIsLeastPrivilege(t *testing.T) {
 	}
 	if kinds["NetworkPolicy"] != 3 || kinds["Role"] != 1 || kinds["Deployment"] != 1 {
 		t.Fatalf("objects = %v", kinds)
+	}
+}
+
+// checkRole fails on a role outside the workloads namespace, or one granting more than the
+// runtime uses.
+func checkRole(t *testing.T, o object) {
+	t.Helper()
+	if o.Metadata["namespace"] != "goblins-workloads" {
+		t.Errorf("role outside the workloads namespace: %v", o.Metadata)
+	}
+	for _, r := range o.Rules {
+		for _, v := range r.Verbs {
+			if v == "*" || v == "escalate" || v == "bind" || v == "impersonate" {
+				t.Errorf("verb %s on %v", v, r.Resources)
+			}
+		}
+		for _, res := range r.Resources {
+			if res == "pods/exec" || res == "pods/attach" || res == "*" {
+				t.Errorf("resource %s granted", res)
+			}
+		}
 	}
 }
 
