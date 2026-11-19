@@ -56,6 +56,8 @@ type Options struct {
 	// EgressProxy, when set, is the only way out for egress pods: their policy allows DNS and
 	// the proxy's pods, and nothing else.
 	EgressProxy string
+	// GuardImage runs the network guard of workloads with no network. It needs sh and nc.
+	GuardImage string
 }
 
 // Runtime implements core.ExecutionRuntime on Kubernetes.
@@ -92,7 +94,7 @@ func New(name string, o Options) (*Runtime, error) {
 			"169.254.0.0/16", "100.64.0.0/10"}
 	}
 	for k, def := range map[*string]string{&o.VolumeSize: defaultVolume, &o.TmpSize: defaultTmp,
-		&o.PullPolicy: "IfNotPresent"} {
+		&o.PullPolicy: "IfNotPresent", &o.GuardImage: defaultGuardImage} {
 		if *k == "" {
 			*k = def
 		}
@@ -329,6 +331,10 @@ func (r *Runtime) buildPod(spec core.WorkloadSpec) (pod, error) {
 			ReadOnly: m.ReadOnly})
 	}
 	s.Containers = []containerSpec{c}
+	// The guard comes first, so neither the services nor the check start before isolation.
+	if spec.Network == core.NetworkNone {
+		s.InitContainers = append(s.InitContainers, r.networkGuard(c.Resources))
+	}
 	r.addServices(&p, spec)
 	return p, nil
 }
