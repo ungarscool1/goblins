@@ -40,6 +40,7 @@ runtimes:
 | `gpu_resource`, `kvm_resource` | Extended resource names offered by device plugins, such as `devices.kubevirt.io/kvm`. Without them, GPU and KVM workloads are refused |
 | `split_streams` | Asks for stdout and stderr apart, which needs the `PodLogsQuerySplitStreams` feature. Without it, both get the merged log |
 | `pull_policy`, `tmp_size`, `uid` | Image pull policy, size of `/tmp`, user ID (never 0) |
+| `guard_image` | Image of the network guard of no-network pods, with `sh` and `nc` |
 
 ### What every pod gets
 
@@ -54,6 +55,15 @@ runtimes:
   outside `egress_except`.
 - Secrets in a Secret object of its own, referenced by key, owned by the pod and deleted with it.
   Their values are never in the pod, where anyone allowed to read pods would see them.
+
+**Policies take effect a moment after a pod starts on some clusters.** On k3s, whose kube-router
+programs a new pod's rules a second or two after it starts, a pod's first second had the network.
+Pods with no network, where a change's code runs, therefore start with a `network-guard` init
+container (image `guard_image`, `alpine:3.22` by default, which needs `sh` and `nc`). It waits until
+the API server is unreachable from the pod, which proves the policy is in force, and fails the pod
+if that never happens. Egress pods have no guard, as an API server may be legitimately reachable
+from them; they run the agent's CLI or Git first, not a change's code. Network plugins that apply
+policy before a pod starts, such as Calico or Cilium, pass the guard at once.
 
 Privileged pods are never offered. Pod IDs per pod cannot be limited through the API: set
 `podPidsLimit` on the kubelet.
@@ -127,3 +137,8 @@ class offering `ReadWriteMany`.
 standard and simulating the pod lifecycle. The runtime contract suite runs against it, as it does
 against Docker. `test/helm` renders the chart and checks it asks for no cluster-wide access and
 stays restricted; it needs the `helm` binary. No test needs a cluster.
+
+With one, `go test -tags kubernetes ./test/integration` runs the runtime suite, confinement and
+services against it, given `GOBLINS_K8S_URL`, `GOBLINS_K8S_TOKEN_FILE`, `GOBLINS_K8S_CA_FILE` and
+`GOBLINS_K8S_NAMESPACE` for the chart's control plane service account. A throwaway k3s works:
+`docker run -d --privileged -p 127.0.0.1:16443:6443 rancher/k3s:v1.33.5-k3s1 server`.
