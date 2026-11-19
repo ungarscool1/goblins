@@ -106,6 +106,9 @@ func TestRejections(t *testing.T) {
 			"console.listen: must differ"},
 		{"console without operators", "version: 1\nconsole: {listen: ':81'}",
 			"at least one is required"},
+		{"console operator on an unknown project", "version: 1\nconsole: {listen: ':81', " +
+			"operators: [{name: ops, role: operator, token_env: T, projects: [nope]}]}",
+			"no project \"nope\""},
 		{"console operator without a token", "version: 1\nconsole: {listen: ':81', " +
 			"operators: [{name: ops, role: operator}]}", "exactly one of token_env and token_file"},
 		{"console operator with a bad role", "version: 1\nconsole: {listen: ':81', " +

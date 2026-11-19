@@ -36,6 +36,12 @@ type world struct {
 
 func setup(t *testing.T, readOnly bool) *world {
 	t.Helper()
+	return setupWith(t, readOnly)
+}
+
+// setupWith adds operators to the two every test has.
+func setupWith(t *testing.T, readOnly bool, more ...console.Operator) *world {
+	t.Helper()
 	store, err := storage.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "db"))
 	if err != nil {
 		t.Fatal(err)
@@ -43,9 +49,9 @@ func setup(t *testing.T, readOnly bool) *world {
 	t.Cleanup(func() { _ = store.Close() })
 	h := console.Handler(console.Options{Store: store, ReadOnly: readOnly,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return t0 },
-		Operators: []console.Operator{
+		Operators: append(more, []console.Operator{
 			{Name: "ops", CanAct: true, Token: core.NewSecret(opToken)},
-			{Name: "watcher", Token: core.NewSecret(viewerToken)}},
+			{Name: "watcher", Token: core.NewSecret(viewerToken)}}...),
 		Policies: func(string) (workflow.Policy, bool) { return workflow.DefaultPolicy(), true },
 		Agents:   func(string) []string { return []string{"planner: fake, model big"} }})
 	srv := httptest.NewServer(h)

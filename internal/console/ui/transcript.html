@@ -6,7 +6,7 @@
   <p class="hint">What the agents and checks printed, with secrets removed before it was stored.
   {{if .Job}}<a href="/tasks/{{.TaskID}}/transcript">Show every job</a>.{{end}}</p>
   {{range .Entries}}
-  <div class="entry {{.Kind}}"><span class="meta">{{when .At}} · {{.Kind}}</span><pre class="text">{{.Text}}</pre></div>
+  <div class="entry {{.Kind}}"><span class="meta">{{when .At}} · {{.Kind}}{{if .Stage}} · {{.Stage}}, attempt {{.Attempt}}{{end}}{{if .Commit}} · commit <code>{{.Commit}}</code>{{end}}{{if .Session}} · session <code>{{.Session}}</code>{{end}}</span><pre class="text">{{.Text}}</pre></div>
   {{else}}
   <p class="empty">Nothing was recorded.</p>
   {{end}}

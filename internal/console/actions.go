@@ -18,6 +18,8 @@ const (
 	actPause   = "pause"
 	actResume  = "resume"
 	actCancel  = "cancel"
+	// actRetry runs a failed task again from the step that failed.
+	actRetry = "retry"
 )
 
 // Action is what an operator asks for. Text is an answer; Revision and Hash name the design
@@ -42,7 +44,7 @@ func (c *console) act(ctx context.Context, op *Operator, id string, a Action) er
 	if err != nil {
 		return err
 	}
-	if t.State.IsTerminal() {
+	if t.State.IsTerminal() && (t.State != core.StateFailed || a.Action != actRetry) {
 		return core.Errorf(core.KindConflict, "console.act", "the task is %s", t.State)
 	}
 	body, err := c.command(t, a)
@@ -60,7 +62,7 @@ func (c *console) act(ctx context.Context, op *Operator, id string, a Action) er
 // command words an action as the comment that does it.
 func (c *console) command(t core.Task, a Action) (string, error) {
 	switch a.Action {
-	case actPause, actResume, actCancel:
+	case actPause, actResume, actCancel, actRetry:
 		return "/goblins " + a.Action, nil
 	case actApprove:
 		pol, ok := c.o.Policies(t.Project)
