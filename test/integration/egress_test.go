@@ -30,8 +30,8 @@ func TestEgressGoesThroughTheProxyOnly(t *testing.T) {
 	stamp := strings.ReplaceAll(time.Now().Format("150405.000"), ".", "")
 	network, proxy := "goblins-test-egress-"+stamp, "goblins-test-proxy-"+stamp
 	host := os.Getenv("DOCKER_HOST")
-	if host == "" {
-		if home, _ := os.UserHomeDir(); home != "" {
+	if home, _ := os.UserHomeDir(); host == "" && home != "" {
+		if _, err := os.Stat(home + "/.docker/run/docker.sock"); err == nil {
 			host = "unix://" + home + "/.docker/run/docker.sock"
 		}
 	}
