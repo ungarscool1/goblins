@@ -67,17 +67,6 @@ type Server struct {
 	MetricsListen string `yaml:"metrics_listen,omitempty"`
 }
 
-// Tracing sends spans to an OpenTelemetry collector over OTLP/HTTP. Without an endpoint,
-// spans are only logged.
-type Tracing struct {
-	// OTLPEndpoint is the collector's base URL, such as http://collector:4318.
-	OTLPEndpoint string `yaml:"otlp_endpoint,omitempty"`
-	// HeadersEnv names a variable holding headers for the collector, in the
-	// OTEL_EXPORTER_OTLP_HEADERS form (key=value,key=value). They can hold a login.
-	HeadersEnv string        `yaml:"headers_env,omitempty"`
-	Interval   time.Duration `yaml:"interval,omitempty"`
-}
-
 // Log configures structured logging.
 type Log struct {
 	Level  string `yaml:"level"`
@@ -346,17 +335,7 @@ func (c *Config) Validate(known TypeChecker) error {
 	if c.Server.ShutdownTimeout <= 0 {
 		add("server.shutdown_timeout: must be positive")
 	}
-	if e := c.Tracing.OTLPEndpoint; e != "" {
-		if _, err := observability.TracesURL(e); err != nil {
-			add("tracing.otlp_endpoint: %v", err)
-		}
-	}
-	if c.Tracing.OTLPEndpoint == "" && c.Tracing.HeadersEnv != "" {
-		add("tracing.headers_env: needs tracing.otlp_endpoint")
-	}
-	if c.Tracing.Interval < 0 {
-		add("tracing.interval: cannot be negative")
-	}
+	c.Tracing.validate(add)
 	if _, err := observability.NewLogger(io.Discard, observability.LogOptions{Level: c.Log.Level, Format: c.Log.Format}); err != nil {
 		add("log: %v", err)
 	}
