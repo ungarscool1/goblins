@@ -26,6 +26,19 @@ type IssueTracker interface {
 	Transition(ctx context.Context, ref IssueRef, status string) error
 }
 
+// ContainerScoped is implemented by adapters that serve an allow-list of containers, such as
+// repositories or tracker projects. Routing asks it, so a source is only polled for what it
+// serves.
+type ContainerScoped interface {
+	Serves(container string) bool
+}
+
+// AgentBoundary is implemented by trackers whose data may only reach some agents: a work
+// tracker whose tickets must not go to a personal account. An empty list allows any.
+type AgentBoundary interface {
+	AllowedAgents() []string
+}
+
 // SourceControl hosts repositories. It is separate from IssueTracker because
 // one installation may combine any tracker with any SCM.
 type SourceControl interface {

@@ -205,22 +205,13 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 		policies[pc.ID] = policy
 		sys.Warnings = append(sys.Warnings, preflight(pc, pr)...)
 
-		for _, name := range pc.EventSource {
-			src, err := build[core.EventSource](b, providers.KindEventSource, cfg.EventSources, name)
-			if err != nil {
-				return nil, err
-			}
-			routes = append(routes, scheduler.Route{Source: name, Container: pc.Repository, Project: pc.ID, Tracker: pc.Tracker, SCM: pc.SCM})
-			if src.Info().Has(core.CapEventsWebhook) {
-				sys.Webhooks[name] = src
-			}
-			if pc.PollInterval > 0 {
-				if !src.Info().Has(core.CapEventsPoll) {
-					sys.Warnings = append(sys.Warnings, fmt.Sprintf("project %s: event source %s cannot poll, so poll_interval has no effect", pc.ID, name))
-					continue
-				}
-				polls = append(polls, scheduler.PollSource{Source: src, Container: pc.Repository, Interval: pc.PollInterval, Lookback: 24 * time.Hour})
-			}
+		r, ps, err := projectRoutes(b, cfg, pc, sys)
+		if err != nil {
+			return nil, err
+		}
+		routes, polls = append(routes, r...), append(polls, ps...)
+		if err := checkAgentBoundary(pc, pr.Tracker); err != nil {
+			return nil, err
 		}
 	}
 

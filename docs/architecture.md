@@ -53,6 +53,7 @@ orchestrator can run anywhere that can reach an engine, and nothing assumes they
 | Job handlers and prompts   | `internal/pipeline`     | [workflow.md](workflow.md)     |
 | Persistence                | `internal/storage`      | [workflow.md](workflow.md)     |
 | GitHub                     | `internal/providers/github` | [github.md](github.md)     |
+| Jira                       | `internal/providers/jira`   | [jira.md](jira.md)         |
 | Claude CLI                 | `internal/providers/claude` | [claude.md](claude.md)     |
 | Docker and workspaces      | `internal/runtime`      | [docker-runtime.md](docker-runtime.md) |
 

@@ -9,6 +9,7 @@ import (
 	"github.com/ungarscool1/goblins/internal/providers/command"
 	"github.com/ungarscool1/goblins/internal/providers/fake"
 	gh "github.com/ungarscool1/goblins/internal/providers/github"
+	"github.com/ungarscool1/goblins/internal/providers/jira"
 	"github.com/ungarscool1/goblins/internal/runtime/docker"
 )
 
@@ -20,6 +21,7 @@ func Registry(world *fake.World) *providers.Registry {
 	gh.Register(r)
 	claude.Register(r)
 	codex.Register(r)
+	jira.Register(r)
 	docker.Register(r)
 	command.Register(r)
 	return r
