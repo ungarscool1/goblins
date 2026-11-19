@@ -34,6 +34,7 @@ type podSpec struct {
 	ActiveDeadline     *int64          `json:"activeDeadlineSeconds,omitempty"`
 	TerminationGrace   *int64          `json:"terminationGracePeriodSeconds,omitempty"`
 	SecurityContext    podSecurity     `json:"securityContext"`
+	InitContainers     []containerSpec `json:"initContainers,omitempty"`
 	Containers         []containerSpec `json:"containers"`
 	Volumes            []volume        `json:"volumes,omitempty"`
 }
