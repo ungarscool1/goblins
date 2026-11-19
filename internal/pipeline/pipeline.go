@@ -8,7 +8,6 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -57,6 +56,8 @@ type Project struct {
 	// implementer does.
 	Triager    Stage
 	Validation core.ValidationProvider
+	// Memory, when set, is what agents are told about the project beyond the ticket.
+	Memory *Memory
 	// Environment is where a commit that passed its checks is deployed and verified.
 	Environment      core.EnvironmentProvider
 	EnvironmentLease time.Duration
@@ -94,6 +95,7 @@ type Pipeline struct {
 		GetDesign(ctx context.Context, taskID string, revision int) (core.Design, error)
 	}
 	Environments EnvironmentStore
+	Memories     core.MemoryStore
 	Log          *slog.Logger
 }
 
@@ -174,7 +176,9 @@ func (p *Pipeline) runAgent(ctx context.Context, jc scheduler.JobContext, stage 
 	if session == "" {
 		session = jc.Task.Sessions[role]
 	}
-	p.prepareStage(jc, stage, role, &req)
+	if err := p.prepareStage(ctx, jc, stage, role, &req); err != nil {
+		return core.AgentResult{}, err
+	}
 	req.IdempotencyKey = jc.Job.IdempotencyKey
 	req.WorkloadName = workloadName(jc, "agent")
 	req.Labels = p.labels(jc)
@@ -525,6 +529,7 @@ func (p *Pipeline) publish(ctx context.Context, jc scheduler.JobContext) (any, e
 	if err != nil {
 		return nil, err
 	}
+	p.proposeMemory(ctx, jc, pr, design, pull, payload.SHA)
 	return workflow.PublishResult{PullRequest: pull, Created: created}, nil
 }
 
@@ -575,26 +580,4 @@ func (p *Pipeline) notify(ctx context.Context, jc scheduler.JobContext) (any, er
 		return struct{}{}, nil
 	}
 	return struct{}{}, pr.Notification.Notify(ctx, core.Notification{IdempotencyKey: jc.Job.IdempotencyKey, Project: pr.ID, Subject: jc.Task.Subject, Severity: payload.Severity, Title: payload.Title, Body: payload.Body})
-}
-
-func (p *Pipeline) cleanup(ctx context.Context, jc scheduler.JobContext) (any, error) {
-	pr, err := p.project(jc.Task.Project)
-	if err != nil {
-		return nil, err
-	}
-	var errs []error
-	for _, v := range []struct {
-		runtime core.ExecutionRuntime
-		purpose string
-	}{{pr.Planner.Runtime, "plan"}, {pr.Implementer.Runtime, "impl"}, {pr.Implementer.Runtime,
-		"scratch"}, {pr.Implementer.Runtime, "review"}} {
-		if err := v.runtime.RemoveVolume(ctx, p.volume(jc.Task, v.purpose)); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	errs = append(errs, p.releaseEnvironments(ctx, jc, pr))
-	if err := errors.Join(errs...); err != nil {
-		return nil, core.Wrap(core.KindTransient, "pipeline.cleanup", err)
-	}
-	return struct{}{}, nil
 }

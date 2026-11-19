@@ -487,6 +487,7 @@ func Run(t *testing.T, build func(t *testing.T) core.StateStore) {
 	})
 
 	t.Run("leases", func(t *testing.T) { Leases(t, build) })
+	t.Run("memories", func(t *testing.T) { Memories(t, build) })
 
 	t.Run("cursors and transcript", func(t *testing.T) {
 		s := build(t)
