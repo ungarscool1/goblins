@@ -137,3 +137,8 @@ class offering `ReadWriteMany`.
 standard and simulating the pod lifecycle. The runtime contract suite runs against it, as it does
 against Docker. `test/helm` renders the chart and checks it asks for no cluster-wide access and
 stays restricted; it needs the `helm` binary. No test needs a cluster.
+
+With one, `go test -tags kubernetes ./test/integration` runs the runtime suite, confinement and
+services against it, given `GOBLINS_K8S_URL`, `GOBLINS_K8S_TOKEN_FILE`, `GOBLINS_K8S_CA_FILE` and
+`GOBLINS_K8S_NAMESPACE` for the chart's control plane service account. A throwaway k3s works:
+`docker run -d --privileged -p 127.0.0.1:16443:6443 rancher/k3s:v1.33.5-k3s1 server`.
