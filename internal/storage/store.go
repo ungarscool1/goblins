@@ -9,10 +9,7 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io/fs"
 	"net/url"
-	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -74,63 +71,6 @@ func open(ctx context.Context, db *sql.DB, postgres bool) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
-}
-
-func (s *Store) migrate(ctx context.Context) error {
-	dir := "migrations/sqlite"
-	if s.postgres {
-		dir = "migrations/postgres"
-	}
-	entries, err := fs.ReadDir(migrations, dir)
-	if err != nil {
-		return core.Wrap(core.KindInternal, "storage.migrate", err)
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	slices.Sort(names)
-
-	return s.tx(ctx, func(tx *sql.Tx) error {
-		if s.postgres {
-			// Replicas starting together must not migrate concurrently.
-			if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(726354)`); err != nil {
-				return err
-			}
-		}
-		if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`); err != nil {
-			return err
-		}
-		var current int
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&current); err != nil {
-			return err
-		}
-		latest := 0
-		for _, name := range names {
-			v, err := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
-			if err != nil {
-				return fmt.Errorf("bad migration name %s", name)
-			}
-			latest = max(latest, v)
-			if v <= current {
-				continue
-			}
-			body, err := migrations.ReadFile(path.Join(dir, name))
-			if err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, string(body)); err != nil {
-				return fmt.Errorf("migration %s: %w", name, err)
-			}
-			if _, err := tx.ExecContext(ctx, s.rebind(`INSERT INTO schema_migrations (version) VALUES (?)`), v); err != nil {
-				return err
-			}
-		}
-		if current > latest {
-			return core.Errorf(core.KindInvalid, "storage.migrate", "database schema version %d is newer than this build supports (%d); upgrade Goblins", current, latest)
-		}
-		return nil
-	})
 }
 
 // rebind converts ? placeholders for PostgreSQL. No query here has a literal ?.

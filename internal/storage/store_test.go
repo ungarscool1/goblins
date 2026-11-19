@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -145,4 +146,38 @@ func appendForTest(t *testing.T, s *Store, key string) int64 {
 		t.Fatalf("claim: %+v, %v", ev, err)
 	}
 	return ev.Seq
+}
+
+// Migrations from changes merged in any order all run: one numbered below the newest applied
+// is still applied, once.
+func TestMigrationsRunAsASet(t *testing.T) {
+	ctx := context.Background()
+	file := filepath.Join(t.TempDir(), "g.db")
+	s, err := OpenSQLite(ctx, file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// As if a database had a later migration but missed an earlier one.
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = 2`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DROP TABLE limit_holds`); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	s, err = OpenSQLite(ctx, file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.ActiveHolds(ctx, time.Now()); err != nil {
+		t.Fatalf("the skipped migration did not run: %v", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO schema_migrations (version) VALUES (999)`); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	if _, err := OpenSQLite(ctx, file); err == nil || !strings.Contains(err.Error(), "newer") {
+		t.Fatalf("an unknown migration was accepted: %v", err)
+	}
 }
