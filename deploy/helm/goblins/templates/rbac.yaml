@@ -1,0 +1,54 @@
+# The control plane's identity. It may only manage workload objects in the workloads
+# namespace: no cluster-wide permission, nothing in its own namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "goblins.name" . }}
+  labels: {{- include "goblins.labels" . | nindent 4 }}
+---
+# The workloads' identity. Nothing is bound to it and its token is never mounted.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.workloads.serviceAccount }}
+  namespace: {{ include "goblins.workloadNamespace" . }}
+  labels: {{- include "goblins.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "goblins.name" . }}-workloads
+  namespace: {{ include "goblins.workloadNamespace" . }}
+  labels: {{- include "goblins.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [create, get, list, watch, patch, delete]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, patch, delete]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [create, get, list, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "goblins.name" . }}-workloads
+  namespace: {{ include "goblins.workloadNamespace" . }}
+  labels: {{- include "goblins.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "goblins.name" . }}-workloads
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "goblins.name" . }}
+    namespace: {{ .Release.Namespace }}

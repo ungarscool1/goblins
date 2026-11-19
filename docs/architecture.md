@@ -55,6 +55,7 @@ orchestrator can run anywhere that can reach an engine, and nothing assumes they
 | GitHub                     | `internal/providers/github` | [github.md](github.md)     |
 | Claude CLI                 | `internal/providers/claude` | [claude.md](claude.md)     |
 | Docker and workspaces      | `internal/runtime`      | [docker-runtime.md](docker-runtime.md) |
+| Kubernetes and Helm        | `internal/runtime/kubernetes`, `deploy/helm` | [kubernetes.md](kubernetes.md) |
 
 ## How it is tested
 

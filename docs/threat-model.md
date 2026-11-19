@@ -12,6 +12,7 @@ it protects, how, and what it does not.
 | Installation tokens      | Orchestrator; prepare and publish workloads | One repository, about an hour |
 | Webhook secret           | Orchestrator                       | Forged events; still subject to permission checks |
 | Docker API               | Orchestrator, through a proxy      | Root on the worker host            |
+| Kubernetes service account | Control plane pod only           | Pods, Secrets and claims of the workloads namespace, nothing else ([kubernetes.md](kubernetes.md)) |
 | Merge to default branch  | Nobody: Goblins never merges       |                                    |
 
 ## Who can attack
@@ -40,6 +41,8 @@ GitHub, Anthropic or Docker being compromised.
 | Tampering between validation and push | The pushed commit must equal the validated hash              | Go code, Git |
 | Container escape to the host          | Non-root, no capabilities, no new privileges, no host mounts, resource limits | Docker |
 | Docker socket in a worker             | Only named volumes can be expressed                          | Go code     |
+| Cluster API from a worker pod         | No service account token, no service links, network policies deny the cluster's addresses | Go code, Kubernetes |
+| Secret values readable in pod specs   | Secrets are Secret objects referenced by key, owned by the pod | Go code, Kubernetes |
 | Forged or replayed webhook            | HMAC checked first, repository allow-list, idempotent event identity | Go code |
 | Comment loop with itself              | Automation's comments are ignored                            | Go code     |
 | Paid API fallback                     | Billing variables unset, API key options refused, API-keyed sessions discarded | Go code, wrapper |

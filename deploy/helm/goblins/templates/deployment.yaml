@@ -1,0 +1,113 @@
+{{- if and (gt (int .Values.replicas) 1) (eq .Values.storage.driver "sqlite") }}
+{{- fail "replicas above 1 need storage.driver postgres: SQLite has one writer" }}
+{{- end }}
+{{- if and (eq .Values.storage.driver "postgres") (not .Values.postgresql.enabled) (not .Values.storage.postgres.dsnSecret.name) }}
+{{- fail "storage.driver postgres needs postgresql.enabled or storage.postgres.dsnSecret.name" }}
+{{- end }}
+{{- if eq .Values.storage.driver "sqlite" }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "goblins.name" . }}-data
+  labels: {{- include "goblins.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep   # an uninstall never deletes the task history
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.storage.sqlite.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources: {requests: {storage: {{ .Values.storage.sqlite.size }}}}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "goblins.name" . }}
+  labels:
+    {{- include "goblins.labels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+spec:
+  replicas: {{ .Values.replicas }}
+  # A restart, an upgrade or a rollout restart loses nothing: state is in the database, and
+  # the new pod removes workloads no live job owns and resumes the rest.
+  strategy:
+    type: {{ if eq .Values.storage.driver "sqlite" }}Recreate{{ else }}RollingUpdate{{ end }}
+  selector:
+    matchLabels: {{- include "goblins.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "goblins.selector" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ tpl .Values.config . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "goblins.name" . }}
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      terminationGracePeriodSeconds: 40
+      containers:
+        - name: goblins
+          image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [serve, --config, /etc/goblins/goblins.yaml]
+          env:
+            - {name: GOBLINS_DATA_DIR, value: /var/lib/goblins}
+            - {name: GOBLINS_LISTEN, value: "0.0.0.0:{{ .Values.service.port }}"}
+            {{- if .Values.metrics.enabled }}
+            - {name: GOBLINS_METRICS_LISTEN, value: "0.0.0.0:{{ .Values.metrics.port }}"}
+            {{- end }}
+            {{- if eq .Values.storage.driver "postgres" }}
+            - name: GOBLINS_POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.postgresql.enabled }}
+                  name: {{ include "goblins.name" . }}-postgresql
+                  key: dsn
+                  {{- else }}
+                  name: {{ .Values.storage.postgres.dsnSecret.name }}
+                  key: {{ .Values.storage.postgres.dsnSecret.key }}
+                  {{- end }}
+            {{- end }}
+          {{- with .Values.existingSecret }}
+          envFrom: [{secretRef: {name: {{ . }}}}]
+          {{- end }}
+          ports:
+            - {name: http, containerPort: {{ .Values.service.port }}}
+            {{- if .Values.metrics.enabled }}
+            - {name: metrics, containerPort: {{ .Values.metrics.port }}}
+            {{- end }}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 10
+          securityContext: {{- include "goblins.restricted" . | nindent 12 }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/goblins, readOnly: true}
+            - {name: data, mountPath: /var/lib/goblins}
+            - {name: tmp, mountPath: /tmp}
+            {{- range $name, $secret := .Values.secretFiles }}
+            - {name: "secret-{{ $name }}", mountPath: "/run/secrets/{{ $name }}", readOnly: true}
+            {{- end }}
+      volumes:
+        - name: config
+          configMap: {name: {{ include "goblins.name" . }}-config}
+        - name: data
+          {{- if eq .Values.storage.driver "sqlite" }}
+          persistentVolumeClaim: {claimName: {{ include "goblins.name" . }}-data}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+        {{- range $name, $secret := .Values.secretFiles }}
+        - name: "secret-{{ $name }}"
+          secret: {secretName: {{ $secret }}, defaultMode: 0400}
+        {{- end }}
