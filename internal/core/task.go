@@ -65,6 +65,10 @@ type Task struct {
 
 	Title            string `json:"title,omitempty"`
 	RequirementsHash string `json:"requirements_hash,omitempty"`
+	// AcceptedBody is the issue body as last accepted from someone allowed to give input,
+	// with Title. Agents read this copy, not the live issue, which people whose input is
+	// ignored, such as an author without write access, can still edit.
+	AcceptedBody string `json:"accepted_body,omitempty"`
 
 	// DesignCommentKey identifies the comment that published the current revision.
 	DesignCommentKey string    `json:"design_comment_key,omitempty"`
