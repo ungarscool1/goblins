@@ -695,7 +695,7 @@ func (m *machine) onPlanDone(o *core.JobOutcome) {
 	// Approvals must come after this moment. Once the comment is posted, this is replaced
 	// by the tracker's own timestamp for it, the same clock replies are stamped with.
 	m.t.DesignProposedAt = m.f.Now
-	m.t.DesignCommentKey = m.comment(RenderDesign(m.t.DesignRevision, hash, res.Design, m.p.ApproveCommand))
+	m.t.DesignCommentKey = m.comment(m.renderDesign(hash, res.Design))
 	m.moveTo(core.StateDesignProposed, fmt.Sprintf("design revision %d proposed", m.t.DesignRevision))
 }
 

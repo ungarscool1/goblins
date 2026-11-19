@@ -197,6 +197,7 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 			}
 		}
 		policy := policyFor(pc)
+		policy.DesignStyle = designStyle(pc.Communication, pr.Tracker.Info())
 		pr.MinInput, pr.MinApprove = policy.MinInputPermission, policy.MinApprovePermission
 		pr.TrustedReviewBots = policy.TrustedReviewBots
 		pr.ValidationManifest, pr.TrustedPaths = pc.Policy.ValidationManifest, pc.Policy.TrustedPaths
@@ -242,6 +243,17 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 	sys.Metrics = observability.NewMetrics()
 	sys.Scheduler.Metrics, sys.Inbox.Metrics, engine.Metrics = sys.Metrics, sys.Metrics, sys.Metrics
 	return sys, nil
+}
+
+// designStyle picks a design layout from the project's preset and what its tracker can show.
+func designStyle(c config.Communication, tracker core.ProviderInfo) workflow.DesignStyle {
+	switch {
+	case c.Verbosity == config.VerbosityVerbose:
+		return workflow.DesignVerbose
+	case tracker.Has(core.CapTrackerCollapsible):
+		return workflow.DesignCompact
+	}
+	return workflow.DesignCompactPlain
 }
 
 func limitKey(agent string) string { return "agent:" + agent }

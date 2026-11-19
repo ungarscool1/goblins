@@ -24,7 +24,8 @@ func NewTracker(name string, c *Client) *Tracker { return &Tracker{name: name, c
 
 // Info implements core.Provider.
 func (t *Tracker) Info() core.ProviderInfo {
-	return info(core.ProviderTracker, t.name, core.CapTrackerCommentWrite, core.CapTrackerCommentEdit, core.CapTrackerLabels, core.CapTrackerTransitions, core.CapTrackerPermissions)
+	return info(core.ProviderTracker, t.name, core.CapTrackerCommentWrite, core.CapTrackerCommentEdit, core.CapTrackerLabels, core.CapTrackerTransitions, core.CapTrackerPermissions,
+		core.CapTrackerCollapsible)
 }
 
 type label struct {

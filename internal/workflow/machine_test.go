@@ -130,6 +130,14 @@ func TestPlannerOutcomes(t *testing.T) {
 		t.Fatalf("comment lacks instruction: %s", dt.Jobs[0].Payload)
 	}
 
+	// The comment leads with the summary and keeps every section, collapsed.
+	withSummary := DesignSummaryHeading + "**Change:** c\n\n### Scope\n\nscope"
+	dc := Decide(q, finished(q, true, "", "", PlanResult{Design: withSummary}), writeFacts(), p)
+	if pl := string(dc.Jobs[0].Payload); !strings.Contains(pl, `\u003cdetails\u003e`) ||
+		!strings.Contains(pl, "### Scope") || dc.Design.Body != withSummary {
+		t.Fatalf("compact comment: %s", pl)
+	}
+
 	// An unchanged design keeps its revision.
 	same := at(core.StateInvestigating, JobPlan)
 	same.DesignHash = core.Digest("the design")

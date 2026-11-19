@@ -176,7 +176,8 @@ type Tracker struct {
 
 // AllTrackerCaps lists every tracker capability.
 var AllTrackerCaps = []core.Capability{core.CapTrackerCommentWrite, core.CapTrackerCommentEdit,
-	core.CapTrackerLabels, core.CapTrackerTransitions, core.CapTrackerPermissions}
+	core.CapTrackerLabels, core.CapTrackerTransitions, core.CapTrackerPermissions,
+	core.CapTrackerCollapsible}
 
 // NewTracker returns a fully capable fake tracker.
 func NewTracker(w *World, name string) *Tracker {

@@ -54,8 +54,18 @@ To ask for what you cannot determine yourself, grouped and without repeating ear
 To propose a design, with every field filled in:
 ` + "```goblins-plan" + `
 {"design": {"scope": "", "architecture": "", "alternatives": "", "constraints": "",
- "implementation_plan": "", "tests": "", "security": "", "out_of_scope": ""}}
-` + "```"
+ "implementation_plan": "", "tests": "", "security": "", "out_of_scope": "",
+ "summary": {"change": "", "approach": "", "risks": "", "validation": ""}}}
+` + "```" + `
+
+Write for a busy maintainer. Prefer the simplest design that meets the requirements, and
+make each field only as long as the change needs: a small change takes a few sentences per
+field. Do not repeat a point across fields. The summary is what people read first to decide:
+change and why in one or two sentences, the approach in a few short points rather than a file
+list, only the risks and tradeoffs that matter for approval, and the test strategy rather than
+every test case. It must agree with the design, and it never replaces it: the full design is
+kept and is what gets approved and implemented.
+Questions are short and specific, one point each.`
 
 const implementerSystem = `You are the implementation stage of an automated software engineering
 workflow. A person approved the design below; implement exactly that.
@@ -163,6 +173,8 @@ type designDoc struct {
 	Tests              string `json:"tests"`
 	Security           string `json:"security"`
 	OutOfScope         string `json:"out_of_scope"`
+	// Summary is optional, as older planners and fakes do not write one.
+	Summary *designSummary `json:"summary,omitempty"`
 }
 
 func (d designDoc) sections() [][2]string {
@@ -175,6 +187,7 @@ func (d designDoc) sections() [][2]string {
 // ParsePlan validates untrusted planner output into questions or a rendered design.
 // The last block counts, since earlier text may quote one. The design is rendered here
 // rather than taken verbatim, so its structure and size are under deterministic control.
+// The rendered design starts with its summary, so the hash people approve covers both.
 func ParsePlan(output string) (questions []string, design string, err error) {
 	matches := planBlock.FindAllStringSubmatch(output, -1)
 	if len(matches) == 0 {
@@ -215,6 +228,7 @@ func ParsePlan(output string) (questions []string, design string, err error) {
 		return questions, "", nil
 	}
 	var b strings.Builder
+	b.WriteString(renderSummary(*raw.Design))
 	for _, s := range raw.Design.sections() {
 		body := strings.TrimSpace(s[1])
 		if body == "" {

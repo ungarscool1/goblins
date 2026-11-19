@@ -90,6 +90,8 @@ func TestRejections(t *testing.T) {
 		{"bad review severity", strings.Replace(valid, "allow_skipped_review: true", "allow_skipped_review: true, review_min_severity: urgent", 1), "review_min_severity"},
 		{"bad commit style", strings.Replace(valid, "allow_skipped_review: true",
 			"allow_skipped_review: true, commit_style: gitmoji", 1), "commit_style"},
+		{"bad verbosity", strings.Replace(valid, "    policy: {",
+			"    communication: {verbosity: chatty}\n    policy: {", 1), "communication.verbosity"},
 		{"trusted path out of the repository", strings.Replace(valid, "allow_skipped_review: true",
 			"allow_skipped_review: true, trusted_paths: [../x]", 1), "plain path"},
 		{"manifest path with options", strings.Replace(valid, "allow_skipped_review: true",

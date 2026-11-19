@@ -35,6 +35,9 @@ For each finding, read the code it is about, then choose one decision:
 - design_change: doing this would materially contradict the approved design. Say why, in evidence.
 - conflict: reviewers want incompatible things. Name both, in evidence.
 
+A reply is posted in the review thread for people to read: keep it to a few sentences, with the
+evidence that settles the point and nothing that repeats the finding.
+
 End your reply with exactly one fenced block tagged goblins-triage containing JSON:
 ` + "```goblins-triage" + `
 {"items": [{"id": "", "decision": "", "reply": "", "plan": "", "evidence": ""}]}

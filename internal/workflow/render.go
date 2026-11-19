@@ -33,13 +33,6 @@ func RenderQuestions(qs []string) string {
 	return b.String()
 }
 
-// RenderDesign formats a design revision with its approval instruction.
-func RenderDesign(rev int, hash, body, approveCmd string) string {
-	return fmt.Sprintf("## Proposed design, revision %d\n\n%s\n\n---\nTo approve this exact revision, comment `%s %d` (design hash `%s`). "+
-		"Any other comment from a maintainer asks for a revision. Nothing is implemented before approval.",
-		rev, strings.TrimSpace(body), approveCmd, rev, hash[:12])
-}
-
 // RenderFailure formats failed checks for the next implementation round. The
 // content is repository output: it is passed on as data, never interpreted.
 func RenderFailure(rep core.ValidationReport) string {

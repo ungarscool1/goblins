@@ -119,13 +119,23 @@ func TestSizeLimitsHold(t *testing.T) {
 	}
 
 	field := strings.Repeat("d", maxDesignField)
-	doc := fmt.Sprintf(`{"design":{"scope":%[1]q,"architecture":%[1]q,"alternatives":%[1]q,"constraints":%[1]q,"implementation_plan":%[1]q,"tests":%[1]q,"security":%[1]q,"out_of_scope":%[1]q}}`, field)
+	point := strings.Repeat("s", maxSummaryField)
+	doc := fmt.Sprintf(`{"design":{"scope":%[1]q,"architecture":%[1]q,"alternatives":%[1]q,`+
+		`"constraints":%[1]q,"implementation_plan":%[1]q,"tests":%[1]q,"security":%[1]q,`+
+		`"out_of_scope":%[1]q,"summary":{"change":%[2]q,"approach":%[2]q,"risks":%[2]q,`+
+		`"validation":%[2]q}}}`, field, point)
 	_, design, err := ParsePlan(block(doc))
-	if err != nil {
+	if err != nil || !strings.Contains(design, point) {
 		t.Fatal(err)
 	}
-	if rendered := workflow.RenderDesign(1, strings.Repeat("a", 64), design, "/approve-design"); len(rendered) > 65536 {
-		t.Fatalf("design comment = %d bytes, trackers allow 65536", len(rendered))
+	styles := []workflow.DesignStyle{workflow.DesignCompact, workflow.DesignCompactPlain,
+		workflow.DesignVerbose}
+	for _, style := range styles {
+		rendered := workflow.RenderDesign(1, strings.Repeat("a", 64), design, "/approve-design",
+			style)
+		if len(rendered) > 65536 {
+			t.Fatalf("design comment = %d bytes, trackers allow 65536", len(rendered))
+		}
 	}
 	impl := ImplementerPrompt(core.Issue{Title: "t", Body: huge}, core.Design{Body: design}, "", "")
 	if len(impl) > maxPromptBytes {
