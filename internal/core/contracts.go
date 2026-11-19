@@ -316,6 +316,18 @@ type ExecutionRuntime interface {
 	RemoveVolume(ctx context.Context, name string) error
 }
 
+// VolumeStatus is a durable volume and its labels.
+type VolumeStatus struct {
+	Name   string
+	Labels map[string]string
+}
+
+// VolumeLister is implemented by runtimes advertising CapRuntimeVolumeList. It finds the
+// volumes a lost task left behind, which nothing else would remove.
+type VolumeLister interface {
+	ListVolumes(ctx context.Context, labels map[string]string) ([]VolumeStatus, error)
+}
+
 // ReviewRequest asks for an independent review of a pull request at one exact commit.
 // The workspace fields are set only for providers advertising CapReviewWorkspace: a
 // read-only checkout of HeadSHA, and the diff against the base as data.

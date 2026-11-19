@@ -93,10 +93,13 @@ type service struct {
 	data string
 	cmd  *exec.Cmd
 	logs *strings.Builder
+	// extra is added to the service's environment.
+	extra []string
 }
 
 func (s *service) env() []string {
-	return append(os.Environ(), "GOBLINS_LISTEN="+s.addr, "GOBLINS_DATA_DIR="+s.data)
+	return append(append(os.Environ(), "GOBLINS_LISTEN="+s.addr, "GOBLINS_DATA_DIR="+s.data),
+		s.extra...)
 }
 
 func (s *service) start() {

@@ -128,6 +128,8 @@ type Scheduler struct {
 	Now      func() time.Time
 	Cfg      Config
 	Metrics  *observability.Metrics
+	// Spans, when set, also receives every span that is logged.
+	Spans observability.SpanExporter
 	// Stalled is how many tasks the last health check found with no job to move them.
 	Stalled atomic.Int64
 
@@ -423,6 +425,7 @@ func (s *Scheduler) maybeReconcile(ctx context.Context) {
 	s.mu.Unlock()
 	if due {
 		s.ReconcileWorkloads(ctx)
+		s.ReconcileVolumes(ctx)
 		s.checkHealth(ctx)
 	}
 }

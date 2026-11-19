@@ -38,6 +38,7 @@ type Config struct {
 	Server        Server       `yaml:"server"`
 	Log           Log          `yaml:"log"`
 	Storage       Storage      `yaml:"storage"`
+	Tracing       Tracing      `yaml:"tracing,omitempty"`
 	Scheduler     Scheduler    `yaml:"scheduler,omitempty"`
 	Trackers      ProviderSet  `yaml:"trackers,omitempty"`
 	SCMs          ProviderSet  `yaml:"scms,omitempty"`
@@ -64,6 +65,17 @@ type Server struct {
 	// It must differ from Listen, so the port that takes webhooks never serves metrics.
 	// Empty turns metrics off.
 	MetricsListen string `yaml:"metrics_listen,omitempty"`
+}
+
+// Tracing sends spans to an OpenTelemetry collector over OTLP/HTTP. Without an endpoint,
+// spans are only logged.
+type Tracing struct {
+	// OTLPEndpoint is the collector's base URL, such as http://collector:4318.
+	OTLPEndpoint string `yaml:"otlp_endpoint,omitempty"`
+	// HeadersEnv names a variable holding headers for the collector, in the
+	// OTEL_EXPORTER_OTLP_HEADERS form (key=value,key=value). They can hold a login.
+	HeadersEnv string        `yaml:"headers_env,omitempty"`
+	Interval   time.Duration `yaml:"interval,omitempty"`
 }
 
 // Log configures structured logging.
@@ -283,6 +295,7 @@ func (c *Config) applyEnv(env func(string) (string, bool)) error {
 	set("GOBLINS_DATA_DIR", &c.Installation.DataDir)
 	set("GOBLINS_LISTEN", &c.Server.Listen)
 	set("GOBLINS_METRICS_LISTEN", &c.Server.MetricsListen)
+	set("GOBLINS_OTLP_ENDPOINT", &c.Tracing.OTLPEndpoint)
 	set("GOBLINS_LOG_LEVEL", &c.Log.Level)
 	set("GOBLINS_LOG_FORMAT", &c.Log.Format)
 	set("GOBLINS_STORAGE_DRIVER", &c.Storage.Driver)
@@ -329,6 +342,17 @@ func (c *Config) Validate(known TypeChecker) error {
 		} else if m == c.Server.Listen {
 			add("server.metrics_listen: must differ from server.listen")
 		}
+	}
+	if e := c.Tracing.OTLPEndpoint; e != "" {
+		if _, err := observability.TracesURL(e); err != nil {
+			add("tracing.otlp_endpoint: %v", err)
+		}
+	}
+	if c.Tracing.OTLPEndpoint == "" && c.Tracing.HeadersEnv != "" {
+		add("tracing.headers_env: needs tracing.otlp_endpoint")
+	}
+	if c.Tracing.Interval < 0 {
+		add("tracing.interval: cannot be negative")
 	}
 	if c.Server.ShutdownTimeout <= 0 {
 		add("server.shutdown_timeout: must be positive")

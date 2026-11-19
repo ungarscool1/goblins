@@ -54,6 +54,8 @@ type System struct {
 	Runtimes  map[string]core.ExecutionRuntime
 	Warnings  []string
 	Metrics   *observability.Metrics
+	// Spans exports spans to a collector, when tracing has an endpoint.
+	Spans *observability.OTLPExporter
 }
 
 // OpenStore opens the configured database.
@@ -241,6 +243,14 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 			TranscriptRetention: cfg.Scheduler.TranscriptRetention}}
 	sys.Metrics = observability.NewMetrics()
 	sys.Scheduler.Metrics, sys.Inbox.Metrics, engine.Metrics = sys.Metrics, sys.Metrics, sys.Metrics
+	spans, err := newTraceExporter(cfg, sys.Metrics, log)
+	if err != nil {
+		return nil, err
+	}
+	sys.Spans = spans
+	if sys.Spans != nil {
+		sys.Scheduler.Spans = sys.Spans
+	}
 	return sys, nil
 }
 
@@ -398,6 +408,8 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, o Options) er
 		return core.Wrap(core.KindInvalid, "app.listen", err)
 	}
 
+	stopTracing := startTracing(sys.Spans, log)
+	defer stopTracing()
 	loopCtx, stopLoop := context.WithCancel(ctx)
 	defer stopLoop()
 	var wg sync.WaitGroup

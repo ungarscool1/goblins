@@ -56,7 +56,9 @@ const (
 	// CapReviewWorkspace asks the orchestrator for a pinned checkout and diff.
 	CapReviewWorkspace Capability = "review.workspace"
 
-	CapRuntimeVolumes        Capability = "runtime.volumes"
+	CapRuntimeVolumes Capability = "runtime.volumes"
+	// CapRuntimeVolumeList lists volumes by label, so those of finished tasks can be found.
+	CapRuntimeVolumeList     Capability = "runtime.volumes.list"
 	CapRuntimeNetworkNone    Capability = "runtime.network.none"
 	CapRuntimeNetworkEgress  Capability = "runtime.network.egress"
 	CapRuntimeResourceLimits Capability = "runtime.resources.limits"
