@@ -4,6 +4,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ include "goblins.name" . }}
+  namespace: {{ .Release.Namespace }}
   labels: {{- include "goblins.labels" . | nindent 4 }}
 ---
 # The workloads' identity. Nothing is bound to it and its token is never mounted.
