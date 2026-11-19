@@ -190,7 +190,8 @@ func (r *Runtime) stream(ctx context.Context, name string, follow bool, which st
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Accept", "text/plain")
+	// The log endpoint answers plain text, but refuses a request that asks for it by name.
+	req.Header.Set("Accept", "*/*")
 	resp, err := r.c.stream.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
