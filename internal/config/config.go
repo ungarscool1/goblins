@@ -37,8 +37,8 @@ type Config struct {
 	Installation  Installation `yaml:"installation"`
 	Server        Server       `yaml:"server"`
 	Log           Log          `yaml:"log"`
-	Storage       Storage      `yaml:"storage"`
 	Tracing       Tracing      `yaml:"tracing,omitempty"`
+	Storage       Storage      `yaml:"storage"`
 	Scheduler     Scheduler    `yaml:"scheduler,omitempty"`
 	Trackers      ProviderSet  `yaml:"trackers,omitempty"`
 	SCMs          ProviderSet  `yaml:"scms,omitempty"`
@@ -295,11 +295,11 @@ func (c *Config) applyEnv(env func(string) (string, bool)) error {
 	set("GOBLINS_DATA_DIR", &c.Installation.DataDir)
 	set("GOBLINS_LISTEN", &c.Server.Listen)
 	set("GOBLINS_METRICS_LISTEN", &c.Server.MetricsListen)
-	set("GOBLINS_OTLP_ENDPOINT", &c.Tracing.OTLPEndpoint)
 	set("GOBLINS_LOG_LEVEL", &c.Log.Level)
 	set("GOBLINS_LOG_FORMAT", &c.Log.Format)
 	set("GOBLINS_STORAGE_DRIVER", &c.Storage.Driver)
 	set("GOBLINS_STORAGE_PATH", &c.Storage.Path)
+	set("GOBLINS_OTLP_ENDPOINT", &c.Tracing.OTLPEndpoint)
 	if v, ok := env("GOBLINS_SHUTDOWN_TIMEOUT"); ok {
 		d, err := time.ParseDuration(v)
 		if err != nil {
@@ -343,6 +343,9 @@ func (c *Config) Validate(known TypeChecker) error {
 			add("server.metrics_listen: must differ from server.listen")
 		}
 	}
+	if c.Server.ShutdownTimeout <= 0 {
+		add("server.shutdown_timeout: must be positive")
+	}
 	if e := c.Tracing.OTLPEndpoint; e != "" {
 		if _, err := observability.TracesURL(e); err != nil {
 			add("tracing.otlp_endpoint: %v", err)
@@ -353,9 +356,6 @@ func (c *Config) Validate(known TypeChecker) error {
 	}
 	if c.Tracing.Interval < 0 {
 		add("tracing.interval: cannot be negative")
-	}
-	if c.Server.ShutdownTimeout <= 0 {
-		add("server.shutdown_timeout: must be positive")
 	}
 	if _, err := observability.NewLogger(io.Discard, observability.LogOptions{Level: c.Log.Level, Format: c.Log.Format}); err != nil {
 		add("log: %v", err)

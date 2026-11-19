@@ -13,12 +13,12 @@ startup errors, and all problems are reported at once.
 | `GOBLINS_DATA_DIR`          | `installation.data_dir`    |
 | `GOBLINS_LISTEN`            | `server.listen`            |
 | `GOBLINS_METRICS_LISTEN`    | `server.metrics_listen`    |
-| `GOBLINS_OTLP_ENDPOINT`     | `tracing.otlp_endpoint`    |
 | `GOBLINS_SHUTDOWN_TIMEOUT`  | `server.shutdown_timeout`  |
 | `GOBLINS_LOG_LEVEL`         | `log.level`                |
 | `GOBLINS_LOG_FORMAT`        | `log.format`               |
 | `GOBLINS_STORAGE_DRIVER`    | `storage.driver`           |
 | `GOBLINS_STORAGE_PATH`      | `storage.path`             |
+| `GOBLINS_OTLP_ENDPOINT`     | `tracing.otlp_endpoint`    |
 
 ## Secrets
 

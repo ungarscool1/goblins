@@ -93,7 +93,7 @@ type service struct {
 	data string
 	cmd  *exec.Cmd
 	logs *strings.Builder
-	// extra is added to the service's environment.
+	// extra is more environment, such as the console's address.
 	extra []string
 }
 
