@@ -42,7 +42,7 @@ func Terms(text string) []string {
 	counts := map[string]int{}
 	var order []string
 	for _, w := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
-		return !(r < unicode.MaxASCII && (unicode.IsLetter(r) || unicode.IsDigit(r)))
+		return r >= unicode.MaxASCII || (!unicode.IsLetter(r) && !unicode.IsDigit(r))
 	}) {
 		if len(w) < 3 || len(w) > 40 || stopwords[w] {
 			continue
