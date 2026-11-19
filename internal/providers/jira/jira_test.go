@@ -68,29 +68,29 @@ func TestTrackerContract(t *testing.T) {
 		for _, write := range []bool{true, false} {
 			name := map[bool]string{true: "cloud", false: "data center"}[cloud] +
 				map[bool]string{true: ", writing", false: ", read-only"}[write]
-			t.Run(name, func(t *testing.T) {
-				contract.IssueTracker(t, func(t *testing.T) contract.TrackerHarness {
-					s := newSite(t, cloud)
-					s.srv.PageSize = 1 // every listing goes through paging
-					return contract.TrackerHarness{Tracker: s.tracker(t, write), Container: "OPS",
-						Seed: func(t *testing.T, title, body string) core.IssueRef {
-							i := s.srv.AddIssue("OPS", title, body, person(cloud, "reporter"))
-							return core.IssueRef{Container: "OPS", ExternalID: i.Key}
-						},
-						SeedComment: func(t *testing.T, ref core.IssueRef, login,
-							body string) core.Comment {
-							c := s.srv.AddComment(ref.ExternalID, person(cloud, login), body)
-							return core.Comment{ID: c.ID}
-						},
-						Grant: func(t *testing.T, login string, p core.Permission) {
-							perms := map[core.Permission][]string{
-								core.PermissionWrite: {"EDIT_ISSUES"},
-								core.PermissionAdmin: {"ADMINISTER_PROJECTS"}}[p]
-							s.srv.Grant(login, append(perms, "BROWSE_PROJECTS")...)
-						}}
-				})
-			})
+			t.Run(name, func(t *testing.T) { contract.IssueTracker(t, harness(cloud, write)) })
 		}
+	}
+}
+
+func harness(cloud, write bool) func(t *testing.T) contract.TrackerHarness {
+	return func(t *testing.T) contract.TrackerHarness {
+		s := newSite(t, cloud)
+		s.srv.PageSize = 1 // every listing goes through paging
+		seed := func(t *testing.T, title, body string) core.IssueRef {
+			i := s.srv.AddIssue("OPS", title, body, person(cloud, "reporter"))
+			return core.IssueRef{Container: "OPS", ExternalID: i.Key}
+		}
+		comment := func(t *testing.T, ref core.IssueRef, login, body string) core.Comment {
+			return core.Comment{ID: s.srv.AddComment(ref.ExternalID, person(cloud, login), body).ID}
+		}
+		grant := func(t *testing.T, login string, p core.Permission) {
+			perms := map[core.Permission][]string{core.PermissionWrite: {"EDIT_ISSUES"},
+				core.PermissionAdmin: {"ADMINISTER_PROJECTS"}}[p]
+			s.srv.Grant(login, append(perms, "BROWSE_PROJECTS")...)
+		}
+		return contract.TrackerHarness{Tracker: s.tracker(t, write), Container: "OPS", Seed: seed,
+			SeedComment: comment, Grant: grant}
 	}
 }
 
