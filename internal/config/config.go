@@ -48,6 +48,7 @@ type Config struct {
 	Reviews       ProviderSet  `yaml:"reviews,omitempty"`
 	Validations   ProviderSet  `yaml:"validations,omitempty"`
 	Notifications ProviderSet  `yaml:"notifications,omitempty"`
+	Environments  ProviderSet  `yaml:"environments,omitempty"`
 	Projects      []Project    `yaml:"projects,omitempty"`
 }
 
@@ -113,6 +114,7 @@ type Project struct {
 	Validation   string          `yaml:"validation,omitempty"`
 	Review       string          `yaml:"review,omitempty"`
 	Notification string          `yaml:"notification,omitempty"`
+	Environment  Environment     `yaml:"environment,omitempty"`
 	Stages       Stages          `yaml:"stages"`
 	Policy       Policy          `yaml:"policy,omitempty"`
 	Workspace    WorkspaceConfig `yaml:"workspace,omitempty"`
@@ -451,6 +453,7 @@ func (c *Config) Validate(known TypeChecker) error {
 		for j, es := range p.EventSource {
 			ref(fmt.Sprintf("event_sources[%d]", j), es, c.EventSources, true)
 		}
+		p.Environment.validate(path, p, c.Environments, add)
 		ref("stages.planner.agent", p.Stages.Planner.Agent, c.Agents, true)
 		ref("stages.planner.runtime", p.Stages.Planner.Runtime, c.Runtimes, true)
 		ref("stages.implementer.agent", p.Stages.Implementer.Agent, c.Agents, true)
@@ -492,6 +495,7 @@ func (c *Config) sets() []namedSet {
 		{"reviews", providers.KindReview, c.Reviews},
 		{"validations", providers.KindValidation, c.Validations},
 		{"notifications", providers.KindNotification, c.Notifications},
+		{"environments", providers.KindEnvironment, c.Environments},
 	}
 }
 

@@ -34,6 +34,7 @@ import (
 	"github.com/ungarscool1/goblins/internal/providers/claude"
 	"github.com/ungarscool1/goblins/internal/providers/codex"
 	"github.com/ungarscool1/goblins/internal/providers/command"
+	"github.com/ungarscool1/goblins/internal/providers/environment"
 	"github.com/ungarscool1/goblins/internal/providers/fake"
 	gh "github.com/ungarscool1/goblins/internal/providers/github"
 	"github.com/ungarscool1/goblins/internal/providers/github/fakegithub"
@@ -173,6 +174,7 @@ func (e *env) registry() *providers.Registry {
 	claude.Register(r)
 	codex.Register(r)
 	command.Register(r)
+	environment.Register(r)
 	r.Register(providers.KindRuntime, "test-process", func(string, providers.Deps, providers.Options) (any, error) { return e.rt, nil })
 	return r
 }

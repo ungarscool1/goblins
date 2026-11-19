@@ -13,9 +13,9 @@ import (
 
 var envName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
-// testSecrets reads the operator's test secrets: a list of names, each with the environment
+// ParseTestSecrets reads the operator's test secrets: a list of names, each with the environment
 // variable holding its value. Values never appear in the configuration.
-func testSecrets(deps providers.Deps, opts providers.Options) (map[string]core.Secret, error) {
+func ParseTestSecrets(deps providers.Deps, opts providers.Options) (map[string]core.Secret, error) {
 	raw, _ := opts["test_secrets"].([]any)
 	out := map[string]core.Secret{}
 	for i, item := range raw {
@@ -85,9 +85,9 @@ func (c Check) testSecrets(all map[string]core.Secret) map[string]core.Secret {
 	return out
 }
 
-// scrub removes test secret values from a check's output, which goes to the ticket and back
+// Scrub removes test secret values from a check's output, which goes to the ticket and back
 // to the implementer. Longest first, so a value inside another is not left half.
-func scrub(output string, secrets map[string]core.Secret) string {
+func Scrub(output string, secrets map[string]core.Secret) string {
 	var values []string
 	for _, s := range secrets {
 		if v := s.Reveal(); len(v) >= 4 {

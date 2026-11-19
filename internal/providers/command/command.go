@@ -115,7 +115,7 @@ func Register(r *providers.Registry) {
 		o.ManifestNetwork = opts.Bool("manifest_network", false)
 		o.ManifestKVM = opts.Bool("manifest_kvm", false)
 		o.ManifestSecrets = opts.Bool("manifest_secrets", false)
-		ts, err := testSecrets(deps, opts)
+		ts, err := ParseTestSecrets(deps, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -218,7 +218,7 @@ func (p *Provider) runCheck(ctx context.Context, req core.ValidationRequest, c C
 	if err != nil {
 		return check, err
 	}
-	output := scrub(res.Stdout+res.Stderr, spec.TestSecrets)
+	output := Scrub(res.Stdout+res.Stderr, spec.TestSecrets)
 	if len(output) > maxOutput {
 		output = "[... truncated ...]\n" + output[len(output)-maxOutput:]
 	}

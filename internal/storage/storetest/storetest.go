@@ -486,6 +486,8 @@ func Run(t *testing.T, build func(t *testing.T) core.StateStore) {
 		}
 	})
 
+	t.Run("leases", func(t *testing.T) { Leases(t, build) })
+
 	t.Run("cursors and transcript", func(t *testing.T) {
 		s := build(t)
 		if v, err := s.GetCursor(ctx, "c"); err != nil || v != "" {

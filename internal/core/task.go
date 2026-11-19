@@ -326,6 +326,8 @@ type StateStore interface {
 	GetCursor(ctx context.Context, name string) (string, error)
 	SetCursor(ctx context.Context, name, value string) error
 
+	LeaseStore
+
 	Ping(ctx context.Context) error
 	Close() error
 }

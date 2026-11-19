@@ -184,6 +184,13 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 				return nil, err
 			}
 		}
+		if pc.Environment.Name != "" {
+			if pr.Environment, err = build[core.EnvironmentProvider](b, providers.KindEnvironment,
+				cfg.Environments, pc.Environment.Name); err != nil {
+				return nil, err
+			}
+			pr.EnvironmentLease = pc.Environment.Lease
+		}
 		if pc.Review != "" {
 			if pr.Review, err = build[core.ReviewProvider](b, providers.KindReview, cfg.Reviews, pc.Review); err != nil {
 				return nil, err
@@ -232,7 +239,8 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 	}
 
 	sys.Inbox = scheduler.NewInbox(store, log, routes)
-	pipe := &pipeline.Pipeline{Installation: cfg.Installation.Name, Projects: sys.Projects, Designs: store, Log: log}
+	pipe := &pipeline.Pipeline{Installation: cfg.Installation.Name, Projects: sys.Projects, Designs: store, Log: log,
+		Environments: store}
 	hostname, _ := os.Hostname()
 	owner := cfg.Installation.Name + "/" + hostname + "/" + strconv.Itoa(os.Getpid())
 	engine := &workflow.Engine{Store: store, Owner: owner, Log: log, Now: now, Auth: authorizer{projects: sys.Projects},

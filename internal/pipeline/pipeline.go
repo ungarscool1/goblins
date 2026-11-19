@@ -56,7 +56,10 @@ type Project struct {
 	// implementer does.
 	Triager    Stage
 	Validation core.ValidationProvider
-	Review     core.ReviewProvider
+	// Environment is where a commit that passed its checks is deployed and verified.
+	Environment      core.EnvironmentProvider
+	EnvironmentLease time.Duration
+	Review           core.ReviewProvider
 	// ReviewFallbacks are tried in order when the reviewer before them is unavailable.
 	ReviewFallbacks []core.ReviewProvider
 	Notification    core.NotificationProvider
@@ -89,7 +92,8 @@ type Pipeline struct {
 	Designs      interface {
 		GetDesign(ctx context.Context, taskID string, revision int) (core.Design, error)
 	}
-	Log *slog.Logger
+	Environments EnvironmentStore
+	Log          *slog.Logger
 }
 
 // Handlers returns the handler per job kind.
@@ -460,6 +464,9 @@ func (p *Pipeline) validate(ctx context.Context, jc scheduler.JobContext) (any, 
 	if err != nil {
 		return nil, err
 	}
+	if report, err = p.withEnvironment(ctx, jc, pr, payload.SHA, scratch, report); err != nil {
+		return nil, err
+	}
 	report.Summary += trusted.note()
 	for _, c := range report.Checks {
 		jc.Log("validation", fmt.Sprintf("%s: %s (exit %d)\n%s", c.Name, c.Status, c.ExitCode, c.Output))
@@ -583,6 +590,7 @@ func (p *Pipeline) cleanup(ctx context.Context, jc scheduler.JobContext) (any, e
 			errs = append(errs, err)
 		}
 	}
+	errs = append(errs, p.releaseEnvironments(ctx, jc, pr))
 	if err := errors.Join(errs...); err != nil {
 		return nil, core.Wrap(core.KindTransient, "pipeline.cleanup", err)
 	}
