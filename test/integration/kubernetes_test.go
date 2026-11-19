@@ -157,8 +157,8 @@ func TestKubernetesEgressProxy(t *testing.T) {
 	_ = rt
 	host := strings.TrimSuffix(strings.TrimPrefix(proxy, "http://"), ":3128")
 	tunnel := func(target string) string {
-		return `(printf 'CONNECT ` + target + ` HTTP/1.1\r\nHost: ` + target + `\r\n\r\n'; sleep 4) | ` +
-			`nc -w 6 ` + host + ` 3128 | head -1`
+		req := `CONNECT ` + target + ` HTTP/1.1\r\nHost: ` + target + `\r\n\r\n`
+		return `(printf '` + req + `'; sleep 4) | nc -w 6 ` + host + ` 3128 | head -1`
 	}
 	script := "sleep 5\nenv | grep -c '^HTTPS_PROXY=http://'\n" +
 		"wget -q -T 5 -O /dev/null http://1.1.1.1 && echo DIRECT-OPEN\n" +
