@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"context"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -14,12 +15,22 @@ import (
 
 func secretName(workload string) string { return objectName(workload) + "-env" }
 
+// allSecrets are a workload's secrets and test secrets, which reach it the same way.
+func allSecrets(spec core.WorkloadSpec) map[string]core.Secret {
+	out := maps.Clone(spec.Secrets)
+	if out == nil {
+		out = map[string]core.Secret{}
+	}
+	maps.Copy(out, spec.TestSecrets)
+	return out
+}
+
 // createSecret stores a workload's secrets in a Secret of its own, which the pod refers to by
 // key. Values are never part of the pod, where anyone allowed to read pods would see them.
 func (r *Runtime) createSecret(ctx context.Context, spec core.WorkloadSpec,
 	labels map[string]string) error {
 	data := map[string]string{}
-	for k, v := range spec.Secrets {
+	for k, v := range allSecrets(spec) {
 		data[k] = v.Reveal()
 	}
 	s := map[string]any{"apiVersion": "v1", "kind": "Secret", "type": "Opaque",

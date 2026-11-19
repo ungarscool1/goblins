@@ -128,7 +128,7 @@ func Register(reg *providers.Registry) {
 // Info implements core.Provider. Privileged mode, GPUs and KVM are deliberately
 // not offered, so workloads asking for them are refused.
 func (r *Runtime) Info() core.ProviderInfo {
-	caps := []core.Capability{core.CapRuntimeVolumes, core.CapRuntimeVolumeList, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress, core.CapRuntimeResourceLimits, core.CapRuntimeReadOnlyRoot}
+	caps := []core.Capability{core.CapRuntimeVolumes, core.CapRuntimeVolumeList, core.CapRuntimeServices, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress, core.CapRuntimeResourceLimits, core.CapRuntimeReadOnlyRoot}
 	if r.opts.DiskLimits {
 		caps = append(caps, core.CapRuntimeDiskLimits)
 	}
@@ -266,6 +266,9 @@ func (r *Runtime) buildCreate(spec core.WorkloadSpec, deadline time.Time) (conta
 	case core.NetworkEgress:
 		hc.NetworkMode = r.egressNetwork()
 	}
+	if len(spec.Services) > 0 {
+		hc.NetworkMode = servicesNetwork(spec.Name)
+	}
 	if spec.Resources.DiskBytes > 0 {
 		hc.StorageOpt = map[string]string{"size": strconv.FormatInt(spec.Resources.DiskBytes, 10)}
 	}
@@ -283,6 +286,9 @@ func (r *Runtime) buildCreate(spec core.WorkloadSpec, deadline time.Time) (conta
 	env = append(env, r.proxyEnv(spec.Network)...)
 	for _, k := range slices.Sorted(maps.Keys(spec.Secrets)) {
 		env = append(env, k+"="+spec.Secrets[k].Reveal())
+	}
+	for _, k := range slices.Sorted(maps.Keys(spec.TestSecrets)) {
+		env = append(env, k+"="+spec.TestSecrets[k].Reveal())
 	}
 	return containerCreate{
 		Image: spec.Image, Cmd: spec.Command, Entrypoint: []string{}, Env: env, WorkingDir: spec.WorkDir, User: r.opts.User, Labels: labels, HostConfig: hc,
@@ -306,6 +312,9 @@ func (r *Runtime) Create(ctx context.Context, spec core.WorkloadSpec) (core.Work
 		if err := r.ensureEgress(ctx); err != nil {
 			return core.WorkloadStatus{}, err
 		}
+	}
+	if err := r.startServices(ctx, spec); err != nil {
+		return core.WorkloadStatus{}, err
 	}
 	path := "/containers/create?name=" + url.QueryEscape(spec.Name)
 	_, err = r.call(ctx, http.MethodPost, path, body, nil)
@@ -542,6 +551,7 @@ func (r *Runtime) Cleanup(ctx context.Context, name string) error {
 		r.mu.Lock()
 		delete(r.cancel, name)
 		r.mu.Unlock()
+		err = r.removeServices(ctx, name)
 	}
 	return err
 }

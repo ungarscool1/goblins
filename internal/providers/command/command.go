@@ -42,6 +42,18 @@ type Check struct {
 	KVM bool `yaml:"kvm"`
 	// Artifacts are files the check leaves in the repository, shown after its output.
 	Artifacts []string `yaml:"artifacts"`
+	// Services run next to the check, on a network only they share, reachable by name.
+	Services []Service `yaml:"services"`
+	// Secrets names test secrets the operator configured, which the check gets as environment.
+	Secrets []string `yaml:"secrets"`
+}
+
+// Service is a container a check needs, such as a database.
+type Service struct {
+	Name    string            `yaml:"name"`
+	Image   string            `yaml:"image"`
+	Command []string          `yaml:"command"`
+	Env     map[string]string `yaml:"env"`
 }
 
 // Options configures a provider.
@@ -54,6 +66,11 @@ type Options struct {
 	// ManifestNetwork and ManifestKVM let a repository's manifest ask for these.
 	ManifestNetwork bool
 	ManifestKVM     bool
+	// TestSecrets are credentials for test systems, given only to checks naming them. They
+	// must never grant anything in production: the code under test is assumed to read them.
+	TestSecrets map[string]core.Secret
+	// ManifestSecrets lets a repository's manifest name test secrets.
+	ManifestSecrets bool
 }
 
 // Provider implements core.ValidationProvider.
@@ -75,7 +92,7 @@ func New(name string, o Options) *Provider {
 
 // Register adds the provider to a registry.
 func Register(r *providers.Registry) {
-	r.Register(providers.KindValidation, typeName, func(name string, _ providers.Deps, opts providers.Options) (any, error) {
+	r.Register(providers.KindValidation, typeName, func(name string, deps providers.Deps, opts providers.Options) (any, error) {
 		o := Options{Image: opts.String("image"), WritableRoot: opts.Bool("writable_root", false)}
 		if o.Image == "" {
 			return nil, core.Errorf(core.KindInvalid, "command.config", "image is required")
@@ -97,6 +114,12 @@ func Register(r *providers.Registry) {
 		}
 		o.ManifestNetwork = opts.Bool("manifest_network", false)
 		o.ManifestKVM = opts.Bool("manifest_kvm", false)
+		o.ManifestSecrets = opts.Bool("manifest_secrets", false)
+		ts, err := testSecrets(deps, opts)
+		if err != nil {
+			return nil, err
+		}
+		o.TestSecrets = ts
 		raw, err := yaml.Marshal(opts["checks"])
 		if err != nil {
 			return nil, core.Errorf(core.KindInvalid, "command.config", "unreadable checks")
@@ -107,6 +130,9 @@ func Register(r *providers.Registry) {
 		}
 		for _, c := range o.Checks {
 			if err := c.valid(); err != nil {
+				return nil, core.Errorf(core.KindInvalid, "command.config", "%s", err)
+			}
+			if err := c.knownSecrets(o.TestSecrets); err != nil {
 				return nil, core.Errorf(core.KindInvalid, "command.config", "%s", err)
 			}
 		}
@@ -186,12 +212,13 @@ func (p *Provider) runCheck(ctx context.Context, req core.ValidationRequest, c C
 		WorkDir: req.WorkDir, Mounts: []core.Mount{req.Workspace}, Network: network,
 		Labels: req.Labels, Timeout: c.timeout(p.opts.Timeout), Env: env,
 		Security: core.SecurityProfile{ReadOnlyRoot: !p.opts.WritableRoot, KVM: c.KVM},
+		Services: c.services(), TestSecrets: c.testSecrets(p.opts.TestSecrets),
 	}
 	res, err := rt.RunToCompletion(ctx, req.Runtime, spec)
 	if err != nil {
 		return check, err
 	}
-	output := res.Stdout + res.Stderr
+	output := scrub(res.Stdout+res.Stderr, spec.TestSecrets)
 	if len(output) > maxOutput {
 		output = "[... truncated ...]\n" + output[len(output)-maxOutput:]
 	}
