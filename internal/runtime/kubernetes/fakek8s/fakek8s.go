@@ -378,6 +378,12 @@ func (s *Server) delete(w http.ResponseWriter, kind, name string) {
 }
 
 func (s *Server) serveLog(w http.ResponseWriter, r *http.Request, name string) {
+	// As a real API server does, which only negotiates its own media types.
+	if a := r.Header.Get("Accept"); a != "" && a != "*/*" && !strings.Contains(a, "json") {
+		status(w, http.StatusNotAcceptable, "only the following media types are accepted: "+
+			"application/json, application/yaml, application/vnd.kubernetes.protobuf")
+		return
+	}
 	s.mu.Lock()
 	l, ok := s.logs[name]
 	p := s.objects["pods"][name]
