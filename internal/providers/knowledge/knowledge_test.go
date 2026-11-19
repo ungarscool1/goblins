@@ -97,12 +97,14 @@ func TestConfluenceReadsOnlyItsSpaces(t *testing.T) {
 	var cql string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cql = r.URL.Query().Get("cql")
-		_ = json.NewEncoder(w).Encode(map[string]any{"_links": map[string]any{"base": "https://c.test/wiki"},
+		links := map[string]any{"base": "https://c.test/wiki"}
+		_ = json.NewEncoder(w).Encode(map[string]any{"_links": links,
 			"results": []any{
 				map[string]any{"id": "1", "title": "Queues", "space": map[string]any{"key": "ENG"},
 					"version": map[string]any{"number": 7, "when": "2026-10-01T00:00:00Z"},
-					"body":    map[string]any{"storage": map[string]any{"value": "<p>One <b>queue</b> per tenant &amp; more</p>"}},
-					"_links":  map[string]any{"webui": "/spaces/ENG/pages/1"}},
+					"body": map[string]any{"storage": map[string]any{
+						"value": "<p>One <b>queue</b> per tenant &amp; more</p>"}},
+					"_links": map[string]any{"webui": "/spaces/ENG/pages/1"}},
 				map[string]any{"id": "2", "title": "Payroll",
 					"space": map[string]any{"key": "HR"}}}})
 	}))
