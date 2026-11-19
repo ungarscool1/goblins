@@ -115,22 +115,10 @@ type Project struct {
 	Stages       Stages          `yaml:"stages"`
 	Policy       Policy          `yaml:"policy,omitempty"`
 	Workspace    WorkspaceConfig `yaml:"workspace,omitempty"`
-	// Communication lays out what Goblins writes for people. It never changes what is approved.
+	// Communication lays out designs for people. It never changes what is approved.
 	Communication Communication `yaml:"communication,omitempty"`
 	// PollInterval enables reconciliation polling on the project's event sources.
 	PollInterval time.Duration `yaml:"poll_interval,omitempty"`
-}
-
-// Communication presets. Compact, the default, shows a short summary first and keeps the
-// full design one click away; verbose shows every design section expanded.
-const (
-	VerbosityCompact = "compact"
-	VerbosityVerbose = "verbose"
-)
-
-// Communication is how a project's comments are laid out.
-type Communication struct {
-	Verbosity string `yaml:"verbosity,omitempty"`
 }
 
 // Policy overrides workflow rules. Unset fields keep safe defaults.
@@ -450,11 +438,7 @@ func (c *Config) Validate(known TypeChecker) error {
 		if p.Policy.MaxLimitPauses < 0 || p.Policy.MaxChangedFiles < 0 {
 			add("%s.policy: max_limit_pauses and max_changed_files cannot be negative", path)
 		}
-		switch p.Communication.Verbosity {
-		case "", VerbosityCompact, VerbosityVerbose:
-		default:
-			add("%s.communication.verbosity: must be compact or verbose", path)
-		}
+		p.Communication.validate(path, add)
 		if s := p.Policy.CommitStyle; s != "" && s != "conventional" && s != "plain" {
 			add("%s.policy.commit_style: must be conventional or plain", path)
 		}
