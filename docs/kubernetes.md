@@ -58,6 +58,12 @@ runtimes:
 Privileged pods are never offered. Pod IDs per pod cannot be limited through the API: set
 `podPidsLimit` on the kubelet.
 
+### Limiting egress to listed hosts
+
+With `egressProxy.enabled` in the chart, the runtime gets `egress_proxy`, and the egress policy
+allows DNS and the proxy's pods only. The proxy opens HTTPS tunnels to `egressProxy.allow`, and
+checks resolved addresses itself, as on Docker ([ADR 0008](adr/0008-runner-and-sandbox.md)).
+
 ### Workspaces and restarts
 
 Durable volumes are PersistentVolumeClaims, created when first used, so a workspace survives a pod

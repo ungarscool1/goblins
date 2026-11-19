@@ -79,7 +79,7 @@ func TestPodsAreConfined(t *testing.T) {
 		Secrets:  map[string]core.Secret{"CLAUDE_CODE_OAUTH_TOKEN": core.NewSecret("oauth-secret")},
 		Mounts:   []core.Mount{{Volume: "goblins-personal-t1-impl", Target: "/workspace"}},
 		Labels:   map[string]string{"goblins.task": "t1", "goblins.design": "rev 2/hash"},
-		Security: core.SecurityProfile{ReadOnlyRoot: true}}
+		Security: core.SecurityProfile{ReadOnlyRoot: true}, Trust: core.TrustCredentialed}
 	if _, err := rt.Create(context.Background(), spec); err != nil {
 		t.Fatalf("%v (refused: %v)", err, srv.Refused)
 	}

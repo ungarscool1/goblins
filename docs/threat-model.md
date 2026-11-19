@@ -41,6 +41,10 @@ GitHub, Anthropic or Docker being compromised.
 | Tampering between validation and push | The pushed commit must equal the validated hash              | Go code, Git |
 | Container escape to the host          | Non-root, no capabilities, no new privileges, no host mounts, resource limits | Docker |
 | Docker socket in a worker             | Only named volumes can be expressed                          | Go code     |
+| A sandbox gets a secret or a login    | Trust is part of every workload: sandboxes with secrets or login volumes are refused by every runtime ([ADR 0008](adr/0008-runner-and-sandbox.md)) | Go code |
+| Agent sends the workspace anywhere    | With `egress_proxy`: an internal network, and tunnels to listed hosts only, checked after resolving | Docker or Kubernetes network, proxy |
+| Hooks or filters planted in the workspace | Never run where a token is: publishing reads a bundle into a fresh repository, hooks are off everywhere | Workflow of workloads, Git |
+| Unattended re-login, security keys    | Never attempted: an expired login pauses the task for a person, and MFA is never bypassed | Go code |
 | Cluster API from a worker pod         | No service account token, no service links, network policies deny the cluster's addresses | Go code, Kubernetes |
 | Secret values readable in pod specs   | Secrets are Secret objects referenced by key, owned by the pod | Go code, Kubernetes |
 | Forged or replayed webhook            | HMAC checked first, repository allow-list, idempotent event identity | Go code |
@@ -66,10 +70,12 @@ These are real and accepted for P0. Read them before pointing Goblins at anythin
 
 1. **The login is in the same container as the agent process.** The boundary around it is the CLI's
    restricted mode, which is enforced by the CLI, not the kernel. A bug there, or in the agent, could
-   expose it. Moving it to a credential gateway is #16.
-2. **Agents have unfiltered egress.** A prompt-injected agent could send out what it can read: the
-   workspace. Do not run an agent that reads untrusted tickets on a private repository whose contents
-   must stay secret. Per-destination egress control is #16.
+   expose it. A credential gateway does not work with today's subscription CLIs: see
+   [ADR 0008](adr/0008-runner-and-sandbox.md). What is enforced is that no other workload can get it.
+2. **Agents reach the internet, unless the egress proxy is on.** Without it, a prompt-injected agent
+   could send what it can read, the workspace, anywhere. With `egress_proxy`, it reaches the listed
+   hosts only, enforced by the network; the agent's own provider is still one of them. Do not run an
+   agent that reads untrusted tickets on a private repository whose contents must stay secret.
 3. **Workspace contents can reach the pull request.** An injected agent could write anything into the
    code. That is why every change is a draft for a person to review, and why nothing merges.
 4. **Prompt injection is reduced, not solved.** Delimiters and system prompts help; the hard boundaries
@@ -84,5 +90,7 @@ These are real and accepted for P0. Read them before pointing Goblins at anythin
 8. **Named volumes have no size limit.** A hostile repository could fill the disk.
 9. **A compromised orchestrator controls its Docker engine.** The proxy filters API paths, not what
    a created container asks for, so it could start a privileged container or mount host paths. Run
-   on a dedicated, disposable host or VM, and do not share the engine with anything important.
-   A policy-enforcing boundary is #16.
+   on a dedicated, disposable host or VM, and do not share the engine with anything important. On
+   Kubernetes, the orchestrator's role is confined to the workloads namespace, and the namespace's
+   `restricted` Pod Security admission refuses privileged pods whoever asks
+   ([kubernetes.md](kubernetes.md)).

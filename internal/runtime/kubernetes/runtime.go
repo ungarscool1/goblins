@@ -8,10 +8,12 @@ import (
 	"path"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ungarscool1/goblins/internal/core"
+	rt "github.com/ungarscool1/goblins/internal/runtime"
 )
 
 const (
@@ -51,6 +53,9 @@ type Options struct {
 	// PodLogsQuerySplitStreams feature. Without it, both writers get the merged log.
 	SplitStreams bool
 	Defaults     core.Resources
+	// EgressProxy, when set, is the only way out for egress pods: their policy allows DNS and
+	// the proxy's pods, and nothing else.
+	EgressProxy string
 }
 
 // Runtime implements core.ExecutionRuntime on Kubernetes.
@@ -76,6 +81,11 @@ func New(name string, o Options) (*Runtime, error) {
 	}
 	if o.UID < 0 {
 		return nil, core.Errorf(core.KindInvalid, "kubernetes.config", "workers cannot run as root")
+	}
+	if o.EgressProxy != "" {
+		if _, err := proxyPort(o.EgressProxy); err != nil {
+			return nil, err
+		}
 	}
 	if len(o.EgressExcept) == 0 {
 		o.EgressExcept = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
@@ -290,6 +300,12 @@ func (r *Runtime) buildPod(spec core.WorkloadSpec) (pod, error) {
 			ReadOnlyRoot: spec.Security.ReadOnlyRoot, Capabilities: dropAll}}
 	for _, k := range sortedKeys(spec.Env) {
 		c.Env = append(c.Env, envVar{Name: k, Value: spec.Env[k]})
+	}
+	if spec.Network == core.NetworkEgress {
+		for _, kv := range rt.ProxyEnv(r.o.EgressProxy) {
+			k, v, _ := strings.Cut(kv, "=")
+			c.Env = append(c.Env, envVar{Name: k, Value: v})
+		}
 	}
 	for _, k := range slices.Sorted(maps.Keys(spec.Secrets)) {
 		c.Env = append(c.Env, envVar{Name: k, ValueFrom: &envSource{SecretKeyRef: &keyRef{

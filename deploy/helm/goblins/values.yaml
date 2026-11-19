@@ -24,6 +24,9 @@ config: |
         namespace: {{ include "goblins.workloadNamespace" . }}
         service_account: {{ .Values.workloads.serviceAccount }}
         network_policies: {{ .Values.workloads.networkPolicies }}
+        {{- if .Values.egressProxy.enabled }}
+        egress_proxy: http://goblins-egress-proxy.{{ include "goblins.workloadNamespace" . }}.svc:3128
+        {{- end }}
   projects: []
 
 # A Secret whose keys become environment variables of the control plane, such as
@@ -58,6 +61,13 @@ workloads:
   networkPolicies: true
   # Destinations egress workloads (agents) may not reach: the cluster and the metadata address.
   egressExcept: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10]
+
+# With it, agents and Git steps reach the internet only through this proxy, which opens HTTPS
+# tunnels to the listed hosts. Their network policy then allows DNS and the proxy, nothing else.
+egressProxy:
+  enabled: false
+  # A starting point: check the proxy's log for "egress denied" and adjust.
+  allow: [api.anthropic.com, claude.ai, console.anthropic.com, platform.claude.com, github.com]
 
 # One pod for an interactive subscription login into the agent's volume:
 #   kubectl -n <workloads namespace> attach -it goblins-agent-login

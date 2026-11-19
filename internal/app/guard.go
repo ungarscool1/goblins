@@ -1,0 +1,28 @@
+package app
+
+import (
+	"github.com/ungarscool1/goblins/internal/config"
+	"github.com/ungarscool1/goblins/internal/core"
+	"github.com/ungarscool1/goblins/internal/providers"
+	rt "github.com/ungarscool1/goblins/internal/runtime"
+)
+
+// guardedRuntime builds a runtime once, wrapped so that sandboxes can never mount a volume an
+// agent keeps its login in, and records the agent's login volumes. Every agent is built before
+// anything runs, so the list is complete from the first workload.
+func guardedRuntime(b *builder, cfg config.Config, name string,
+	agent core.AgentProvider) (core.ExecutionRuntime, error) {
+	if h, ok := agent.(core.CredentialHolder); ok {
+		b.creds.Add(h.CredentialVolumes()...)
+	}
+	if g, ok := b.guarded[name]; ok {
+		return g, nil
+	}
+	raw, err := build[core.ExecutionRuntime](b, providers.KindRuntime, cfg.Runtimes, name)
+	if err != nil {
+		return nil, err
+	}
+	g := rt.Guard(raw, &b.creds)
+	b.guarded[name] = g
+	return g, nil
+}

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -61,6 +62,12 @@ func (r *Runtime) policies() []map[string]any {
 				"matchLabels": map[string]string{"k8s-app": "kube-dns"}}}}}
 	internet := map[string]any{"to": []map[string]any{{"ipBlock": map[string]any{
 		"cidr": "0.0.0.0/0", "except": r.o.EgressExcept}}}}
+	if r.o.EgressProxy != "" {
+		port, _ := proxyPort(r.o.EgressProxy)
+		internet = map[string]any{"ports": []map[string]any{{"protocol": "TCP", "port": port}},
+			"to": []map[string]any{{"podSelector": map[string]any{"matchLabels": map[string]string{
+				"app.kubernetes.io/component": "egress-proxy"}}}}}
+	}
 	mk := func(name string, mode core.NetworkPolicy, egress []map[string]any) map[string]any {
 		return map[string]any{"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
 			"metadata": meta{Name: name, Labels: map[string]string{labelManaged: managedBy}},
@@ -69,6 +76,19 @@ func (r *Runtime) policies() []map[string]any {
 	}
 	return []map[string]any{mk(policyNone, core.NetworkNone, []map[string]any{}),
 		mk(policyEgress, core.NetworkEgress, []map[string]any{dns, internet})}
+}
+
+// proxyPort is the port of an egress proxy URL, which the egress policy opens.
+func proxyPort(proxy string) (int, error) {
+	u, err := url.Parse(proxy)
+	if err != nil || u.Scheme != "http" || u.Hostname() == "" {
+		return 0, core.Errorf(core.KindInvalid, "kubernetes.config",
+			"egress_proxy must be an http:// URL of the proxy")
+	}
+	if u.Port() == "" {
+		return 80, nil
+	}
+	return strconv.Atoi(u.Port())
 }
 
 // ensurePolicies checks the policies exist, once per process, and creates those missing. The

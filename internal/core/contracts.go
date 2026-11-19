@@ -189,6 +189,8 @@ type Mount struct {
 	Volume   string
 	Target   string
 	ReadOnly bool
+	// Credentials marks a volume holding a login. Only credentialed workloads may mount it.
+	Credentials bool
 }
 
 // NetworkPolicy restricts workload connectivity.
@@ -232,11 +234,16 @@ type WorkloadSpec struct {
 	Security  SecurityProfile
 	Timeout   time.Duration
 	Labels    map[string]string
+	// Trust says what the workload may hold. The zero value is a sandbox: see WorkloadTrust.
+	Trust WorkloadTrust
 }
 
 // CheckWorkloadSpec rejects a spec needing capabilities rt does not advertise. All
 // runtimes share it so they refuse the same way, before starting anything.
 func CheckWorkloadSpec(rt ExecutionRuntime, spec WorkloadSpec) error {
+	if err := checkTrust(spec); err != nil {
+		return err
+	}
 	var req []Capability
 	if spec.Security.Privileged {
 		req = append(req, CapRuntimePrivileged)
