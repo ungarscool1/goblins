@@ -16,7 +16,7 @@ import (
 )
 
 // DefaultTokenURL is Atlassian's OAuth 2.0 token endpoint.
-const DefaultTokenURL = "https://auth.atlassian.com/oauth/token"
+const DefaultTokenURL = "https://auth.atlassian.com/oauth/token" //nolint:gosec // a public URL
 
 // OAuth is Jira Cloud's OAuth 2.0 (3LO) for a person who authorized this installation's app.
 // Atlassian rotates refresh tokens: each refresh returns a new one and retires the old, so

@@ -193,7 +193,7 @@ func (c *Client) call(ctx context.Context, method, path string, in, out any) err
 		if ctx.Err() != nil {
 			return core.Wrap(core.KindCancelled, op, ctx.Err())
 		}
-		return core.Wrap(core.KindTransient, op, errors.New("Jira cannot be reached"))
+		return core.Wrap(core.KindTransient, op, errors.New("cannot reach Jira"))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse))
