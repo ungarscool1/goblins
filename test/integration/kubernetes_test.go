@@ -60,7 +60,8 @@ func runPod(t *testing.T, rt *kubernetes.Runtime, spec core.WorkloadSpec) (core.
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	spec.Name = "itest-" + spec.Name + "-" + strings.ReplaceAll(time.Now().Format("150405.000"), ".", "")
+	spec.Name = "itest-" + spec.Name + "-" + strings.ReplaceAll(time.Now().Format("150405.000"),
+		".", "")
 	spec.Image = podImage
 	t.Cleanup(func() { _ = rt.Cleanup(context.Background(), spec.Name) })
 	if _, err := rt.Create(ctx, spec); err != nil {
@@ -112,8 +113,12 @@ echo done`
 	st, egress := runPod(t, rt, core.WorkloadSpec{Name: "egress", Network: core.NetworkEgress,
 		Command: []string{"sh", "-c", "sleep 5\n" + probe}, Trust: core.TrustCredentialed,
 		Secrets: map[string]core.Secret{"STAGE_TOKEN": core.NewSecret("stg-real-123")}})
-	if st.Phase != core.WorkloadSucceeded || !strings.Contains(egress, "INTERNET-OPEN") ||
-		strings.Contains(egress, "CLUSTER-OPEN") || !strings.Contains(egress, "secret=stg-real-123") {
+	// Behind the chart's egress proxy, egress pods reach nothing directly, the internet included.
+	wantInternet := os.Getenv("GOBLINS_K8S_EGRESS_PROXY") == ""
+	if st.Phase != core.WorkloadSucceeded || strings.Contains(egress,
+		"INTERNET-OPEN") != wantInternet ||
+		strings.Contains(egress, "CLUSTER-OPEN") || !strings.Contains(egress,
+		"secret=stg-real-123") {
 		t.Fatalf("egress pod %+v:\n%s", st, egress)
 	}
 }
@@ -122,11 +127,49 @@ echo done`
 func TestKubernetesServices(t *testing.T) {
 	rt := cluster(t)
 	st, out := runPod(t, rt, core.WorkloadSpec{Name: "svc", Network: core.NetworkNone,
-		Command: []string{"sh", "-c", `for i in 1 2 3 4 5 6 7 8 9 10; do nc -w 2 db 8080 && break; ` +
-			`sleep 1; done; echo done`},
+		Command: []string{"sh", "-c",
+			`for i in 1 2 3 4 5 6 7 8 9 10; do nc -w 2 db 8080 && break; ` +
+				`sleep 1; done; echo done`},
 		Services: []core.Service{{Name: "db", Image: podImage, Command: []string{"sh", "-c",
 			"while true; do echo pong | nc -l -p 8080; done"}}}})
 	if st.Phase != core.WorkloadSucceeded || !strings.Contains(out, "pong") {
+		t.Fatalf("status %+v:\n%s", st, out)
+	}
+}
+
+// Behind the chart's egress proxy, an egress pod reaches listed hosts through it and nothing
+// directly. Needs GOBLINS_K8S_EGRESS_PROXY, with example.com allowed.
+func TestKubernetesEgressProxy(t *testing.T) {
+	proxy := os.Getenv("GOBLINS_K8S_EGRESS_PROXY")
+	if proxy == "" {
+		t.Skip("GOBLINS_K8S_EGRESS_PROXY not set")
+	}
+	rt := cluster(t)
+	viaProxy, err := kubernetes.New("k8s-proxy", kubernetes.Options{
+		Client: kubernetes.ClientOptions{URL: os.Getenv("GOBLINS_K8S_URL"),
+			TokenFile: os.Getenv("GOBLINS_K8S_TOKEN_FILE"),
+			CAFile:    os.Getenv("GOBLINS_K8S_CA_FILE")},
+		Namespace: os.Getenv("GOBLINS_K8S_NAMESPACE"), ServiceAccount: "goblins-workload",
+		NetworkPolicies: true, EgressProxy: proxy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = rt
+	host := strings.TrimSuffix(strings.TrimPrefix(proxy, "http://"), ":3128")
+	tunnel := func(target string) string {
+		return `(printf 'CONNECT ` + target + ` HTTP/1.1\r\nHost: ` + target + `\r\n\r\n'; sleep 4) | ` +
+			`nc -w 6 ` + host + ` 3128 | head -1`
+	}
+	script := "sleep 5\nenv | grep -c '^HTTPS_PROXY=http://'\n" +
+		"wget -q -T 5 -O /dev/null http://1.1.1.1 && echo DIRECT-OPEN\n" +
+		"echo allowed: $( " + tunnel("example.com:443") + ")\n" +
+		"echo denied: $( " + tunnel("github.com:443") + ")\necho done"
+	st, out := runPod(t, viaProxy, core.WorkloadSpec{Name: "proxied", Network: core.NetworkEgress,
+		Command: []string{"sh", "-c", script}, Trust: core.TrustCredentialed})
+	if st.Phase != core.WorkloadSucceeded || strings.Contains(out, "DIRECT-OPEN") ||
+		!strings.Contains(out, "allowed: HTTP/1.1 200") || !strings.Contains(out,
+		"denied: HTTP/1.1 403") ||
+		!strings.HasPrefix(out, "1") {
 		t.Fatalf("status %+v:\n%s", st, out)
 	}
 }
