@@ -49,9 +49,15 @@ type Result struct {
 	// Manifest and TrustedChanged are base64, as they hold repository content.
 	Manifest       string `json:"manifest,omitempty"`
 	TrustedChanged string `json:"trusted_changed,omitempty"`
-	// ChangedFiles counts the files that differ from the base.
-	ChangedFiles int `json:"changed_files,omitempty"`
+	// ChangedFiles counts the files that differ from the base. ChangedPaths names the first
+	// MaxChangedPaths of them, base64, one per line.
+	ChangedFiles int    `json:"changed_files,omitempty"`
+	ChangedPaths string `json:"changed_paths,omitempty"`
 }
+
+// MaxChangedPaths bounds the paths a commit reports. A change with more is out of any scope
+// that lists paths.
+const MaxChangedPaths = 1000
 
 // ParseResult reads the result line from a workload's output. It uses the last match,
 // because everything before it may be arbitrary tool output.
@@ -269,11 +275,13 @@ head=$(` + git + ` rev-parse HEAD)
 changed=true
 [ "$head" = "$base" ] && changed=false
 files=$(` + git + ` diff --name-only "$base" "$head" | wc -l | tr -d ' ')
+paths=$(` + git + ` -c core.quotePath=false diff --name-only "$base" "$head" |
+  head -n 1000 | base64 | tr -d '\n')
 mkdir -p /workspace/out
 ` + git + ` bundle create -q "/workspace/out/$head.tmp" "refs/heads/$GOBLINS_BRANCH" 2>/dev/null || true
 if [ -f "/workspace/out/$head.tmp" ]; then mv "/workspace/out/$head.tmp" "/workspace/out/$head.bundle"; fi
 shas="\"base_sha\":\"$base\",\"head_sha\":\"$head\""
-result "{\"prepared\":true,$shas,\"changed\":$changed,\"changed_files\":${files:-0}}"
+result "{\"prepared\":true,$shas,\"changed\":$changed,\"changed_files\":${files:-0},\"changed_paths\":\"$paths\"}"
 `
 	s := base(name, image, volume, labels, core.NetworkNone, script, false)
 	s.Env["GOBLINS_MESSAGE"] = message

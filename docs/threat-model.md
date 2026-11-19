@@ -46,6 +46,8 @@ GitHub, Anthropic or Docker being compromised.
 | Hooks or filters planted in the workspace | Never run where a token is: publishing reads a bundle into a fresh repository, hooks are off everywhere | Workflow of workloads, Git |
 | Deploys onto a target another task uses | Exclusive leases in the database; a failed reset keeps the target reserved for a person | Go code, database |
 | A ticket or agent adds an environment step or target | Steps, targets and their credentials come from the operator's configuration only | Go code |
+| A ticket or model runs a sensitive change unattended | Unattended needs a person's label; scope is decided from the commit's paths; leaving it withdraws the approval before anything is published ([ADR 0009](adr/0009-blueprint-and-approval-profiles.md)) | Go code |
+| A repository or ticket adds a tool    | Tools come from the agent's image and the operator's stage list only; repository MCP, hooks and skills are ignored | Go code, CLI flags |
 | Unattended re-login, security keys    | Never attempted: an expired login pauses the task for a person, and MFA is never bypassed | Go code |
 | Cluster API from a worker pod         | No service account token, no service links, network policies deny the cluster's addresses | Go code, Kubernetes |
 | Secret values readable in pod specs   | Secrets are Secret objects referenced by key, owned by the pod | Go code, Kubernetes |

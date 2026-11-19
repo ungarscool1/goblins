@@ -38,6 +38,7 @@ type Stage struct {
 	// makes more calls than this. Zero values turn these off.
 	FallbackModel string
 	MaxToolCalls  int
+	Tools         []string
 }
 
 // Project holds a project's resolved providers.
@@ -173,7 +174,7 @@ func (p *Pipeline) runAgent(ctx context.Context, jc scheduler.JobContext, stage 
 	if session == "" {
 		session = jc.Task.Sessions[role]
 	}
-	req.Role, req.Model, req.Effort, req.Runtime, req.Timeout = role, stage.Model, stage.Effort, stage.Runtime, stage.Timeout
+	p.prepareStage(jc, stage, role, &req)
 	req.IdempotencyKey = jc.Job.IdempotencyKey
 	req.WorkloadName = workloadName(jc, "agent")
 	req.Labels = p.labels(jc)
@@ -415,7 +416,8 @@ func (p *Pipeline) implement(ctx context.Context, jc scheduler.JobContext) (any,
 	if err != nil {
 		return nil, err
 	}
-	return workflow.ImplementResult{SessionID: res.SessionID, Workspace: volume, Branch: branch, BaseSHA: st.BaseSHA, HeadSHA: st.HeadSHA, Changed: st.Changed, ChangedFiles: st.ChangedFiles}, nil
+	return workflow.ImplementResult{SessionID: res.SessionID, Workspace: volume, Branch: branch, BaseSHA: st.BaseSHA, HeadSHA: st.HeadSHA, Changed: st.Changed, ChangedFiles: st.ChangedFiles,
+		ChangedPaths: changedPaths(st.ChangedPaths)}, nil
 }
 
 func (p *Pipeline) validate(ctx context.Context, jc scheduler.JobContext) (any, error) {

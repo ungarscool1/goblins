@@ -63,8 +63,10 @@ type ImplementResult struct {
 	BaseSHA   string `json:"base_sha"`
 	HeadSHA   string `json:"head_sha"`
 	Changed   bool   `json:"changed"`
-	// ChangedFiles counts the files that differ from the base branch.
-	ChangedFiles int `json:"changed_files,omitempty"`
+	// ChangedFiles counts the files that differ from the base branch, and ChangedPaths names
+	// up to workspace.MaxChangedPaths of them. They are repository content: data, to match.
+	ChangedFiles int      `json:"changed_files,omitempty"`
+	ChangedPaths []string `json:"changed_paths,omitempty"`
 }
 
 // ValidateStage says where in the workflow validation runs.

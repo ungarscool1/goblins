@@ -1,6 +1,8 @@
 package app
 
 import (
+	"slices"
+
 	"github.com/ungarscool1/goblins/internal/config"
 	"github.com/ungarscool1/goblins/internal/core"
 	"github.com/ungarscool1/goblins/internal/providers"
@@ -25,4 +27,23 @@ func guardedRuntime(b *builder, cfg config.Config, name string,
 	g := rt.Guard(raw, &b.creds)
 	b.guarded[name] = g
 	return g, nil
+}
+
+// checkTools refuses a stage naming a tool its agent does not offer, before anything runs: a
+// missing tool is a configuration error, never something quietly done without.
+func checkTools(s config.Stage, agent core.AgentProvider) error {
+	if len(s.Tools) == 0 {
+		return nil
+	}
+	cat, ok := agent.(core.ToolCatalog)
+	if !ok || !agent.Info().Has(core.CapAgentTools) {
+		return core.Unsupported(agent.Info(), core.CapAgentTools)
+	}
+	for _, t := range s.Tools {
+		if !slices.Contains(cat.Tools(), t) {
+			return core.Errorf(core.KindInvalid, "app.tools", "agent %s offers no tool %q",
+				s.Agent, t)
+		}
+	}
+	return nil
 }

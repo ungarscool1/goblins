@@ -113,6 +113,15 @@ type AgentRequest struct {
 	WorkDir         string
 	Timeout         time.Duration
 	Labels          map[string]string
+	// Tools names allow-listed tools for this run, from the agent's ToolCatalog. Requires
+	// CapAgentTools. A repository or a ticket never adds one.
+	Tools []string
+}
+
+// ToolCatalog is implemented by agents offering tools an operator installed and allow-listed,
+// such as MCP servers in the agent's image. Stages pick from it by name.
+type ToolCatalog interface {
+	Tools() []string
 }
 
 // AgentEventKind classifies stream entries.

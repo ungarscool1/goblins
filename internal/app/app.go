@@ -136,8 +136,12 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 		if m := cfg.Agents[s.Agent].MaxConcurrent; m > 0 {
 			limits[limitKey(s.Agent)] = m
 		}
+		if err := checkTools(s, agent); err != nil {
+			return pipeline.Stage{}, err
+		}
 		return pipeline.Stage{Agent: agent, Runtime: runtime, Model: s.Model, Effort: s.Effort,
-			Timeout: s.Timeout, FallbackModel: s.FallbackModel, MaxToolCalls: s.MaxToolCalls}, nil
+			Timeout: s.Timeout, FallbackModel: s.FallbackModel, MaxToolCalls: s.MaxToolCalls,
+			Tools: s.Tools}, nil
 	}
 
 	for _, pc := range cfg.Projects {
@@ -315,6 +319,15 @@ func policyFor(pc config.Project) workflow.Policy {
 	p.StopAtReport = c.StopAtReport
 	p.TrustedReviewBots = c.TrustedReviewBots
 	p.Merge = mergePolicy(c.Merge)
+	p.Approval = workflow.ApprovalProfile{
+		Unattended: c.Approval.Profile == config.ApprovalUnattended,
+		Label:      c.Approval.Label, AllowedPaths: c.Approval.AllowedPaths,
+		DeniedPaths: slices.Concat(config.SensitivePaths, c.Approval.DeniedPaths,
+			c.TrustedPaths),
+		MaxChangedFiles: c.Approval.MaxChangedFiles}
+	if c.ValidationManifest != "" {
+		p.Approval.DeniedPaths = append(p.Approval.DeniedPaths, c.ValidationManifest)
+	}
 	p.SkipReviewTriage = c.SkipReviewTriage
 	if c.MaxDebateRounds > 0 {
 		p.MaxDebateRounds = c.MaxDebateRounds

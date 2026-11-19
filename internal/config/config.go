@@ -161,7 +161,8 @@ type Policy struct {
 	// from commits nothing has tested. Without it, such a project is refused.
 	AllowUnvalidatedDraftPR bool `yaml:"allow_unvalidated_draft_pr,omitempty"`
 	// AllowSkippedReview lets a project without a reviewer go on without independent review.
-	AllowSkippedReview bool `yaml:"allow_skipped_review,omitempty"`
+	AllowSkippedReview bool     `yaml:"allow_skipped_review,omitempty"`
+	Approval           Approval `yaml:"approval,omitempty"`
 }
 
 // MergePolicy says what a pull request needs. Goblins never merges unless an auto_merge rule
@@ -217,6 +218,8 @@ type Stage struct {
 	FallbackModel string `yaml:"fallback_model,omitempty"`
 	// MaxToolCalls ends a run making more tool calls than this.
 	MaxToolCalls int `yaml:"max_tool_calls,omitempty"`
+	// Tools names allow-listed tools the agent declares, for this stage only.
+	Tools []string `yaml:"tools,omitempty"`
 }
 
 // Default returns a configuration with defaults filled in.
@@ -441,6 +444,7 @@ func (c *Config) Validate(known TypeChecker) error {
 		if p.Policy.MaxLimitPauses < 0 || p.Policy.MaxChangedFiles < 0 {
 			add("%s.policy: max_limit_pauses and max_changed_files cannot be negative", path)
 		}
+		p.Policy.Approval.validate(path, p.Policy.IntakeLabel, add)
 		if s := p.Policy.CommitStyle; s != "" && s != "conventional" && s != "plain" {
 			add("%s.policy.commit_style: must be conventional or plain", path)
 		}
