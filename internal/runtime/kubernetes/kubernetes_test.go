@@ -281,3 +281,23 @@ func TestConfiguration(t *testing.T) {
 		t.Error("in-cluster defaults outside a cluster were accepted")
 	}
 }
+
+// A pod with no network waits behind a guard until its policy is in force; one with egress
+// does not need one.
+func TestNoNetworkPodsAreGuarded(t *testing.T) {
+	rt, srv := newRuntime(t, nil)
+	for name, n := range map[string]core.NetworkPolicy{"none": core.NetworkNone,
+		"egress": core.NetworkEgress} {
+		if _, err := rt.Create(context.Background(), core.WorkloadSpec{Name: name, Image: "i",
+			Command: []string{"ok"}, Network: n}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, p := range srv.Objects("pods") {
+		raw, _ := json.Marshal(p)
+		guarded := strings.Contains(string(raw), `"name":"network-guard"`)
+		if guarded != (name == "none") {
+			t.Errorf("%s: guarded = %v", name, guarded)
+		}
+	}
+}
