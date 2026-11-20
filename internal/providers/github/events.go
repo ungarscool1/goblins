@@ -67,6 +67,9 @@ func sourceFromOptions(name string, deps providers.Deps, opts providers.Options)
 	return NewSource(name, c, SourceOptions{WebhookSecret: secret, Repositories: repos, Installations: opts.Strings("installation_ids")}), nil
 }
 
+// Serves implements core.ContainerScoped.
+func (s *Source) Serves(repo string) bool { return slices.Contains(s.repositories, repo) }
+
 // Info implements core.Provider.
 func (s *Source) Info() core.ProviderInfo {
 	var caps []core.Capability
