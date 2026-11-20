@@ -81,9 +81,14 @@ func TestReviewFindingsDriveABoundedCorrection(t *testing.T) {
 	if !strings.Contains(first.Prompt, headSHA) || strings.Contains(second.Prompt, headSHA) || !strings.Contains(second.Prompt, task.HeadSHA) {
 		t.Fatalf("not pinned:\n%s\n---\n%s", first.Prompt, second.Prompt)
 	}
+	// The review of the correction found nothing: it is in the status, not on the pull request.
 	reviews := reviewsOf(w)
-	if len(reviews) != 2 {
+	if len(reviews) != 1 {
 		t.Fatalf("reviews = %+v", reviews)
+	}
+	clean := "Automated review of `" + task.HeadSHA + "` by fake: no findings"
+	if !strings.Contains(w.posted(), clean) {
+		t.Fatalf("%q is missing from:\n%s", clean, w.posted())
 	}
 	for _, r := range reviews {
 		// Automation neither approves nor requests changes on an SCM.
@@ -160,7 +165,8 @@ func TestUnavailableReviewerFallsBack(t *testing.T) {
 			if tc.setUp != nil {
 				tc.setUp(first)
 			}
-			second := fake.NewAgent("other", fake.AgentStep{Output: reviewOutput("approve")})
+			second := fake.NewAgent("other", fake.AgentStep{Output: reviewOutput("comment",
+				finding("low", "high"))})
 			w.project.ReviewFallbacks = append(w.project.ReviewFallbacks, &pipeline.AgentReviewer{Name: "r2", Stage: pipeline.Stage{Agent: second, Runtime: w.rt}})
 			toReview(t, w)
 			w.want(core.StateCompleted)

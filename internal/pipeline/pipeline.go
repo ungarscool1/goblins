@@ -42,11 +42,14 @@ type Stage struct {
 
 // Project holds a project's resolved providers.
 type Project struct {
-	ID          string
-	Repo        core.RepoRef
-	BaseBranch  string
-	Tracker     core.IssueTracker
-	SCM         core.SourceControl
+	ID         string
+	Repo       core.RepoRef
+	BaseBranch string
+	Tracker    core.IssueTracker
+	SCM        core.SourceControl
+	// Reviewers says what access people on the pull request have. It is the SCM when it can
+	// say, as their accounts are the SCM's; otherwise the tracker.
+	Reviewers   core.PermissionSource
 	Planner     Stage
 	Implementer Stage
 	// Describer writes pull request descriptions from their diff. Without an agent, a
@@ -111,6 +114,7 @@ func (p *Pipeline) Handlers() map[core.JobKind]scheduler.Handler {
 		workflow.JobMerge:     p.merge,
 		workflow.JobTriage:    p.triage,
 		workflow.JobReply:     p.reply,
+		workflow.JobStatus:    p.status,
 		workflow.JobComment:   p.comment,
 		workflow.JobNotify:    p.notify,
 		workflow.JobCleanup:   p.cleanup,
@@ -225,7 +229,9 @@ func runStep(ctx context.Context, runtime core.ExecutionRuntime, spec core.Workl
 		return workspace.Result{}, res, err
 	}
 	if res.Status.Phase != core.WorkloadSucceeded {
-		return workspace.Result{}, res, core.Errorf(core.KindTransient, "pipeline.step", "workspace step %s failed (exit %d)", spec.Name, res.Status.ExitCode)
+		return workspace.Result{}, res, core.Errorf(core.KindTransient, "pipeline.step",
+			"the %s step failed (exit %d)%s", stepOf(spec.Name), res.Status.ExitCode,
+			lastLine(res.Stderr))
 	}
 	parsed, err := workspace.ParseResult(res.Stdout)
 	return parsed, res, err

@@ -190,3 +190,11 @@ func (s *SCM) PullRequestComments(_ context.Context, repo core.RepoRef,
 	defer s.W.mu.Unlock()
 	return slices.Clone(s.W.general[repo.Slug+"#"+number]), nil
 }
+
+// ActorPermission implements core.PermissionSource, with the world's permissions.
+func (s *SCM) ActorPermission(_ context.Context, ref core.IssueRef, a core.Actor) (core.Permission,
+	error) {
+	s.W.mu.Lock()
+	defer s.W.mu.Unlock()
+	return s.W.perms[ref.Container+"/"+a.Login], nil
+}

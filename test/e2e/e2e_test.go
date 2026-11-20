@@ -38,6 +38,7 @@ import (
 	"github.com/ungarscool1/goblins/internal/providers/fake"
 	gh "github.com/ungarscool1/goblins/internal/providers/github"
 	"github.com/ungarscool1/goblins/internal/providers/github/fakegithub"
+	"github.com/ungarscool1/goblins/internal/providers/jira"
 	"github.com/ungarscool1/goblins/internal/providers/knowledge"
 	"github.com/ungarscool1/goblins/internal/workflow"
 )
@@ -175,6 +176,7 @@ func (e *env) registry() *providers.Registry {
 	claude.Register(r)
 	codex.Register(r)
 	command.Register(r)
+	jira.Register(r)
 	environment.Register(r)
 	knowledge.Register(r)
 	r.Register(providers.KindRuntime, "test-process", func(string, providers.Deps, providers.Options) (any, error) { return e.rt, nil })
@@ -457,13 +459,14 @@ func TestIssueToDraftPullRequest(t *testing.T) {
 
 	// The report went back to the ticket, without claiming a merge.
 	comments := e.botComments()
-	for _, want := range []string{"approved by @" + maintainerID, "Pull request:", "Status report", "passed", "not merged"} {
+	for _, want := range []string{"approved by @" + maintainerID, "Pull request:", "## Goblins status",
+		"passed", "not merged", "Goblins does not merge it"} {
 		if !strings.Contains(comments, want) {
 			t.Errorf("ticket lacks %q:\n%s", want, comments)
 		}
 	}
-	if strings.Count(comments, "Status report") != 1 {
-		t.Fatalf("duplicate reports:\n%s", comments)
+	if strings.Count(comments, "## Goblins status") != 1 {
+		t.Fatalf("duplicate statuses:\n%s", comments)
 	}
 
 	// No merge was ever attempted.
@@ -735,8 +738,8 @@ func TestRestartDuringImplementationDoesNotDuplicate(t *testing.T) {
 	if got := len(e.gh.PullRequests(repo)); got != 1 {
 		t.Fatalf("pull requests = %d", got)
 	}
-	if strings.Count(e.botComments(), "Status report") != 1 {
-		t.Fatalf("report duplicated:\n%s", e.botComments())
+	if strings.Count(e.botComments(), "## Goblins status") != 1 {
+		t.Fatalf("status duplicated:\n%s", e.botComments())
 	}
 }
 

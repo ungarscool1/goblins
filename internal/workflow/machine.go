@@ -42,8 +42,8 @@ func Terminal(s core.State) bool {
 // CheckTransition reports whether the table allows from -> to, where resume is
 // the task's recorded state to return to.
 func CheckTransition(from, to, resume core.State) bool {
-	if Terminal(from) { // only a failed task, run again, leaves its state
-		return from == core.StateFailed && (to == resume || to == core.StateInvestigating)
+	if Terminal(from) {
+		return from == to || (from == core.StateFailed && (to == resume || to == core.StateInvestigating))
 	}
 	if from == to || slices.Contains(transitions[from], to) {
 		return true
@@ -83,7 +83,7 @@ func Decide(task *core.Task, ev core.Event, f Facts, p Policy) Decision {
 	if task == nil {
 		return decideNew(ev, f, p)
 	}
-	if Terminal(task.State) {
+	if Terminal(task.State) && !statusOutcome(ev) {
 		return decideTerminal(task, ev, f, p)
 	}
 	m := &machine{t: cloneTask(*task), from: task.State, ev: ev, f: f, p: p}
@@ -170,7 +170,7 @@ type machine struct {
 }
 
 func (m *machine) decision() Decision {
-	if !m.changed {
+	if m.syncStatus(); !m.changed {
 		return Decision{Ignored: m.ignored}
 	}
 	t := m.t
@@ -406,7 +406,7 @@ func (m *machine) onOperatorCommand(cmd string, c *core.Comment) {
 	switch cmd {
 	case "cancel":
 		m.cancelTask("cancelled by " + c.Author.Login)
-		m.comment("Cancelled by @" + c.Author.Login + ".")
+		m.progress("cancelled by @" + c.Author.Login + ".")
 	case "pause":
 		if m.t.State == core.StateBlocked || m.t.State == core.StateQuotaPaused {
 			m.ignore("already paused")
@@ -497,7 +497,7 @@ func (m *machine) onIssueEdited() {
 		// what was asked for.
 		m.t.Approval = nil
 		m.cancel = slices.Clone(mainKinds)
-		m.comment("The requirements changed, so the approval of this design no longer applies. Goblins will revise the design and ask again.")
+		m.progress("the requirements changed, so the approval of this design no longer applies. Goblins will revise the design and ask again.")
 		m.replan("requirements changed after approval")
 	case core.StatePROpen, core.StateReviewing, core.StateTesting, core.StateAwaitingReview:
 		m.cancel = slices.Clone(mainKinds)
@@ -520,7 +520,7 @@ func (m *machine) onEditWhilePaused() {
 	case core.StateAgentReady, core.StateImplementing:
 		m.t.Approval = nil
 		m.cancel = slices.Clone(mainKinds)
-		m.comment("The requirements changed, so the approval of this design no longer applies. Goblins will revise the design and ask again once it resumes.")
+		m.progress("the requirements changed, so the approval of this design no longer applies. Goblins will revise the design and ask again once it resumes.")
 		m.replanOnResume()
 	case core.StatePROpen, core.StateReviewing, core.StateTesting, core.StateAwaitingReview:
 		m.t.Approval = nil
@@ -559,7 +559,7 @@ func (m *machine) onJobFinished() {
 		return
 	}
 	switch o.Kind {
-	case JobComment, JobNotify, JobCleanup, JobReply, JobReleaseHold:
+	case JobComment, JobNotify, JobCleanup, JobReply, JobReleaseHold, JobStatus:
 		m.onSideJob(o)
 		return
 	}
@@ -602,8 +602,8 @@ func (m *machine) onJobFinished() {
 }
 
 func (m *machine) onSideJob(o *core.JobOutcome) {
-	if o.Kind == JobReply {
-		m.onReplyDone(o)
+	if done, ok := sideDone[o.Kind]; ok {
+		done(m, o)
 		return
 	}
 	if o.OK && o.Kind == JobComment && o.Key == m.t.DesignCommentKey {
@@ -690,7 +690,7 @@ func (m *machine) onPlanDone(o *core.JobOutcome) {
 	// Approvals must come after this moment. Once the comment is posted, this is replaced
 	// by the tracker's own timestamp for it, the same clock replies are stamped with.
 	m.t.DesignProposedAt = m.f.Now
-	m.t.DesignCommentKey = m.comment(RenderDesign(m.t.DesignRevision, hash, res.Design, m.p.ApproveCommand))
+	m.t.DesignCommentKey = m.comment(m.renderDesign(hash, res.Design))
 	m.moveTo(core.StateDesignProposed, fmt.Sprintf("design revision %d proposed", m.t.DesignRevision))
 }
 
@@ -753,11 +753,11 @@ func (m *machine) onValidateDone(o *core.JobOutcome) {
 		return
 	}
 	m.t.CurrentJob = nil
-	note := ""
+	note := "validation passed."
 	if res.Skipped {
-		note = "\n\nNote: this project configures no validation, so nothing was tested."
+		note = "nothing was tested, as this project configures no validation."
 	}
-	m.afterReport("validation passed", RenderReport(&m.t, rep)+note)
+	m.afterReport("validation passed", note)
 }
 
 func (m *machine) onValidationFailed(p ValidatePayload, rep core.ValidationReport) {

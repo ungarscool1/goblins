@@ -21,6 +21,8 @@ type Policy struct {
 	ReviewPullRequests bool
 	// Approval says when a design may be implemented without a person approving it.
 	Approval ApprovalProfile
+	// DesignStyle lays out design comments. It never changes what is approved.
+	DesignStyle DesignStyle
 	// BotLogins are identities that must never count as human approval.
 	BotLogins []string
 

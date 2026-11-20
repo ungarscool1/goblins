@@ -107,20 +107,25 @@ type ProviderSet map[string]Provider
 
 // Project binds one unit of work to its provider instances.
 type Project struct {
-	ID           string          `yaml:"id"`
-	Tracker      string          `yaml:"tracker"`
-	SCM          string          `yaml:"scm"`
-	EventSource  []string        `yaml:"event_sources,omitempty"`
-	Repository   string          `yaml:"repository"`
-	BaseBranch   string          `yaml:"base_branch,omitempty"`
-	Validation   string          `yaml:"validation,omitempty"`
-	Review       string          `yaml:"review,omitempty"`
-	Notification string          `yaml:"notification,omitempty"`
-	Environment  Environment     `yaml:"environment,omitempty"`
-	Memory       Memory          `yaml:"memory,omitempty"`
-	Stages       Stages          `yaml:"stages"`
-	Policy       Policy          `yaml:"policy,omitempty"`
-	Workspace    WorkspaceConfig `yaml:"workspace,omitempty"`
+	ID          string   `yaml:"id"`
+	Tracker     string   `yaml:"tracker"`
+	SCM         string   `yaml:"scm"`
+	EventSource []string `yaml:"event_sources,omitempty"`
+	Repository  string   `yaml:"repository"`
+	// TrackerContainer is where the tracker keeps this project's tickets, such as a Jira
+	// project key, when that is not the repository.
+	TrackerContainer string          `yaml:"tracker_container,omitempty"`
+	BaseBranch       string          `yaml:"base_branch,omitempty"`
+	Validation       string          `yaml:"validation,omitempty"`
+	Review           string          `yaml:"review,omitempty"`
+	Notification     string          `yaml:"notification,omitempty"`
+	Environment      Environment     `yaml:"environment,omitempty"`
+	Memory           Memory          `yaml:"memory,omitempty"`
+	Stages           Stages          `yaml:"stages"`
+	Policy           Policy          `yaml:"policy,omitempty"`
+	Workspace        WorkspaceConfig `yaml:"workspace,omitempty"`
+	// Communication lays out designs for people. It never changes what is approved.
+	Communication Communication `yaml:"communication,omitempty"`
 	// PollInterval enables reconciliation polling on the project's event sources.
 	PollInterval time.Duration `yaml:"poll_interval,omitempty"`
 }
@@ -431,6 +436,7 @@ func (c *Config) Validate(known TypeChecker) error {
 			add("%s.policy: max_limit_pauses and max_changed_files cannot be negative", path)
 		}
 		p.Policy.Approval.validate(path, p.Policy.IntakeLabel, add)
+		p.Communication.validate(path, add)
 		if s := p.Policy.CommitStyle; s != "" && s != "conventional" && s != "plain" {
 			add("%s.policy.commit_style: must be conventional or plain", path)
 		}

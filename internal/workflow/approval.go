@@ -116,14 +116,14 @@ func (m *machine) afterApproval(who string) {
 		m.t.Escalated = ""
 		m.enqueueMain(JobValidate, ValidatePayload{Stage: StagePrePR, SHA: esc}, "", 3)
 		m.moveTo(core.StateAgentReady, "design approved by "+who+" for the change at "+esc)
-		m.comment(fmt.Sprintf("Approved by @%s. Checking the change at `%s`.", who, esc))
+		m.progress(fmt.Sprintf("Approved by @%s. Checking the change at `%s`.", who, esc))
 		return
 	}
 	m.t.Escalated = ""
 	m.enqueueMain(JobImplement, ImplementPayload{Revision: m.t.DesignRevision,
 		Hash: m.t.DesignHash}, m.p.ImplementerLimitKey, 3)
 	m.moveTo(core.StateAgentReady, "design approved by "+who)
-	m.comment(fmt.Sprintf("Design revision %d approved by @%s. Implementation is queued.",
+	m.progress(fmt.Sprintf("design revision %d approved by @%s. Implementation is queued.",
 		m.t.DesignRevision, who))
 }
 

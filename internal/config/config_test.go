@@ -98,6 +98,8 @@ func TestRejections(t *testing.T) {
 		{"unattended label is the intake label", strings.Replace(valid, "allow_skipped_review: true",
 			"allow_skipped_review: true, intake_label: go, approval: {profile: unattended, "+
 				"label: go, allowed_paths: [docs/**]}", 1), "must differ from the intake label"},
+		{"bad verbosity", strings.Replace(valid, "    policy: {",
+			"    communication: {verbosity: chatty}\n    policy: {", 1), "communication.verbosity"},
 		{"trusted path out of the repository", strings.Replace(valid, "allow_skipped_review: true",
 			"allow_skipped_review: true, trusted_paths: [../x]", 1), "plain path"},
 		{"manifest path with options", strings.Replace(valid, "allow_skipped_review: true",
