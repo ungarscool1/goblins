@@ -34,7 +34,7 @@ Usage:
                                              Enter a comment by hand, for trackers without one
   goblins environments [--release LEASE] [--config FILE|--mock]
                                              List development environment leases, or release one
-  goblins memory list|search|add|accept|supersede|forget|export|import [flags]
+  goblins memory list|show|search|sources|add|accept|supersede|forget|export|import [flags]
                                              Read and curate what agents are told
   goblins healthcheck [--url URL]            Probe a running instance (container health)
   goblins egress-proxy [--listen ADDR] [--allow HOSTS]

@@ -191,7 +191,7 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 				return nil, err
 			}
 		}
-		if pr.Memory, err = memoryFor(b, cfg, pc); err != nil {
+		if pr.Memory, err = memoryFor(b, cfg, pc, pr.SCM); err != nil {
 			return nil, err
 		}
 		if pc.Environment.Name != "" {

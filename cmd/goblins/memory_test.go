@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -55,5 +56,77 @@ func TestMemoryCuration(t *testing.T) {
 	run("accept", memoryFlags{id: "p1", as: "lead"}, "work/ops", "")
 	if m, _ := st.GetMemory(ctx, "p1"); m.Status != core.MemoryAccepted || m.ApprovedBy != "lead" {
 		t.Fatalf("accepted = %+v", m)
+	}
+}
+
+func TestMemoryShowAndSources(t *testing.T) {
+	t.Setenv("GOBLINS_CONFIG", "")
+	dir := t.TempDir()
+	docs := filepath.Join(dir, "docs")
+	if err := os.MkdirAll(docs, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docs, "flags.md"),
+		[]byte("# Feature flags\nEvery feature ships behind a flag."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "goblins.yaml")
+	if err := os.WriteFile(cfg, []byte(`version: 1
+installation: {name: test, data_dir: `+filepath.Join(dir, "data")+`}
+trackers: {mock: {type: fake}}
+scms: {mock: {type: fake}}
+event_sources: {mock: {type: fake}}
+agents: {mock: {type: fake}}
+runtimes: {mock: {type: fake}}
+knowledge:
+  docs: {type: files, options: {path: `+docs+`}}
+  gone: {type: files, options: {path: `+filepath.Join(dir, "missing")+`}}
+projects:
+  - id: demo
+    tracker: mock
+    scm: mock
+    event_sources: [mock]
+    repository: example/demo
+    base_branch: main
+    policy: {allow_unvalidated_draft_pr: true, allow_skipped_review: true}
+    memory: {enabled: true, sources: [docs, gone], required: [docs]}
+    stages:
+      planner: {agent: mock, runtime: mock}
+      implementer: {agent: mock, runtime: mock}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	var out, errb bytes.Buffer
+	err := run(ctx, []string{"memory", "sources", "--config", cfg, "--project", "demo",
+		"--text", "feature flags"}, &out, &errb)
+	got := out.String()
+	if err == nil || !strings.Contains(got, "docs\tfiles\trequired\tok, 1 documents") ||
+		!strings.Contains(got, "docs:flags.md\tFeature flags") ||
+		!strings.Contains(got, "gone\tfiles\toptional\tfailed:") {
+		t.Fatalf("sources: %v\n%s%s", err, got, errb.String())
+	}
+
+	out.Reset()
+	if err := run(ctx, []string{"memory", "add", "--config", cfg, "--project", "demo",
+		"--title", "Flags", "--body", "Ship behind a flag.", "--source", "docs:flags.md@r1",
+		"--as", "lead"}, &out, &errb); err != nil {
+		t.Fatal(err, errb.String())
+	}
+	id := strings.TrimSpace(out.String())
+	out.Reset()
+	if err := run(ctx, []string{"memory", "show", "--config", cfg, "--project", "demo",
+		"--id", id}, &out, &errb); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{id + ": Flags", "accepted by lead", "source: docs:flags.md@r1",
+		"Ship behind a flag."} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("show lacks %q:\n%s", want, out.String())
+		}
+	}
+	if err := run(ctx, []string{"memory", "show", "--config", cfg, "--id", id}, &out,
+		&errb); err == nil {
+		t.Error("a project's memory was shown from the installation's namespace")
 	}
 }

@@ -75,6 +75,8 @@ func (s *Server) branch(repo string, st *repoState, name string) (string, bool) 
 
 func (s *Server) routeSCM(w http.ResponseWriter, r *http.Request, repo string, st *repoState, seg []string) bool {
 	switch {
+	case seg[0] == "git" && len(seg) == 3 && r.Method == http.MethodGet:
+		s.routeGit(w, repo, seg)
 	case seg[0] == "branches" && len(seg) == 2 && r.Method == http.MethodGet:
 		sha, ok := s.branch(repo, st, seg[1])
 		if !ok {

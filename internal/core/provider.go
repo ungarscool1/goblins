@@ -51,6 +51,8 @@ const (
 	CapSCMThreadReply Capability = "scm.review_threads.reply"
 	// CapSCMMerge merges a pull request. Only an expressly approved rule ever uses it.
 	CapSCMMerge Capability = "scm.merge"
+	// CapSCMFiles reads a repository's files at a commit through the SCM's API.
+	CapSCMFiles Capability = "scm.files"
 
 	CapEventsWebhook Capability = "events.webhook"
 	CapEventsPoll    Capability = "events.poll"

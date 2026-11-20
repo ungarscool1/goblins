@@ -23,6 +23,9 @@ import (
 const memoryUsage = `goblins memory COMMAND [flags] [--config FILE|--mock]
 
   list                         Memories of a project (or of the installation without --project)
+  show --id ID                 One memory, with where it comes from and who accepted it
+  sources --project P [--text TEXT]
+                               Ask each knowledge source of a project, and say what it returned
   search --text TEXT           Accepted memories agents would be given for this text
   add --kind K --title T --body B [--source S]...
                                Add an accepted memory, as the person running the command (--as)
@@ -52,7 +55,7 @@ func memoryCommand(ctx context.Context, args []string, stdin io.Reader, stdout,
 		return errors.New("missing memory command")
 	}
 	var f memoryFlags
-	cfg, _, err := loadFlags("memory "+args[0], args[1:], stderr, func(fs *flag.FlagSet) {
+	cfg, world, err := loadFlags("memory "+args[0], args[1:], stderr, func(fs *flag.FlagSet) {
 		fs.StringVar(&f.project, "project", "", "project ID; none means installation-wide")
 		fs.StringVar(&f.id, "id", "", "memory ID")
 		fs.StringVar(&f.by, "by", "", "the memory replacing this one")
@@ -72,6 +75,9 @@ func memoryCommand(ctx context.Context, args []string, stdin io.Reader, stdout,
 		return err
 	}
 	defer func() { _ = store.Close() }()
+	if args[0] == "sources" {
+		return memorySources(ctx, cfg, appOptions(world), store, f, stdout)
+	}
 	ns := cfg.Installation.Name
 	if f.project != "" {
 		if !hasProject(cfg, f.project) {
@@ -120,6 +126,8 @@ func runMemory(ctx context.Context, cmd string, f memoryFlags, ns string, store 
 		return nil
 	case "accept", "supersede", "forget":
 		return changeMemory(ctx, cmd, f, ns, store, now, stdout)
+	case "show":
+		return showMemory(ctx, f.id, ns, store, stdout)
 	case "export":
 		all, err := store.ListMemories(ctx, []string{ns})
 		enc := json.NewEncoder(stdout)

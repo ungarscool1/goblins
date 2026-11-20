@@ -98,6 +98,8 @@ type Server struct {
 	ProtectionDenied bool
 	// Merges lists the commits merged through the API.
 	Merges []string
+	// trees holds the files the Git trees and blobs API returns, per repository, at any ref.
+	trees map[string]map[string]string
 }
 
 type tokenInfo struct {
