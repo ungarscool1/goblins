@@ -47,7 +47,8 @@ tracker passing the suite with read-only capabilities.
 
 `SourceControl` carries what review needs, gated where SCMs differ: `ReviewThreads`, `ListReviews`,
 `PullRequestComments`, `ChangedFiles`, plus `ReplyToThread` (`scm.review_threads.reply`),
-`BranchProtection` (`scm.branch_protection`) and `MergePullRequest` (`scm.merge`). A provider without a
+`BranchProtection` (`scm.branch_protection`), `MergePullRequest` (`scm.merge`) and
+`core.RepositoryReader` (`scm.files`: a tree and file contents at a commit, for memory). A provider without a
 capability gets a visible blocked state, not a guess. Threads are identified by their first remark.
 
 ## Versioning

@@ -28,8 +28,13 @@ func TestMemoryReachesThePlannerAndProposalsWaitForAPerson(t *testing.T) {
 	cfg := strings.Replace(string(e.cfgYAML), "validations:\n", fmt.Sprintf("knowledge:\n"+
 		"  docs: {type: files, options: {path: %s}}\nvalidations:\n", docs), 1)
 	cfg = strings.Replace(cfg, "    validation: checks\n", "    validation: checks\n"+
-		"    memory: {enabled: true, sources: [docs]}\n", 1)
+		"    memory: {enabled: true, sources: [docs], repository: [README.md, docs/**/*.md]}\n", 1)
 	e.cfgYAML = []byte(cfg)
+	// The repository's own docs come through the SCM's API, at the commit the task works from.
+	e.gh.SetTree(repo, map[string]string{
+		"docs/adr/0002-feature-toggles.md": "# Feature toggles\n\nToggles are read once at start.",
+		"src/feature.go":                   "package feature // not documentation",
+	})
 	e.boot()
 	ctx := context.Background()
 	now := time.Now()
@@ -53,12 +58,13 @@ func TestMemoryReachesThePlannerAndProposalsWaitForAPerson(t *testing.T) {
 	prompts := e.prompts()
 	for _, want := range []string{"[memory:m-accepted]", "accepted by lead",
 		"[docs:feature-flags.md]",
+		"[repo:docs/adr/0002-feature-toggles.md]", "Toggles are read once at start",
 		"Every feature is shipped behind a flag"} {
 		if !strings.Contains(prompts, want) {
 			t.Errorf("the planner was not given %q", want)
 		}
 	}
-	for _, unwanted := range []string{"m-guess", "features need no tests", "m-other",
+	for _, unwanted := range []string{"m-guess", "features need no tests", "m-other", "not documentation",
 		"Another installation"} {
 		if strings.Contains(prompts, unwanted) {
 			t.Errorf("the planner was given %q", unwanted)

@@ -91,6 +91,10 @@ type Item struct {
 	Title    string
 	Body     string
 	score    int
+	// sources are what a memory says it comes from, such as "docs:adr/4.md@<revision>".
+	sources []string
+	// revision is a document's, as its source gave it this run.
+	revision string
 }
 
 // Pack is what an agent is given, and the record of it.
@@ -126,6 +130,7 @@ func Build(ctx context.Context, r Request) (Pack, error) {
 			items = append(items, docItem(s.Name, d, terms))
 		}
 	}
+	pack.Warnings = append(pack.Warnings, flagChanged(items)...)
 	slices.SortStableFunc(items, func(a, b Item) int {
 		return cmp.Or(b.score-a.score, strings.Compare(a.Ref, b.Ref))
 	})
@@ -176,7 +181,8 @@ func memories(ctx context.Context, r Request, terms []string) ([]Item, error) {
 			cite += ", from " + strings.Join(m.Sources, ", ")
 		}
 		out = append(out, Item{Ref: "memory:" + m.ID, Citation: cite, Title: m.Title,
-			Body: cut(m.Body), score: Score(m.Title, m.Body+" "+strings.Join(m.Tags, " "), terms)})
+			Body: cut(m.Body), score: Score(m.Title, m.Body+" "+strings.Join(m.Tags, " "), terms),
+			sources: m.Sources})
 	}
 	return out, nil
 }
@@ -193,7 +199,36 @@ func docItem(source string, d core.KnowledgeDoc, terms []string) Item {
 		cite += ", " + d.URL
 	}
 	return Item{Ref: source + ":" + d.ID, Citation: cite, Title: d.Title, Body: cut(d.Body),
-		score: Score(d.Title, d.Body, terms)}
+		score: Score(d.Title, d.Body, terms), revision: d.Revision}
+}
+
+// flagChanged marks memories that cite a document, at a revision, which a source returned this
+// run at another revision: what they say may no longer hold. Nothing is changed or dropped;
+// the agent and the run's record are told, and a person decides.
+func flagChanged(items []Item) []string {
+	current := map[string]string{}
+	for _, it := range items {
+		if it.revision != "" {
+			current[it.Ref] = it.revision
+		}
+	}
+	var warnings []string
+	for i, it := range items {
+		for _, src := range it.sources {
+			at := strings.LastIndex(src, "@")
+			if at < 0 {
+				continue
+			}
+			ref, rev := src[:at], src[at+1:]
+			if now, ok := current[ref]; ok && now != rev {
+				items[i].Citation += fmt.Sprintf("; CHANGED SOURCE: it cites %s at revision %s, "+
+					"which is now at revision %s, so check it before relying on it", ref, rev, now)
+				warnings = append(warnings, fmt.Sprintf("%s cites %s at revision %s, now %s",
+					it.Ref, ref, rev, now))
+			}
+		}
+	}
+	return warnings
 }
 
 func cut(s string) string {

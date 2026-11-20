@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -13,8 +14,46 @@ import (
 
 // Memory is a project's memory: its knowledge sources and how much of a prompt they may take.
 type Memory struct {
-	Sources []memory.Source
-	Budget  int
+	Sources    []memory.Source
+	Budget     int
+	Repository *RepositoryDocs
+}
+
+// RepositoryDocs is the project's own documentation, read through its SCM.
+type RepositoryDocs struct {
+	Reader   core.RepositoryReader
+	Globs    []string
+	Required bool
+	Cache    *memory.BlobCache
+}
+
+// MemorySources are a project's knowledge sources as a task on its base branch's latest commit
+// would read them now.
+func MemorySources(ctx context.Context, pr *Project) ([]memory.Source, error) {
+	if pr.Memory == nil {
+		return nil, nil
+	}
+	return sources(ctx, pr, core.Task{})
+}
+
+// sources are a run's knowledge sources: the project's, and its repository's documentation at
+// the commit the task works from, or else the base branch's latest.
+func sources(ctx context.Context, pr *Project, task core.Task) ([]memory.Source, error) {
+	r := pr.Memory.Repository
+	if r == nil {
+		return pr.Memory.Sources, nil
+	}
+	ref := task.BaseSHA
+	if ref == "" {
+		sha, err := pr.SCM.ResolveBranch(ctx, pr.Repo, pr.BaseBranch)
+		if err != nil {
+			return nil, err
+		}
+		ref = sha
+	}
+	return append(slices.Clone(pr.Memory.Sources), memory.Source{Name: "repo",
+		Required: r.Required, Source: memory.Repository{Reader: r.Reader, Repo: pr.Repo, Ref: ref,
+			Globs: r.Globs, Cache: r.Cache}}), nil
 }
 
 // namespaces are where a project's memories live: its own, and its installation's. Nothing of
@@ -32,8 +71,12 @@ func (p *Pipeline) addMemory(ctx context.Context, jc scheduler.JobContext, role 
 		return nil
 	}
 	text := jc.Task.Title + "\n" + req.Prompt[:min(len(req.Prompt), 6000)]
+	sources, err := sources(ctx, pr, jc.Task)
+	if err != nil {
+		return err
+	}
 	pack, err := memory.Build(ctx, memory.Request{Namespaces: p.namespaces(jc.Task.Project),
-		Store: p.Memories, Sources: pr.Memory.Sources, Text: text, Budget: pr.Memory.Budget,
+		Store: p.Memories, Sources: sources, Text: text, Budget: pr.Memory.Budget,
 		Now: time.Now()})
 	if err != nil {
 		return err

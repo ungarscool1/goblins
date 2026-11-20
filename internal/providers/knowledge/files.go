@@ -9,7 +9,6 @@ import (
 	"os"
 	"path"
 	"slices"
-	"strings"
 
 	"github.com/ungarscool1/goblins/internal/core"
 	"github.com/ungarscool1/goblins/internal/memory"
@@ -70,7 +69,7 @@ func (f *Files) Search(_ context.Context, q core.KnowledgeQuery) ([]core.Knowled
 		if err != nil {
 			return nil //nolint:nilerr // skipped like any unreadable file
 		}
-		title := titleOf(p, string(raw))
+		title := memory.TitleOf(p, string(raw))
 		if s := memory.Score(title, string(raw), q.Terms); s > 0 {
 			found = append(found, scored{core.KnowledgeDoc{ID: p, Title: title, Body: string(raw),
 				Revision: info.ModTime().UTC().Format("20060102T150405Z"), URL: "file:" + p,
@@ -89,29 +88,7 @@ func (f *Files) Search(_ context.Context, q core.KnowledgeQuery) ([]core.Knowled
 	return out, nil
 }
 
-func (f *Files) matches(p string) bool {
-	for _, g := range f.globs {
-		if rest, ok := strings.CutPrefix(g, "**/"); ok {
-			if m, _ := path.Match(rest, path.Base(p)); m {
-				return true
-			}
-		}
-		if m, _ := path.Match(g, p); m {
-			return true
-		}
-	}
-	return false
-}
-
-// titleOf is a document's first heading, or its file name.
-func titleOf(p, body string) string {
-	for _, l := range strings.SplitN(body, "\n", 40) {
-		if t, ok := strings.CutPrefix(strings.TrimSpace(l), "# "); ok {
-			return strings.TrimSpace(t)
-		}
-	}
-	return strings.TrimSuffix(path.Base(p), path.Ext(p))
-}
+func (f *Files) matches(p string) bool { return memory.MatchGlob(f.globs, p) }
 
 func info(name, typ string) core.ProviderInfo {
 	return core.ProviderInfo{Kind: core.ProviderKnowledge, Type: typ, Name: name,
