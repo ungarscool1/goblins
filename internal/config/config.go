@@ -49,6 +49,7 @@ type Config struct {
 	Validations   ProviderSet  `yaml:"validations,omitempty"`
 	Notifications ProviderSet  `yaml:"notifications,omitempty"`
 	Environments  ProviderSet  `yaml:"environments,omitempty"`
+	Knowledge     ProviderSet  `yaml:"knowledge,omitempty"`
 	Projects      []Project    `yaml:"projects,omitempty"`
 }
 
@@ -115,6 +116,7 @@ type Project struct {
 	Review       string          `yaml:"review,omitempty"`
 	Notification string          `yaml:"notification,omitempty"`
 	Environment  Environment     `yaml:"environment,omitempty"`
+	Memory       Memory          `yaml:"memory,omitempty"`
 	Stages       Stages          `yaml:"stages"`
 	Policy       Policy          `yaml:"policy,omitempty"`
 	Workspace    WorkspaceConfig `yaml:"workspace,omitempty"`
@@ -163,25 +165,6 @@ type Policy struct {
 	// AllowSkippedReview lets a project without a reviewer go on without independent review.
 	AllowSkippedReview bool     `yaml:"allow_skipped_review,omitempty"`
 	Approval           Approval `yaml:"approval,omitempty"`
-}
-
-// MergePolicy says what a pull request needs. Goblins never merges unless an auto_merge rule
-// expressly allows it, and such a rule cannot do without a person's approval.
-type MergePolicy struct {
-	RequiredChecks          []string `yaml:"required_checks,omitempty"`
-	MinHumanApprovals       int      `yaml:"min_human_approvals,omitempty"`
-	Approvers               []string `yaml:"approvers,omitempty"`
-	RequireBranchProtection bool     `yaml:"require_branch_protection,omitempty"`
-	// SensitivePaths adds to the built-in categories, as category name to path patterns.
-	SensitivePaths map[string][]string `yaml:"sensitive_paths,omitempty"`
-	AutoMerge      []AutoMergeRule     `yaml:"auto_merge,omitempty"`
-}
-
-// AutoMergeRule expressly allows merging a low-risk change touching only these paths.
-type AutoMergeRule struct {
-	Name     string   `yaml:"name"`
-	Paths    []string `yaml:"paths"`
-	MaxFiles int      `yaml:"max_files,omitempty"`
 }
 
 // WorkspaceConfig configures Git workspaces.
@@ -458,6 +441,7 @@ func (c *Config) Validate(known TypeChecker) error {
 			ref(fmt.Sprintf("event_sources[%d]", j), es, c.EventSources, true)
 		}
 		p.Environment.validate(path, p, c.Environments, add)
+		p.Memory.validate(path, c.Knowledge, add)
 		ref("stages.planner.agent", p.Stages.Planner.Agent, c.Agents, true)
 		ref("stages.planner.runtime", p.Stages.Planner.Runtime, c.Runtimes, true)
 		ref("stages.implementer.agent", p.Stages.Implementer.Agent, c.Agents, true)
@@ -500,6 +484,7 @@ func (c *Config) sets() []namedSet {
 		{"validations", providers.KindValidation, c.Validations},
 		{"notifications", providers.KindNotification, c.Notifications},
 		{"environments", providers.KindEnvironment, c.Environments},
+		{"knowledge", providers.KindKnowledge, c.Knowledge},
 	}
 }
 

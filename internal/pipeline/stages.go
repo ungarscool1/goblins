@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"strings"
 
@@ -12,8 +13,8 @@ import (
 
 // prepareStage applies a stage's settings to a run, and records what executes it: the
 // blueprint, the agent, model, effort, tools and permissions, in the task's transcript.
-func (p *Pipeline) prepareStage(jc scheduler.JobContext, stage Stage, role core.AgentRole,
-	req *core.AgentRequest) {
+func (p *Pipeline) prepareStage(ctx context.Context, jc scheduler.JobContext, stage Stage,
+	role core.AgentRole, req *core.AgentRequest) error {
 	req.Role, req.Model, req.Effort = role, stage.Model, stage.Effort
 	req.Runtime, req.Timeout, req.Tools = stage.Runtime, stage.Timeout, stage.Tools
 	info := stage.Agent.Info()
@@ -26,4 +27,5 @@ func (p *Pipeline) prepareStage(jc scheduler.JobContext, stage Stage, role core.
 		role, info.Name, info.Type, cmp.Or(stage.Model, "the agent's default"),
 		cmp.Or(stage.Effort, "the agent's default"), req.Policy.WriteFiles, req.Policy.Web, tools,
 		stage.Runtime.Info().Name))
+	return p.addMemory(ctx, jc, role, req)
 }

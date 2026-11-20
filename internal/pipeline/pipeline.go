@@ -56,6 +56,8 @@ type Project struct {
 	// implementer does.
 	Triager    Stage
 	Validation core.ValidationProvider
+	// Memory, when set, is what agents are told about the project beyond the ticket.
+	Memory *Memory
 	// Environment is where a commit that passed its checks is deployed and verified.
 	Environment      core.EnvironmentProvider
 	EnvironmentLease time.Duration
@@ -93,6 +95,7 @@ type Pipeline struct {
 		GetDesign(ctx context.Context, taskID string, revision int) (core.Design, error)
 	}
 	Environments EnvironmentStore
+	Memories     core.MemoryStore
 	Log          *slog.Logger
 }
 
@@ -173,7 +176,9 @@ func (p *Pipeline) runAgent(ctx context.Context, jc scheduler.JobContext, stage 
 	if session == "" {
 		session = jc.Task.Sessions[role]
 	}
-	p.prepareStage(jc, stage, role, &req)
+	if err := p.prepareStage(ctx, jc, stage, role, &req); err != nil {
+		return core.AgentResult{}, err
+	}
 	req.IdempotencyKey = jc.Job.IdempotencyKey
 	req.WorkloadName = workloadName(jc, "agent")
 	req.Labels = p.labels(jc)
@@ -524,6 +529,7 @@ func (p *Pipeline) publish(ctx context.Context, jc scheduler.JobContext) (any, e
 	if err != nil {
 		return nil, err
 	}
+	p.proposeMemory(ctx, jc, pr, design, pull, payload.SHA)
 	return workflow.PublishResult{PullRequest: pull, Created: created}, nil
 }
 

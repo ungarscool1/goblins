@@ -24,6 +24,7 @@ const (
 	ProviderValidation   ProviderKind = "validation"
 	ProviderNotification ProviderKind = "notification"
 	ProviderEnvironment  ProviderKind = "environment"
+	ProviderKnowledge    ProviderKind = "knowledge"
 )
 
 // Capability names an optional feature of an adapter. Orchestration code asks

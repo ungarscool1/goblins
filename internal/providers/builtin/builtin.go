@@ -10,6 +10,7 @@ import (
 	"github.com/ungarscool1/goblins/internal/providers/environment"
 	"github.com/ungarscool1/goblins/internal/providers/fake"
 	gh "github.com/ungarscool1/goblins/internal/providers/github"
+	"github.com/ungarscool1/goblins/internal/providers/knowledge"
 	"github.com/ungarscool1/goblins/internal/runtime/docker"
 	"github.com/ungarscool1/goblins/internal/runtime/kubernetes"
 )
@@ -26,5 +27,6 @@ func Registry(world *fake.World) *providers.Registry {
 	kubernetes.Register(r)
 	command.Register(r)
 	environment.Register(r)
+	knowledge.Register(r)
 	return r
 }
