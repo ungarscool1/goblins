@@ -216,7 +216,9 @@ func runStep(ctx context.Context, runtime core.ExecutionRuntime, spec core.Workl
 		return workspace.Result{}, res, err
 	}
 	if res.Status.Phase != core.WorkloadSucceeded {
-		return workspace.Result{}, res, core.Errorf(core.KindTransient, "pipeline.step", "workspace step %s failed (exit %d)", spec.Name, res.Status.ExitCode)
+		return workspace.Result{}, res, core.Errorf(core.KindTransient, "pipeline.step",
+			"the %s step failed (exit %d)%s", stepOf(spec.Name), res.Status.ExitCode,
+			lastLine(res.Stderr))
 	}
 	parsed, err := workspace.ParseResult(res.Stdout)
 	return parsed, res, err
