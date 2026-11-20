@@ -42,6 +42,7 @@ inside job results.
 | `awaiting-review`  | `reviewing` (new head), `implementing` (actionable feedback), `completed` (merged), `cancelled` (closed) |
 | any active         | `blocked`, `quota-paused`, `failed`, `cancelled`           |
 | `blocked`, `quota-paused` | the state recorded when they were entered, or `investigating` if requirements changed meanwhile |
+| `failed`           | the state it failed in, on `/goblins retry` only, or `investigating` when that is unknown |
 
 `CheckTransition` enforces the table on every commit, so a bug in the machine stops
 a task instead of corrupting it.
@@ -99,6 +100,7 @@ with at least `MinApprovePermission`:
 | `/goblins pause`        | Stop the running job and block                        |
 | `/goblins resume`       | Return from `blocked` or `quota-paused`               |
 | `/goblins cancel`       | Stop everything and clean up                          |
+| `/goblins retry`        | Run a `failed` task again, from the step that failed  |
 
 ## What Goblins posts, and where
 
@@ -319,7 +321,7 @@ Comments and notifications never wait for a long agent run.
 | Handler result                                | Effect                                    |
 | --------------------------------------------- | ----------------------------------------- |
 | Success                                       | Outcome event, workflow continues         |
-| `transient`, `timeout` or `internal`          | Backoff and retry, then the task fails    |
+| `transient`, `timeout` or `internal`          | Backoff and retry, then the task fails. Publishing blocks instead, keeping the validated commit for `/goblins resume` |
 | `quota_exhausted`, `auth_required`            | Task moves to `quota-paused`              |
 | `unsupported`, `forbidden`, `invalid`, others | Task moves to `blocked` with the reason   |
 | Lease lost or job cancelled                   | Attempt stops, its result is discarded    |
@@ -394,11 +396,13 @@ Prompts guide the model; they are not the security boundary. These are enforced 
 
 If a tracker cannot accept comments, messages go to the project's notification provider
 instead. With no provider, the task becomes `blocked` with the reason rather than waiting for
-an answer nobody could give. Replies can be entered by anyone with shell access:
+an answer nobody could give. Replies can be entered in the [operator console](console.md), or by
+anyone with shell access:
 
 ```bash
 goblins comment --config goblins.yaml --task <task-id> --as alice --body "/approve-design 2"
 ```
 
-The same rules apply to the content, and shell access on the installation stands in for
-tracker permission. The name you give is recorded as the approver.
+The same rules apply to the content, and shell access on the installation, or a console login with
+the `operator` role, stands in for tracker permission. The name given, or the operator's name in the
+console, is recorded as the approver.
