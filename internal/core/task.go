@@ -42,6 +42,16 @@ type Approval struct {
 	Approver  Actor     `json:"approver"`
 	CommentID string    `json:"comment_id"`
 	At        time.Time `json:"at"`
+	// Policy, when set, says the design was approved by an approval profile, named with the
+	// hash of its rules; Approver is then the person whose label invoked it.
+	Policy string `json:"policy,omitempty"`
+}
+
+// Authorization records a person allowing something by a signal, such as a label.
+type Authorization struct {
+	Actor Actor     `json:"actor"`
+	Label string    `json:"label"`
+	At    time.Time `json:"at"`
 }
 
 // Design is one immutable proposed revision.
@@ -76,6 +86,10 @@ type Task struct {
 	DesignHash       string    `json:"design_hash,omitempty"`
 	DesignProposedAt time.Time `json:"design_proposed_at,omitzero"`
 	Approval         *Approval `json:"approval,omitempty"`
+	// Unattended records who allowed this task to run without design approval. Escalated is
+	// a commit that left that allowance's scope and waits for a person to approve the design.
+	Unattended *Authorization `json:"unattended,omitempty"`
+	Escalated  string         `json:"escalated,omitempty"`
 
 	Sessions map[AgentRole]string `json:"sessions,omitempty"`
 
@@ -331,6 +345,7 @@ type StateStore interface {
 	SetCursor(ctx context.Context, name, value string) error
 
 	LeaseStore
+	MemoryStore
 
 	Ping(ctx context.Context) error
 	Close() error

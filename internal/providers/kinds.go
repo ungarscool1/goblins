@@ -18,4 +18,5 @@ const (
 	KindValidation   = core.ProviderValidation
 	KindNotification = core.ProviderNotification
 	KindEnvironment  = core.ProviderEnvironment
+	KindKnowledge    = core.ProviderKnowledge
 )

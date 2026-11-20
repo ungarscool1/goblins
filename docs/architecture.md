@@ -49,6 +49,8 @@ orchestrator can run anywhere that can reach an engine, and nothing assumes they
 | -------------------------- | ----------------------- | ------------------------------ |
 | Domain model and contracts | `internal/core`         | [providers.md](providers.md)   |
 | States and gates           | `internal/workflow`     | [workflow.md](workflow.md)     |
+| Blueprint, approval profiles, tools | `internal/workflow/approval.go` | [blueprints.md](blueprints.md) |
+| Engineering memory         | `internal/memory`, `internal/providers/knowledge` | [memory.md](memory.md) |
 | Control loop               | `internal/scheduler`    | [workflow.md](workflow.md)     |
 | Job handlers and prompts   | `internal/pipeline`     | [workflow.md](workflow.md)     |
 | Persistence                | `internal/storage`      | [workflow.md](workflow.md)     |
