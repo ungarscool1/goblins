@@ -46,7 +46,10 @@ func NewMetrics() *Metrics {
 }
 
 // Inc adds one to a counter.
-func (m *Metrics) Inc(name string, l Labels) {
+func (m *Metrics) Inc(name string, l Labels) { m.Add(name, 1, l) }
+
+// Add adds n to a counter.
+func (m *Metrics) Add(name string, n float64, l Labels) {
 	if m == nil {
 		return
 	}
@@ -55,7 +58,7 @@ func (m *Metrics) Inc(name string, l Labels) {
 	if m.counters[name] == nil {
 		m.counters[name] = map[string]float64{}
 	}
-	m.counters[name][l.String()]++
+	m.counters[name][l.String()] += n
 }
 
 // Observe records a duration in seconds.

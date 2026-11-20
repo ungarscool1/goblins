@@ -17,6 +17,8 @@ type Environment struct {
 	Fail     func(step, target string) bool
 	// Err, when set, is returned by the step it names, as an interruption would be.
 	Err map[string]error
+	// OnStep, when set, sees each step's request before it runs.
+	OnStep func(core.StepRequest)
 
 	mu    sync.Mutex
 	Calls []string
@@ -49,6 +51,9 @@ func (e *Environment) Steps() []core.EnvironmentStep {
 
 // RunStep implements core.EnvironmentProvider.
 func (e *Environment) RunStep(_ context.Context, req core.StepRequest) (core.StepResult, error) {
+	if e.OnStep != nil {
+		e.OnStep(req)
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.Calls = append(e.Calls, req.Step.Name+"@"+req.Env.Target)

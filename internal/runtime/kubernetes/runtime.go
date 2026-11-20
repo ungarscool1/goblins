@@ -88,6 +88,11 @@ func New(name string, o Options) (*Runtime, error) {
 		if _, err := proxyPort(o.EgressProxy); err != nil {
 			return nil, err
 		}
+		if !o.NetworkPolicies {
+			// Only a policy keeps a workload from ignoring the proxy's variables.
+			return nil, core.Errorf(core.KindInvalid, "kubernetes.config",
+				"egress_proxy needs network_policies: true, or workloads could bypass the proxy")
+		}
 	}
 	if len(o.EgressExcept) == 0 {
 		o.EgressExcept = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
@@ -349,7 +354,9 @@ func (r *Runtime) addServices(p *pod, spec core.WorkloadSpec) {
 	f := false
 	alias := hostAlias{IP: "127.0.0.1"}
 	for _, svc := range spec.Services {
-		c := containerSpec{Name: "svc-" + svc.Name, Image: svc.Image, Command: svc.Command,
+		// Arguments, as on Docker: the image's entrypoint, which often prepares the service,
+		// still runs.
+		c := containerSpec{Name: "svc-" + svc.Name, Image: svc.Image, Args: svc.Command,
 			RestartPolicy: "Always", ImagePullPolicy: r.o.PullPolicy,
 			SecurityContext: containerSecurity{AllowPrivilegeEscalation: &f, Privileged: &f,
 				Capabilities: dropAll},

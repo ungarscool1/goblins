@@ -218,7 +218,7 @@ func (p *Provider) runCheck(ctx context.Context, req core.ValidationRequest, c C
 	if err != nil {
 		return check, err
 	}
-	output := Scrub(res.Stdout+res.Stderr, spec.TestSecrets)
+	output := Scrub(res.Output(), spec.TestSecrets)
 	if len(output) > maxOutput {
 		output = "[... truncated ...]\n" + output[len(output)-maxOutput:]
 	}

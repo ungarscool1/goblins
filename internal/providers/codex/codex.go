@@ -377,7 +377,7 @@ func (a *Agent) runShort(ctx context.Context, runtime core.ExecutionRuntime, nam
 	if err != nil {
 		return "", st, err
 	}
-	return out.String() + errb.String(), st, nil
+	return rt.Combined(out.String(), errb.String()), st, nil
 }
 
 // AuthStatus implements core.AgentProvider. It runs no model call, so it can back health

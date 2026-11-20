@@ -188,7 +188,7 @@ func (p *Provider) RunStep(ctx context.Context, req core.StepRequest) (core.Step
 	if err != nil {
 		return core.StepResult{}, err
 	}
-	out := command.Scrub(res.Stdout+res.Stderr, p.o.TestSecrets)
+	out := command.Scrub(res.Output(), p.o.TestSecrets)
 	if len(out) > maxOutput {
 		out = "[... truncated ...]\n" + out[len(out)-maxOutput:]
 	}
