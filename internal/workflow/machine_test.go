@@ -527,6 +527,10 @@ func TestEveryBlockCanBeResumed(t *testing.T) {
 		{"changes requested", at(core.StateReviewing, JobReview), ReviewResult{Result: core.ReviewResult{Verdict: core.VerdictChangesRequested}}, ""},
 		{"forbidden", at(core.StateImplementing, JobPublish), nil, core.KindForbidden},
 		{"unsupported", at(core.StateImplementing, JobPublish), nil, core.KindUnsupported},
+		// The commit is validated and kept, so a forge outage must not throw it away.
+		{"publishing kept failing", at(core.StateImplementing, JobPublish), nil,
+			core.KindTransient},
+		{"publishing timed out", at(core.StateImplementing, JobPublish), nil, core.KindTimeout},
 		{"invalid", at(core.StateInvestigating, JobPlan), nil, core.KindInvalid},
 	}
 	for _, tc := range cases {
@@ -962,5 +966,15 @@ func TestChangeOverTheFileBudgetBlocks(t *testing.T) {
 	}
 	if d = Decide(tk, changing(2), writeFacts(), p); !hasJob(d, JobValidate) {
 		t.Fatalf("jobs %+v", d.Jobs)
+	}
+}
+
+// Only publishing waits for a person after giving up: the other jobs have nothing worth keeping.
+func TestOtherJobsGivingUpFailTheTask(t *testing.T) {
+	p := DefaultPolicy()
+	for _, kind := range []core.JobKind{JobPlan, JobImplement} {
+		tk := at(core.StateImplementing, kind)
+		d := Decide(tk, finished(tk, false, core.KindTransient, "why", nil), writeFacts(), p)
+		mustState(t, d, core.StateFailed)
 	}
 }

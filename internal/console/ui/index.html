@@ -1,0 +1,12 @@
+{{template "top" "Tasks"}}
+{{template "nav" .View}}
+<main>
+  <h2>Needs a person</h2>
+  <p class="hint">Questions, designs to approve, blocked tasks and pull requests waiting for review.</p>
+  {{template "tasks" .NeedsYou}}
+  <h2>Working</h2>
+  {{template "tasks" .Working}}
+  <h2>Finished</h2>
+  {{template "tasks" .Finished}}
+</main>
+{{template "bottom"}}
