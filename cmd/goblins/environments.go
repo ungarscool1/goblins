@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ungarscool1/goblins/internal/app"
+	"github.com/ungarscool1/goblins/internal/pipeline"
 )
 
 // environments lists development environment leases and, with --release, gives one back. It is
@@ -35,6 +36,12 @@ func environments(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		}
 		if err := store.ReleaseLease(ctx, release, l.Holder); err != nil {
 			return err
+		}
+		// Released by hand, the target was restored: nobody needs to reset it for its holder.
+		if d, err := store.GetLease(ctx, pipeline.DirtyResource(release)); err == nil {
+			if err := store.ReleaseLease(ctx, d.Resource, d.Holder); err != nil {
+				return err
+			}
 		}
 		_, _ = fmt.Fprintf(stdout, "released %s, held by task %s since %s\n", release, l.Holder,
 			l.AcquiredAt.UTC().Format(time.RFC3339))

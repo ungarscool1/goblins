@@ -58,8 +58,13 @@ target, step, kind and result.
   without using up its attempts, and its job says which tasks hold them. A failed check keeps the
   target for the repair round; a verified commit, or the end of the task, gives it back.
 - Leases are kept in the database, so they survive restarts. A lease not used for `lease` (two
-  hours by default) can be taken over. A target still held by a task that has finished, or that
-  no longer exists, is reset with its `release` steps before it is reused.
+  hours by default) can be taken over, and a target still held by a task that has finished, or
+  that no longer exists, is taken back.
+- **A target is reset before it is reused.** Before its first change, a task records that the
+  target needs a reset, apart from the lease, and only a successful release clears it. Whoever
+  holds the target next, however they came to, runs its `release` steps first if that record
+  names another task. A release cut short by a transient error is tried again, and the task's
+  workspace is kept for it.
 - **When a reset fails,** the target stays reserved, marked broken, so no other task deploys onto
   it in an unknown state. A person restores it, then:
 

@@ -25,16 +25,20 @@ const (
 	busyRetry               = time.Minute
 	// Lease notes. "running" names a step that is not idempotent while it runs, so an
 	// interruption is seen; "broken" says a release failed and a person must look.
-	noteAcquired  = "acquired"
-	noteRunning   = "running"
-	noteBroken    = "broken"
-	noteReclaimed = "reclaimed_from"
+	noteAcquired = "acquired"
+	noteRunning  = "running"
+	noteBroken   = "broken"
 )
 
 // forever is how long a broken lease is kept: until a person releases it.
 var forever = time.Date(2200, 1, 1, 0, 0, 0, 0, time.UTC) // within int64 nanoseconds
 
 func leaseResource(provider, target string) string { return "env:" + provider + ":" + target }
+
+// DirtyResource names the marker that a shared target was changed and not yet reset. It is kept
+// apart from the target's lease, so that it outlives that lease expiring or being taken over:
+// whoever holds the target next resets it first, however they came to hold it.
+func DirtyResource(lease string) string { return "env-dirty:" + strings.TrimPrefix(lease, "env:") }
 
 // ephemeralTarget names a task's own environment. It is derived, so a retry finds it again.
 func ephemeralTarget(taskID string) string {
@@ -145,12 +149,13 @@ func (r *envRun) acquire(ctx context.Context) error {
 			continue
 		}
 		if r.reclaimable(ctx, l) {
+			// Another task may win the target in between: the dirty marker makes whoever does
+			// reset it first.
 			if err := r.p.Environments.ReleaseLease(ctx, res, l.Holder); err != nil {
 				return err
 			}
 			l2, err := r.p.Environments.AcquireLease(ctx, core.Lease{Resource: res, Holder: holder,
-				AcquiredAt: now, ExpiresAt: now.Add(ttl),
-				Data: map[string]string{noteReclaimed: l.Holder}}, now)
+				AcquiredAt: now, ExpiresAt: now.Add(ttl)}, now)
 			if err == nil {
 				r.env, r.lease = core.Environment{Provider: e.Info().Name, Target: t}, l2
 				return nil
@@ -175,13 +180,11 @@ func (r *envRun) reclaimable(ctx context.Context, l core.Lease) bool {
 }
 
 // deployAndVerify runs the steps in order and returns the first that failed, after gathering
-// evidence. A target reclaimed from a finished task is reset first.
+// evidence. A shared target another task changed and did not reset is reset first; if that
+// fails, it is kept from everyone until a person restores it.
 func (r *envRun) deployAndVerify(ctx context.Context) (string, error) {
-	if r.lease.Data[noteReclaimed] != "" {
-		if failed, err := r.phase(ctx, core.PhaseRelease); err != nil || failed != "" {
-			return failed, err
-		}
-		delete(r.lease.Data, noteReclaimed)
+	if err := r.resetLeftOver(ctx); err != nil {
+		return "", err
 	}
 	if r.lease.Data[noteAcquired] == "" {
 		if failed, err := r.phase(ctx, core.PhaseAcquire); err != nil || failed != "" {
@@ -197,6 +200,36 @@ func (r *envRun) deployAndVerify(ctx context.Context) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// resetLeftOver resets a shared target another task left changed, then marks it as this task's
+// to reset, before any step of this task changes it.
+func (r *envRun) resetLeftOver(ctx context.Context) error {
+	if r.env.Ephemeral {
+		return nil // its own, released by the task that made it
+	}
+	res, now := DirtyResource(r.lease.Resource), time.Now()
+	dirty, err := r.p.Environments.GetLease(ctx, res)
+	switch {
+	case core.IsKind(err, core.KindNotFound):
+	case err != nil:
+		return err
+	case dirty.Holder != r.jc.Task.ID:
+		failed, err := r.phase(ctx, core.PhaseRelease)
+		if err != nil {
+			return err // the marker stays, so the reset is tried again
+		}
+		if failed != "" {
+			return r.quarantine(ctx, fmt.Sprintf("resetting it after task %s: step %s failed",
+				dirty.Holder, failed))
+		}
+		if err := r.p.Environments.ReleaseLease(ctx, res, dirty.Holder); err != nil {
+			return err
+		}
+	}
+	_, err = r.p.Environments.AcquireLease(ctx, core.Lease{Resource: res, Holder: r.jc.Task.ID,
+		AcquiredAt: now, ExpiresAt: forever}, now)
+	return err
 }
 
 // evidence gathers diagnostics after a failure and adds them to the failed step's output, which
@@ -303,16 +336,34 @@ func (r *envRun) note(ctx context.Context, key, value string) error {
 }
 
 // release resets or destroys the environment and gives the lease up. When that fails, the
-// lease is kept, marked broken, so no other task deploys onto a target in an unknown state.
+// lease is kept, marked broken, so no other task deploys onto a target in an unknown state. A
+// release cut short by a transient error is tried again instead, unless the step it cut short
+// cannot safely run twice.
 func (r *envRun) release(ctx context.Context) error {
+	if step := r.lease.Data[noteRunning]; step != "" {
+		return r.quarantine(ctx, "step "+step+" was interrupted and cannot safely run twice")
+	}
 	failed, err := r.phase(ctx, core.PhaseRelease)
+	if core.IsKind(err, core.KindTransient) || core.IsKind(err, core.KindCancelled) {
+		return err // nothing is known to have gone wrong: the release is tried again
+	}
 	if err == nil && failed == "" {
+		if err := r.p.Environments.ReleaseLease(ctx, DirtyResource(r.lease.Resource),
+			r.jc.Task.ID); err != nil {
+			return err
+		}
 		return r.p.Environments.ReleaseLease(ctx, r.lease.Resource, r.jc.Task.ID)
 	}
 	why := "step " + failed + " failed"
 	if err != nil {
 		why = core.UserMessage(err)
 	}
+	return r.quarantine(ctx, why)
+}
+
+// quarantine keeps the lease, marked broken, so no other task deploys onto a target in an
+// unknown state, and says a person must restore it.
+func (r *envRun) quarantine(ctx context.Context, why string) error {
 	l := r.lease
 	l.ExpiresAt = forever
 	l.Data = maps.Clone(l.Data)

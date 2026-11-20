@@ -163,3 +163,80 @@ func TestCleanupReleasesTheEnvironment(t *testing.T) {
 		t.Fatalf("ran = %v", w.env.Ran())
 	}
 }
+
+// However a target changes hands, the next holder resets what the last one left: here the
+// finished holder's lease is gone, as when it expired or another task cleared it, and the next
+// task acquires the target the ordinary way.
+func TestATargetIsResetHoweverItChangesHands(t *testing.T) {
+	w := newEnvWorld(t, "dev-1")
+	w.env.Fail = func(step, _ string) bool { return step == "smoke" }
+	_, _, _ = w.check(t, "gone")
+	w.tasks["gone"] = core.Task{ID: "gone", State: core.StateCancelled}
+	if err := w.store.ReleaseLease(context.Background(), "env:dev:dev-1", "gone"); err != nil {
+		t.Fatal(err)
+	}
+	w.env.Fail = nil
+	checks, failure, err := w.check(t, "next")
+	if err != nil || failure != "" || !strings.HasPrefix(checks[0].Name, "reset on dev/dev-1") {
+		t.Fatalf("checks = %+v, %q, %v", checks, failure, err)
+	}
+	// Released after verifying, the target is clean: the one after resets nothing first.
+	checks, _, err = w.check(t, "third")
+	if err != nil || strings.HasPrefix(checks[0].Name, "reset") {
+		t.Fatalf("third: %+v, %v", checks, err)
+	}
+}
+
+// A reset that fails on a target another task left is not a check failure for the implementer
+// to repair: the target is reserved until a person restores it.
+func TestAFailedResetOfALeftTargetReservesIt(t *testing.T) {
+	w := newEnvWorld(t, "dev-1")
+	w.env.Fail = func(step, _ string) bool { return step == "smoke" }
+	_, _, _ = w.check(t, "gone")
+	w.tasks["gone"] = core.Task{ID: "gone", State: core.StateCancelled}
+	w.env.Fail = func(step, _ string) bool { return step == "reset" }
+	_, _, err := w.check(t, "next")
+	if !core.IsKind(err, core.KindForbidden) || !strings.Contains(err.Error(), "task gone") {
+		t.Fatalf("failed reset: %v", err)
+	}
+	l, _ := w.store.GetLease(context.Background(), "env:dev:dev-1")
+	if l.Holder != "next" || l.Data[noteBroken] == "" || !l.ExpiresAt.Equal(forever) {
+		t.Fatalf("lease = %+v", l)
+	}
+	if n := strings.Count(strings.Join(w.env.Ran(), " "), "deploy@"); n != 1 {
+		t.Fatalf("deployed %d times, want only gone's", n)
+	}
+}
+
+// Cleanup releases the environment while the workspace its release steps use still exists,
+// and keeps the workspace when the release is to be tried again.
+func TestCleanupReleasesBeforeRemovingTheWorkspace(t *testing.T) {
+	w := newEnvWorld(t)
+	rt := w.pr.Implementer.Runtime.(*fake.Runtime)
+	w.pr.Planner = w.pr.Implementer
+	w.env.Fail = func(step, _ string) bool { return step == "smoke" }
+	_, _, _ = w.check(t, "a")
+	w.env.Fail = nil
+	scratch := w.p.volume(w.jc("a").Task, "scratch")
+	if err := rt.EnsureVolume(context.Background(), scratch, nil); err != nil {
+		t.Fatal(err)
+	}
+	present := map[string]bool{}
+	w.env.OnStep = func(req core.StepRequest) {
+		present[req.Step.Name] = rt.HasVolume(req.Workspace.Volume)
+	}
+	w.env.Err = map[string]error{"reset": core.Errorf(core.KindTransient, "test", "busy")}
+	if _, err := w.p.cleanup(context.Background(), w.jc("a")); err == nil {
+		t.Fatal("cleanup succeeded with the release still to do")
+	}
+	if !rt.HasVolume(scratch) {
+		t.Fatal("the workspace was removed before the release could be tried again")
+	}
+	w.env.Err = nil
+	if _, err := w.p.cleanup(context.Background(), w.jc("a")); err != nil {
+		t.Fatal(err)
+	}
+	if !present["reset"] || rt.HasVolume(scratch) {
+		t.Fatalf("reset saw the workspace: %v; left: %v", present["reset"], rt.HasVolume(scratch))
+	}
+}
