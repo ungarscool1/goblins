@@ -76,3 +76,36 @@ func TestEnvironmentCatchesWhatChecksMissAndIsReleased(t *testing.T) {
 		t.Errorf("leases left: %+v", leases)
 	}
 }
+
+// With approve, nothing is deployed until a person approves the exact commit, each time.
+func TestEachDeploymentWaitsForAPerson(t *testing.T) {
+	e := setup(t)
+	e.cfgYAML = []byte(strings.Replace(envConfig(t, e, "[]"), "environment: {name: dev}",
+		"environment: {name: dev, approve: true}", 1))
+	e.boot()
+	e.toDesign()
+	task := e.task()
+	e.comment(maintainer, fmt.Sprintf("/approve-design %d", task.DesignRevision))
+	e.settle()
+	for round := 1; round <= 2; round++ {
+		task = e.wantState(core.StateBlocked)
+		if task.Deploy == nil || task.Deploy.Approver != nil {
+			t.Fatalf("round %d: deploy = %+v", round, task.Deploy)
+		}
+		if _, err := os.Stat(filepath.Join(e.root, "dev-envs")); round == 1 && err == nil {
+			t.Fatal("deployed before anyone approved")
+		}
+		if !strings.Contains(e.botComments(), "/goblins deploy "+task.Deploy.SHA[:12]) {
+			t.Fatalf("round %d: not asked:\n%s", round, e.botComments())
+		}
+		e.comment(maintainer, "/goblins deploy "+task.Deploy.SHA[:12])
+		e.settle()
+	}
+	task = e.wantState(core.StateCompleted)
+	if task.Deploy.Approver == nil || task.Deploy.Approver.Login != maintainer.Login {
+		t.Fatalf("deploy = %+v", task.Deploy)
+	}
+	if len(e.gh.PullRequests(repo)) != 1 {
+		t.Fatal("no pull request")
+	}
+}

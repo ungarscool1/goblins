@@ -93,6 +93,8 @@ retries right away.
 - `scheduler.max_concurrent_agents` and `max_agents_per_project` cap the rest.
 - `timeout` on a stage caps one run, and `policy.max_plan_loops`, `max_implement_loops` and
   `max_review_fix_loops` cap how often a task goes around.
+- `policy.max_task_tokens` caps the tokens one task's agents may report using before a person
+  is asked to let it continue ([blueprints.md](blueprints.md#token-budget)).
 - `/goblins pause` on a ticket stops that task. To stop everything, `docker compose stop goblins`.
 
 ## Traces

@@ -45,6 +45,7 @@ func policyFor(pc config.Project) workflow.Policy {
 		p.MaxLimitPauses = c.MaxLimitPauses
 	}
 	p.MaxChangedFiles = c.MaxChangedFiles
+	p.MaxTaskTokens = c.MaxTaskTokens
 	if c.MaxReviewFixLoops > 0 {
 		p.MaxReviewFixLoops = c.MaxReviewFixLoops
 	}

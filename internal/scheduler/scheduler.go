@@ -110,6 +110,16 @@ type JobContext struct {
 	SaveCheckpoint func(ctx context.Context, v any) error
 	// Log appends bounded, redacted output to the task's transcript.
 	Log func(kind, text string)
+	// AddUsage records what an agent run of this job reported using. Use Used, which
+	// tolerates its absence.
+	AddUsage func(core.AgentUsage)
+}
+
+// Used records what an agent run reported using, for the task's token budget.
+func (jc JobContext) Used(u core.AgentUsage) {
+	if jc.AddUsage != nil && u != (core.AgentUsage{}) {
+		jc.AddUsage(u)
+	}
 }
 
 // Handler performs one kind of job. Its result becomes the job outcome. It must
@@ -340,7 +350,20 @@ func (s *Scheduler) runJob(parent context.Context, job core.Job) {
 	default:
 	}
 	s.observeJob(bg, log, task, job, start, runErr)
-	s.record(bg, parent.Err() != nil, errors.Is(ctx.Err(), context.DeadlineExceeded), log, task, job, result, runErr)
+	s.record(bg, attempt{shuttingDown: parent.Err() != nil,
+		timedOut: errors.Is(ctx.Err(), context.DeadlineExceeded), log: log, task: task, job: job,
+		result: result, err: runErr, usage: tr.used()})
+}
+
+// attempt is how one attempt at a job ended.
+type attempt struct {
+	shuttingDown, timedOut bool
+	log                    *slog.Logger
+	task                   core.Task
+	job                    core.Job
+	result                 any
+	err                    error
+	usage                  core.AgentUsage
 }
 
 func (s *Scheduler) invoke(ctx context.Context, job core.Job, task core.Task, tr *transcript) (res any, err error) {
@@ -355,7 +378,7 @@ func (s *Scheduler) invoke(ctx context.Context, job core.Job, task core.Task, tr
 		}
 	}()
 	return h(ctx, JobContext{
-		Job: job, Task: task, Log: tr.log,
+		Job: job, Task: task, Log: tr.log, AddUsage: tr.addUsage,
 		SaveCheckpoint: func(ctx context.Context, v any) error {
 			b, err := json.Marshal(v)
 			if err != nil {
@@ -366,9 +389,11 @@ func (s *Scheduler) invoke(ctx context.Context, job core.Job, task core.Task, tr
 	})
 }
 
-func (s *Scheduler) record(bg context.Context, shuttingDown, timedOut bool, log *slog.Logger, task core.Task, job core.Job, result any, runErr error) {
+func (s *Scheduler) record(bg context.Context, a attempt) {
+	log, task, job, runErr := a.log, a.task, a.job, a.err
 	now := s.Now()
 	finish := func(state core.JobState, o core.JobOutcome) {
+		o.Usage = a.usage
 		ev := workflow.JobOutcomeEvent(task, job, o, now)
 		err := s.Store.FinishJob(bg, core.JobFinish{JobID: job.ID, Owner: job.LeaseOwner, Attempt: job.Attempt, State: state, Error: o.Message, Event: &ev, Now: now})
 		if err != nil {
@@ -376,7 +401,7 @@ func (s *Scheduler) record(bg context.Context, shuttingDown, timedOut bool, log 
 		}
 	}
 	if runErr == nil {
-		raw, err := json.Marshal(result)
+		raw, err := json.Marshal(a.result)
 		if err != nil {
 			finish(core.JobFailed, core.JobOutcome{ErrorKind: core.KindInternal, Message: "unreadable job result"})
 			return
@@ -387,7 +412,7 @@ func (s *Scheduler) record(bg context.Context, shuttingDown, timedOut bool, log 
 	}
 
 	// Shutting down is not the job's fault: run it again on the next start.
-	if shuttingDown {
+	if a.shuttingDown {
 		if err := s.Store.RequeueInterruptedJob(bg, job.ID, job.LeaseOwner, job.Attempt, now, "interrupted by shutdown"); err != nil {
 			log.Warn("cannot requeue interrupted job", "err", err)
 		}
@@ -395,7 +420,7 @@ func (s *Scheduler) record(bg context.Context, shuttingDown, timedOut bool, log 
 	}
 	kind := core.KindOf(runErr)
 	message := observability.RedactText(core.UserMessage(runErr))
-	if timedOut {
+	if a.timedOut {
 		kind, message = core.KindTimeout, "the job exceeded its time limit"
 	}
 	log.Warn("job attempt failed", "error_kind", kind, "err", runErr)
@@ -484,6 +509,19 @@ type transcript struct {
 	mu    sync.Mutex
 	buf   []core.TranscriptEntry
 	count int
+	usage core.AgentUsage
+}
+
+func (t *transcript) addUsage(u core.AgentUsage) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.usage = t.usage.Add(u)
+}
+
+func (t *transcript) used() core.AgentUsage {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.usage
 }
 
 func (s *Scheduler) newTranscript(job core.Job) *transcript { return &transcript{s: s, job: job} }

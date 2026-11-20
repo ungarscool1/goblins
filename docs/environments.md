@@ -33,7 +33,7 @@ environments:
 projects:
   - id: app
     validation: checks
-    environment: {name: dev, lease: 2h}
+    environment: {name: dev, lease: 2h}   # add approve: true to ask a person before each deployment
 ```
 
 | Phase | When | Kinds allowed |
@@ -72,6 +72,22 @@ target, step, kind and result.
 goblins environments                          # leases, holders and notes
 goblins environments --release env:dev:dev-1  # give a restored target back
 ```
+
+## Approving each deployment
+
+With `approve: true`, a commit that passed its checks is not deployed until a person approves
+that exact commit. The task stops as `blocked`, and Goblins asks on the ticket:
+
+```text
+/goblins deploy 3f2a9c1e07b4
+```
+
+Only someone with `min_approve_permission`, in a comment written after the request was posted,
+naming the commit waiting, can approve it; the console has the same button. The approval is
+recorded on the task with who gave it. Each new commit, such as a repair round's, asks again;
+the same commit checked again later, such as on the pull request, does not. `/goblins resume`
+does not deploy: it says to use `/goblins deploy`. This holds for unattended tasks too, as the
+approval profile only covers designs.
 
 ## Interruptions
 

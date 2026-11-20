@@ -60,6 +60,7 @@ are kept for `scheduler.transcript_retention`.
 | Resume | `/goblins resume` | Runs the interrupted step again, with fresh round budgets |
 | Cancel | `/goblins cancel` | |
 | Run again | `/goblins retry` | Only for a failed task: runs the step that failed again, with fresh round budgets |
+| Deploy | `/goblins deploy <sha>` | Only for a deployment waiting for approval, naming the commit on screen |
 
 An action is stored as an operator comment under the operator's name, with maintainer access. The
 workflow then applies it, or ignores it, exactly as it would that comment on the ticket. The task's
@@ -77,7 +78,7 @@ Send the token as `Authorization: Bearer <token>`.
 | `GET /api/v1/tasks/{id}/conversation` | The conversation only |
 | `GET /api/v1/tasks/{id}/transcript[?job=ID]` | Transcript entries, up to 2000 |
 | `GET /api/v1/tasks/{id}/designs/{revision}` | One design revision |
-| `POST /api/v1/tasks/{id}/actions` | `202` once stored. Body: `{"action": "answer", "text": "..."}`, `{"action": "approve", "revision": 2, "hash": "..."}`, or `pause`, `resume`, `cancel` |
+| `POST /api/v1/tasks/{id}/actions` | `202` once stored. Body: `{"action": "answer", "text": "..."}`, `{"action": "approve", "revision": 2, "hash": "..."}`, `{"action": "deploy", "sha": "..."}`, or `pause`, `resume`, `cancel`, `retry` |
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8081/api/v1/tasks

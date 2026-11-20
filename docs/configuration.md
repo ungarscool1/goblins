@@ -72,6 +72,7 @@ right away, including for the rest of the account.
 | `policy.max_limit_pause` | 6h | Longest a pause grows to, when no reset time is known |
 | `policy.max_limit_pauses` | 8 | Pauses in a row before blocking |
 | `policy.max_changed_files` | none | Blocks a change touching more files than this, before it is checked or published |
+| `policy.max_task_tokens` | none | Blocks a task before more agent work once its agents reported using this many tokens, input and output together. `/goblins resume` grants another budget of the same size |
 | `stages.*.timeout` | per stage | Longest one run may take |
 | `stages.*.fallback_model` | none | Continues the same session on this model when the configured one is limited. Planner, implementer and triager only |
 | `stages.*.max_tool_calls` | none | Blocks a run making more tool calls than this. `/goblins resume` grants a new budget. Planner, implementer and triager only |

@@ -94,6 +94,7 @@ func (a *AgentReviewer) Review(ctx context.Context, req core.ReviewRequest) (cor
 			"the reviewer returned an unusable result: %v", err)
 	}
 	out.Provider, out.PromptVersion = a.Stage.Agent.Info().Type, workflow.ReviewPromptVersion
+	out.Usage = res.Usage
 	return out, nil
 }
 
@@ -225,6 +226,7 @@ func (p *Pipeline) review(ctx context.Context, jc scheduler.JobContext) (any, er
 			workflow.ReviewPromptVersion, r.Info().Name)
 		req.WorkloadName = workloadName(jc, "review-"+strconv.Itoa(i))
 		res, err = r.Review(ctx, req)
+		jc.Used(res.Usage)
 		if err == nil {
 			res.Provider = cmp.Or(res.Provider, r.Info().Name)
 			reviewed = true

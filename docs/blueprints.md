@@ -11,7 +11,7 @@ owns every transition between them: model output is data, never workflow control
 | Approve | approval | the project's approval profile, below | a person, or the profile's scope |
 | Implement | agent, file tools only | `stages.implementer` | `max_implement_loops`, `max_tool_calls`, `timeout` |
 | Check | command | the validation provider or the repository's manifest ([configuration.md](configuration.md#validation)) | per-check `timeout` |
-| Deploy and verify | environment action | the project's environment ([environments.md](environments.md)) | its steps' kinds and the lease |
+| Deploy and verify | environment action | the project's environment ([environments.md](environments.md)) | its steps' kinds, the lease, and a person's `/goblins deploy` for each commit with `approve: true` |
 | Review | review | `review`, `stages.reviewers` | `max_review_fix_loops`, `max_triage_rounds` |
 | Publish | publish | the SCM, as a draft | only the commit that passed every stage before |
 
@@ -64,6 +64,16 @@ infrastructure (`**/Dockerfile`, `**/*.tf`, `**/*.tfvars`, `deploy/**`, `infra/*
 `**/*secret*`, `**/*credential*`, `**/.env*`, `**/*.pem`, `**/*.key`) and dependencies (`go.mod`,
 `go.sum`, `package.json`, lock files). Matching ignores case.
 
+## Token budget
+
+`policy.max_task_tokens` bounds what one task spends. Every agent run of the task, planning,
+implementing, triage, review and describing alike, adds what its CLI reported, input and output
+together. Once a task reaches its budget, it stops as `blocked` before its next planning,
+implementation, review or triage job, and that job is kept: `/goblins resume`, or
+`/goblins retry` on a failed task, runs it with another budget of the same size. Nothing is
+estimated: a CLI that reports no usage spends none of the budget, and an attempt retried after a
+transient error counts only its last try.
+
 ## Allow-listed tools
 
 Agents have file tools only, by role ([ADR 0004](adr/0004-agent-credential-boundary.md)). An
@@ -93,5 +103,7 @@ projects:
 - **An MCP server runs inside the agent's workload, next to its login.** Only add servers you
   would trust with it: read-only ones that cannot run commands or reach arbitrary hosts. Values in
   `env` are not secrets: the configuration refuses inline secrets.
+- Checked against Claude Code 2.1.316 in its restricted mode: a server given this way connects,
+  its tool is listed as `mcp__<server>__<tool>` and can be called, and nothing else is loaded.
 - Nothing is installed at run time: what is offered is what the image contains, at the version
   the image pins.

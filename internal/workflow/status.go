@@ -147,6 +147,10 @@ func nextStep(t *core.Task, p Policy) string {
 	case core.StateAwaitingReview:
 		return gateStep(t.Gate)
 	case core.StateBlocked:
+		if d := t.Deploy; d != nil && d.Approver == nil {
+			return fmt.Sprintf("check commit `%s`, then approve its deployment with "+
+				"`/goblins deploy %s`", short(d.SHA), short(d.SHA))
+		}
 		return "fix the cause, then comment `/goblins resume`" + because("Blocked", t.Reason)
 	case core.StateQuotaPaused:
 		return "nothing, Goblins resumes on its own" + because("Paused", t.Reason)

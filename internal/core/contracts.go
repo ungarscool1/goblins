@@ -175,9 +175,15 @@ type AgentResult struct {
 // AgentUsage is what a run reported using. It is zero when the CLI does not say, and is never
 // an estimate.
 type AgentUsage struct {
-	InputTokens  int64
-	OutputTokens int64
-	Turns        int
+	InputTokens  int64 `json:"input_tokens,omitempty"`
+	OutputTokens int64 `json:"output_tokens,omitempty"`
+	Turns        int   `json:"turns,omitempty"`
+}
+
+// Add is both usages together.
+func (u AgentUsage) Add(o AgentUsage) AgentUsage {
+	return AgentUsage{InputTokens: u.InputTokens + o.InputTokens,
+		OutputTokens: u.OutputTokens + o.OutputTokens, Turns: u.Turns + o.Turns}
 }
 
 // AuthState is the login state of an agent installation.
@@ -409,6 +415,8 @@ type ReviewResult struct {
 	PromptVersion string `json:"prompt_version,omitempty"`
 	// Published means the reviewer has already put it on the pull request itself.
 	Published bool `json:"published,omitempty"`
+	// Usage is what an agent reported using for it, if an agent did it.
+	Usage AgentUsage `json:"usage,omitzero"`
 }
 
 // ReviewProvider reviews pull requests independently of the implementer.

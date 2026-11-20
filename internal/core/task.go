@@ -90,6 +90,13 @@ type Task struct {
 	// a commit that left that allowance's scope and waits for a person to approve the design.
 	Unattended *Authorization `json:"unattended,omitempty"`
 	Escalated  string         `json:"escalated,omitempty"`
+	// Deploy is the deployment of a commit to the project's environment that waits for, or
+	// has, a person's approval, when the project asks for one.
+	Deploy *DeployGate `json:"deploy,omitempty"`
+	// TokensUsed is what the task's agent runs reported using, input and output together;
+	// TokenBudgetFrom is that count when a person last let it continue.
+	TokensUsed      int64 `json:"tokens_used,omitempty"`
+	TokenBudgetFrom int64 `json:"token_budget_from,omitempty"`
 
 	Sessions map[AgentRole]string `json:"sessions,omitempty"`
 
@@ -205,6 +212,19 @@ type JobOutcome struct {
 	Result    json.RawMessage `json:"result,omitempty"`
 	// RetryAt is when a limit is known to end, if something reported it.
 	RetryAt time.Time `json:"retry_at,omitzero"`
+	// Usage is what the agents this job ran reported using.
+	Usage AgentUsage `json:"usage,omitzero"`
+}
+
+// DeployGate is a person's approval to deploy one commit to a project's environment.
+type DeployGate struct {
+	SHA string `json:"sha"`
+	// RequestedAt is when the request was posted, which its CommentKey says until it is.
+	RequestedAt time.Time `json:"requested_at,omitzero"`
+	CommentKey  string    `json:"comment_key,omitempty"`
+	Approver    *Actor    `json:"approver,omitempty"`
+	CommentID   string    `json:"comment_id,omitempty"`
+	At          time.Time `json:"at,omitzero"`
 }
 
 // LimitHold keeps jobs of a limit key from starting, because the account behind it is limited.

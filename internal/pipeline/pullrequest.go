@@ -93,6 +93,7 @@ func (p *Pipeline) describeChange(ctx context.Context, jc scheduler.JobContext, 
 		Timeout: cmp.Or(stage.Timeout, describeTimeout), Runtime: pr.Implementer.Runtime,
 		Workspace: p.pinnedMount(jc.Task), WorkDir: workspace.RepoDir, Labels: p.labels(jc),
 	}, func(core.AgentEvent) {})
+	jc.Used(res.Usage)
 	if err != nil {
 		jc.Log("system", "cannot describe the change: "+err.Error())
 		return nil

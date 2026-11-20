@@ -101,6 +101,7 @@ with at least `MinApprovePermission`:
 | `/goblins resume`       | Return from `blocked` or `quota-paused`               |
 | `/goblins cancel`       | Stop everything and clean up                          |
 | `/goblins retry`        | Run a `failed` task again, from the step that failed  |
+| `/goblins deploy <sha>` | Approve deploying that commit, when the project's environment asks (`approve: true`) |
 
 ## What Goblins posts, and where
 
