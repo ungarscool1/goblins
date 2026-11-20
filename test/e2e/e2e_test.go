@@ -656,6 +656,39 @@ func TestTestsThatNeverPassBlockAndPublishNothing(t *testing.T) {
 	}
 }
 
+// Code a hostile agent leaves for Git to run never runs where a token is: publishing reads a
+// bundle into a fresh repository, and hooks are off everywhere.
+func TestPlantedHooksNeverSeeACredential(t *testing.T) {
+	e := setup(t)
+	e.toDesign()
+	e.scenario("plants_hooks")
+	task := e.task()
+	e.comment(maintainer, fmt.Sprintf("/approve-design %d", task.DesignRevision))
+	e.settle()
+	e.boot()
+	e.settle()
+	e.wantState(core.StateCompleted)
+	ran, _ := os.ReadFile(e.configFile("hooks-ran"))
+	planted, _ := os.ReadFile(e.configFile("planted"))
+	if !strings.Contains(string(planted), "PLANTED") {
+		t.Fatalf("nothing was planted:\n%s", planted)
+	}
+	for line := range strings.SplitSeq(strings.TrimSpace(string(ran)), "\n") {
+		if line != "" && !strings.HasSuffix(line, " none") {
+			t.Errorf("planted code ran with a credential: %q", line)
+		}
+	}
+	for _, s := range e.rt.Specs {
+		if strings.Contains(s.Name, "-check-") && s.Trust != core.TrustSandbox {
+			t.Errorf("%s: a check is not a sandbox", s.Name)
+		}
+		if len(s.Secrets) > 0 && s.Trust != core.TrustCredentialed {
+			t.Errorf("%s: secrets in a sandbox", s.Name)
+		}
+	}
+	e.assertCredentialBoundary(t)
+}
+
 func TestMissingPullRequestPermissionBlocks(t *testing.T) {
 	e := setup(t)
 	e.toDesign()

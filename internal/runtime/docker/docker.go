@@ -56,6 +56,10 @@ type Options struct {
 	// DiskLimits declares that the storage driver supports per-container size limits.
 	DiskLimits bool
 	Defaults   core.Resources
+	// EgressProxy, when set, is the only way out for egress workloads: they join
+	// EgressNetwork, which is internal, and get it as their HTTPS proxy.
+	EgressProxy   string
+	EgressNetwork string
 }
 
 // Runtime implements core.ExecutionRuntime.
@@ -115,6 +119,7 @@ func Register(reg *providers.Registry) {
 		return New(name, Options{
 			Host: host, Network: opts.String("network"), User: opts.String("user"),
 			PullMissing: opts.Bool("pull_missing", true), DiskLimits: opts.Bool("disk_limits", false),
+			EgressProxy: opts.String("egress_proxy"), EgressNetwork: opts.String("egress_network"),
 			Defaults: core.Resources{MemoryBytes: int64(opts.Int("memory_mb", 4096)) << 20, CPUs: float64(opts.Int("cpus", 2)), PIDs: int64(opts.Int("pids", 512))},
 		})
 	})
@@ -259,7 +264,7 @@ func (r *Runtime) buildCreate(spec core.WorkloadSpec, deadline time.Time) (conta
 	case core.NetworkNone:
 		hc.NetworkMode = "none"
 	case core.NetworkEgress:
-		hc.NetworkMode = r.opts.Network
+		hc.NetworkMode = r.egressNetwork()
 	}
 	if spec.Resources.DiskBytes > 0 {
 		hc.StorageOpt = map[string]string{"size": strconv.FormatInt(spec.Resources.DiskBytes, 10)}
@@ -275,6 +280,7 @@ func (r *Runtime) buildCreate(spec core.WorkloadSpec, deadline time.Time) (conta
 	for _, k := range slices.Sorted(maps.Keys(spec.Env)) {
 		env = append(env, k+"="+spec.Env[k])
 	}
+	env = append(env, r.proxyEnv(spec.Network)...)
 	for _, k := range slices.Sorted(maps.Keys(spec.Secrets)) {
 		env = append(env, k+"="+spec.Secrets[k].Reveal())
 	}
@@ -297,7 +303,7 @@ func (r *Runtime) Create(ctx context.Context, spec core.WorkloadSpec) (core.Work
 		return core.WorkloadStatus{}, err
 	}
 	if spec.Network == core.NetworkEgress {
-		if err := r.ensureNetwork(ctx); err != nil {
+		if err := r.ensureEgress(ctx); err != nil {
 			return core.WorkloadStatus{}, err
 		}
 	}

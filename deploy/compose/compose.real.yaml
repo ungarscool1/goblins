@@ -73,6 +73,25 @@ services:
     volumes:
       - codex-home:/codex-home
 
+  # Optional egress allow-list for agents and Git steps. With `egress_proxy` set on the docker
+  # runtime, those workloads join an internal network whose only way out is this proxy, which
+  # opens HTTPS tunnels to the listed hosts only. Enable with COMPOSE_PROFILES=egress and see
+  # docs/docker-runtime.md.
+  egress-proxy:
+    profiles: [egress]
+    image: goblins:${GOBLINS_VERSION:-dev}
+    command: ["egress-proxy", "--listen", "0.0.0.0:3128"]
+    healthcheck:
+      test: ["CMD", "goblins", "healthcheck", "--url", "http://127.0.0.1:3128/healthz"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    environment:
+      # A starting point: check the proxy's log for "egress denied" and adjust.
+      GOBLINS_EGRESS_ALLOW: ${GOBLINS_EGRESS_ALLOW:-api.anthropic.com,claude.ai,console.anthropic.com,platform.claude.com,github.com}
+    networks: [default, egress]
+
   # Worker images, built with: docker compose --profile images build
   image-agent:
     profiles: [images]
@@ -92,6 +111,10 @@ services:
 
 networks:
   docker-api:
+    internal: true
+  egress:
+    # Internal: no route out but the proxy. It must match egress_network in goblins.yaml.
+    name: ${GOBLINS_EGRESS_NETWORK:-goblins-personal-egress}
     internal: true
 
 volumes:

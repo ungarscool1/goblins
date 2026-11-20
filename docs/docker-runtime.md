@@ -71,6 +71,29 @@ mount host paths. So **do not share this engine with anything important**: run o
 disposable host or VM, or point the runtime at a remote engine dedicated to workers. Enforcing
 this rather than documenting it is tracked in #16.
 
+## Limiting egress to listed hosts
+
+Agents and Git steps need the internet. By default they get the workers bridge, which reaches
+anything. To limit them to an allow-list, run the egress proxy (`COMPOSE_PROFILES=egress` in
+Compose) and set:
+
+```yaml
+runtimes:
+  docker:
+    type: docker
+    options:
+      egress_proxy: http://egress-proxy:3128
+      egress_network: goblins-personal-egress   # internal; Compose creates it
+```
+
+Egress workloads then join that network, which has no route out, and get the proxy as
+`HTTPS_PROXY`. The proxy joins both that network and one with a route out, and opens HTTPS tunnels
+only to the hosts in `GOBLINS_EGRESS_ALLOW`. It refuses names that resolve to private, loopback or
+link-local addresses, and refuses plain HTTP. If `egress_network` exists and isn't internal,
+Goblins refuses to use it, since the proxy could then be bypassed. Denials are logged as
+`egress denied` with the host. Start from the list in `compose.real.yaml` and add what your
+agents, tools and Git remotes need. See [ADR 0008](adr/0008-runner-and-sandbox.md).
+
 ## Known limitations
 
 - Workers with egress can reach anything their bridge can route to, including the host

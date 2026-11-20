@@ -42,8 +42,14 @@ spec:
         - namespaceSelector: {}
           podSelector: {matchLabels: {k8s-app: kube-dns}}
       ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    {{- if .Values.egressProxy.enabled }}
+    - to:
+        - podSelector: {matchLabels: {app.kubernetes.io/component: egress-proxy}}
+      ports: [{protocol: TCP, port: 3128}]
+    {{- else }}
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
             except: {{- toYaml .Values.workloads.egressExcept | nindent 14 }}
+    {{- end }}
 {{- end }}

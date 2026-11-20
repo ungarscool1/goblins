@@ -40,7 +40,8 @@ func Register(reg *providers.Registry) {
 			VolumeSize:      opts.String("volume_size"), TmpSize: opts.String("tmp_size"),
 			PullPolicy: opts.String("pull_policy"), DiskLimits: opts.Bool("disk_limits", true),
 			GPUResource: opts.String("gpu_resource"), KVMResource: opts.String("kvm_resource"),
-			SplitStreams: opts.Bool("split_streams", false), GuardImage: opts.String("guard_image"),
+			SplitStreams: opts.Bool("split_streams", false),
+			EgressProxy:  opts.String("egress_proxy"), GuardImage: opts.String("guard_image"),
 			Defaults: core.Resources{MemoryBytes: int64(opts.Int("memory_mb", 4096)) << 20,
 				CPUs: float64(opts.Int("cpus", 2))},
 		})

@@ -26,6 +26,7 @@ import (
 	"github.com/ungarscool1/goblins/internal/pipeline"
 	"github.com/ungarscool1/goblins/internal/providers"
 	"github.com/ungarscool1/goblins/internal/providers/fake"
+	rt "github.com/ungarscool1/goblins/internal/runtime"
 	"github.com/ungarscool1/goblins/internal/runtime/workspace"
 	"github.com/ungarscool1/goblins/internal/scheduler"
 	"github.com/ungarscool1/goblins/internal/storage"
@@ -81,6 +82,9 @@ type builder struct {
 	reg  *providers.Registry
 	deps providers.Deps
 	seen map[string]core.Provider
+	// creds and guarded keep login volumes away from sandboxes, on every runtime.
+	creds   rt.CredentialSet
+	guarded map[string]core.ExecutionRuntime
 }
 
 func build[T core.Provider](b *builder, kind providers.Kind, set config.ProviderSet, name string) (T, error) {
@@ -109,7 +113,8 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	b := &builder{cfg: cfg, reg: o.Registry, seen: map[string]core.Provider{},
-		deps: providers.Deps{Log: log, Installation: cfg.Installation.Name, DataDir: cfg.Installation.DataDir, Getenv: os.LookupEnv, Now: now}}
+		guarded: map[string]core.ExecutionRuntime{},
+		deps:    providers.Deps{Log: log, Installation: cfg.Installation.Name, DataDir: cfg.Installation.DataDir, Getenv: os.LookupEnv, Now: now}}
 	sys := &System{Store: store, Webhooks: map[string]core.EventSource{}, Projects: map[string]*pipeline.Project{}, Agents: map[string]core.AgentProvider{}, Runtimes: map[string]core.ExecutionRuntime{},
 		Metrics: observability.NewMetrics()}
 
@@ -124,7 +129,8 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 			return pipeline.Stage{}, err
 		}
 		agent := meteredAgent{AgentProvider: built, name: s.Agent, metrics: sys.Metrics}
-		runtime, err := build[core.ExecutionRuntime](b, providers.KindRuntime, cfg.Runtimes, s.Runtime)
+		// The provider itself, not the meter around it, says which logins it holds.
+		runtime, err := guardedRuntime(b, cfg, s.Runtime, built)
 		if err != nil {
 			return pipeline.Stage{}, err
 		}

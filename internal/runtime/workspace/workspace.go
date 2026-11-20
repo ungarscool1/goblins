@@ -165,6 +165,7 @@ result "{\"prepared\":true,\"base_sha\":\"$GOBLINS_BASE_SHA\",\"head_sha\":\"$GO
 	s.Env["GOBLINS_BRANCH"] = branch
 	s.Env["GIT_USERNAME"] = access.Username
 	s.Secrets = map[string]core.Secret{"GIT_PASSWORD": access.Password}
+	s.Trust = core.TrustCredentialed
 	return s, nil
 }
 
@@ -225,6 +226,7 @@ result "{\"prepared\":true,\"base_sha\":\"$base\",\"head_sha\":\"$GOBLINS_SHA\"}
 	s.Env["GOBLINS_SHA"] = t.SHA
 	s.Env["GIT_USERNAME"] = access.Username
 	s.Secrets = map[string]core.Secret{"GIT_PASSWORD": access.Password}
+	s.Trust = core.TrustCredentialed
 	return s, nil
 }
 
@@ -372,6 +374,7 @@ result "{\"head_sha\":\"$GOBLINS_SHA\"}"
 	s.Env["GOBLINS_BRANCH"] = branch
 	s.Env["GIT_USERNAME"] = access.Username
 	s.Secrets = map[string]core.Secret{"GIT_PASSWORD": access.Password}
+	s.Trust = core.TrustCredentialed
 	return s, nil
 }
 

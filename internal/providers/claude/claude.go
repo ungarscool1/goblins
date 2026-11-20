@@ -107,9 +107,11 @@ func (a *Agent) shellScript(args []string) string {
 func (a *Agent) baseSpec(name string, cmd []string) core.WorkloadSpec {
 	spec := core.WorkloadSpec{
 		Name: name, Image: a.opts.Image, Command: cmd, Network: core.NetworkEgress,
-		Mounts:    []core.Mount{{Volume: a.opts.ConfigVolume, Target: configMount}},
+		Mounts: []core.Mount{{Volume: a.opts.ConfigVolume, Target: configMount,
+			Credentials: true}},
 		Resources: a.opts.ResourceDefaults,
 		Security:  core.SecurityProfile{ReadOnlyRoot: true},
+		Trust:     core.TrustCredentialed,
 		Env: map[string]string{
 			"CLAUDE_CONFIG_DIR": configMount, "HOME": "/tmp", "DISABLE_AUTOUPDATER": "1",
 			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -120,6 +122,9 @@ func (a *Agent) baseSpec(name string, cmd []string) core.WorkloadSpec {
 	}
 	return spec
 }
+
+// CredentialVolumes implements core.CredentialHolder.
+func (a *Agent) CredentialVolumes() []string { return []string{a.opts.ConfigVolume} }
 
 // args builds the CLI invocation. Tool names come from the abstract policy alone,
 // so neither configuration nor a repository can add a command-running tool.

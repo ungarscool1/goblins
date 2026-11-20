@@ -81,3 +81,16 @@ func (t *Tail) Write(p []byte) (int, error) {
 }
 
 func (t *Tail) String() string { return string(t.b) }
+
+// ProxyEnv is the environment that sends a workload's HTTPS through an egress proxy, in both
+// spellings tools read. Only the workload's own loopback is left out, as a check of a server it
+// started itself never leaves the workload: nothing else bypasses the proxy, and the workload's
+// network has no other way out anyway.
+func ProxyEnv(proxy string) []string {
+	if proxy == "" {
+		return nil
+	}
+	const local = "localhost,127.0.0.1,::1"
+	return []string{"HTTPS_PROXY=" + proxy, "https_proxy=" + proxy, "HTTP_PROXY=" + proxy,
+		"http_proxy=" + proxy, "NO_PROXY=" + local, "no_proxy=" + local}
+}

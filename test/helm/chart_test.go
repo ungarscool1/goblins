@@ -93,6 +93,33 @@ func TestChartIsLeastPrivilege(t *testing.T) {
 	}
 }
 
+// With the proxy on, egress workloads can reach DNS and the proxy, and nothing else.
+func TestChartEgressProxy(t *testing.T) {
+	var egress, proxy string
+	cfg := ""
+	for _, o := range render(t, "--set", "egressProxy.enabled=true") {
+		switch {
+		case o.Kind == "NetworkPolicy" && o.Metadata["name"] == "goblins-workloads-egress":
+			egress = o.Raw
+		case o.Kind == "Deployment" && o.Metadata["name"] == "goblins-egress-proxy":
+			proxy = o.Raw
+		case o.Kind == "ConfigMap":
+			cfg = o.Data["goblins.yaml"]
+		}
+	}
+	if strings.Contains(egress, "0.0.0.0/0") || !strings.Contains(egress, "egress-proxy") {
+		t.Errorf("egress policy:\n%s", egress)
+	}
+	if !strings.Contains(proxy, "api.anthropic.com") || !strings.Contains(proxy,
+		"readOnlyRootFilesystem: true") {
+		t.Errorf("proxy:\n%s", proxy)
+	}
+	if !strings.Contains(cfg,
+		"egress_proxy: http://goblins-egress-proxy.goblins-workloads.svc:3128") {
+		t.Errorf("config:\n%s", cfg)
+	}
+}
+
 // checkRole fails on a role outside the workloads namespace, or one granting more than the
 // runtime uses.
 func checkRole(t *testing.T, o object) {
@@ -133,7 +160,8 @@ func TestChartRefusesUnsafeShapes(t *testing.T) {
 		t.Skip("helm is not installed")
 	}
 	for _, args := range [][]string{{"--set", "replicas=2"},
-		{"--set", "storage.driver=postgres"}} {
+		{"--set", "storage.driver=postgres"},
+		{"--set", "egressProxy.enabled=true,workloads.networkPolicies=false"}} {
 		cmd := exec.Command("helm", append([]string{"template", "g", "../../deploy/helm/goblins"},
 			args...)...)
 		if out, err := cmd.CombinedOutput(); err == nil {

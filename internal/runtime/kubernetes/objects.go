@@ -2,9 +2,11 @@ package kubernetes
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -61,6 +63,12 @@ func (r *Runtime) policies() []map[string]any {
 				"matchLabels": map[string]string{"k8s-app": "kube-dns"}}}}}
 	internet := map[string]any{"to": []map[string]any{{"ipBlock": map[string]any{
 		"cidr": "0.0.0.0/0", "except": r.o.EgressExcept}}}}
+	if r.o.EgressProxy != "" {
+		port, _ := proxyPort(r.o.EgressProxy)
+		internet = map[string]any{"ports": []map[string]any{{"protocol": "TCP", "port": port}},
+			"to": []map[string]any{{"podSelector": map[string]any{"matchLabels": map[string]string{
+				"app.kubernetes.io/component": "egress-proxy"}}}}}
+	}
 	mk := func(name string, mode core.NetworkPolicy, egress []map[string]any) map[string]any {
 		return map[string]any{"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
 			"metadata": meta{Name: name, Labels: map[string]string{labelManaged: managedBy}},
@@ -71,9 +79,61 @@ func (r *Runtime) policies() []map[string]any {
 		mk(policyEgress, core.NetworkEgress, []map[string]any{dns, internet})}
 }
 
+// policyObject is what ensurePolicies reads of an existing policy.
+type policyObject struct {
+	Spec struct {
+		Egress []struct {
+			Ports []struct {
+				Port any `json:"port"`
+			} `json:"ports"`
+			To []struct {
+				IPBlock *struct {
+					CIDR string `json:"cidr"`
+				} `json:"ipBlock"`
+			} `json:"to"`
+		} `json:"egress"`
+	} `json:"spec"`
+}
+
+// direct says whether the policy lets traffic out other than through pods it names: an address
+// block covering everything, or a rule with no destination beyond DNS.
+func (p policyObject) direct() bool {
+	for _, rule := range p.Spec.Egress {
+		if len(rule.To) == 0 {
+			dnsOnly := len(rule.Ports) > 0
+			for _, port := range rule.Ports {
+				dnsOnly = dnsOnly && fmt.Sprint(port.Port) == "53"
+			}
+			if !dnsOnly {
+				return true
+			}
+		}
+		for _, to := range rule.To {
+			if to.IPBlock != nil && strings.HasSuffix(to.IPBlock.CIDR, "/0") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// proxyPort is the port of an egress proxy URL, which the egress policy opens.
+func proxyPort(proxy string) (int, error) {
+	u, err := url.Parse(proxy)
+	if err != nil || u.Scheme != "http" || u.Hostname() == "" {
+		return 0, core.Errorf(core.KindInvalid, "kubernetes.config",
+			"egress_proxy must be an http:// URL of the proxy")
+	}
+	if u.Port() == "" {
+		return 80, nil
+	}
+	return strconv.Atoi(u.Port())
+}
+
 // ensurePolicies checks the policies exist, once per process, and creates those missing. The
 // Helm chart creates them, so its role only lets Goblins read them; one that exists is left as
-// it is, as an operator may have tightened it.
+// it is, as an operator may have tightened it. Behind a proxy, an egress policy that still lets
+// workloads out directly is refused rather than trusted: it may predate the proxy.
 func (r *Runtime) ensurePolicies(ctx context.Context) error {
 	r.mu.Lock()
 	done := r.nets
@@ -85,9 +145,15 @@ func (r *Runtime) ensurePolicies(ctx context.Context) error {
 		"/networkpolicies"
 	for _, p := range r.policies() {
 		name := p["metadata"].(meta).Name
-		err := r.c.call(ctx, http.MethodGet, base+"/"+name, nil, nil)
+		var existing policyObject
+		err := r.c.call(ctx, http.MethodGet, base+"/"+name, nil, &existing)
 		if core.IsKind(err, core.KindNotFound) {
 			err = r.c.call(ctx, http.MethodPost, base, p, nil)
+		} else if err == nil && name == policyEgress && r.o.EgressProxy != "" &&
+			existing.direct() {
+			return core.Errorf(core.KindInvalid, "kubernetes.policies", "network policy %s "+
+				"lets workloads reach the internet without the egress proxy; apply the chart "+
+				"with egressProxy.enabled, or delete the policy so it is created again", name)
 		}
 		if err != nil && !core.IsKind(err, core.KindConflict) {
 			return err
