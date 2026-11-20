@@ -504,7 +504,7 @@ func TestSecretCutByTheLineLimitIsStillRedacted(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.sched.Step(ctx)
-	entries, err := e.store.ListTranscript(ctx, e.task("1").ID, 0)
+	entries, err := e.store.ListTranscript(ctx, e.task("1").ID, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,7 +530,7 @@ func TestTranscriptIsBoundedAndRedacted(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.sched.Step(ctx)
-	entries, err := e.store.ListTranscript(ctx, e.task("1").ID, 0)
+	entries, err := e.store.ListTranscript(ctx, e.task("1").ID, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

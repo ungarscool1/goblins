@@ -48,6 +48,7 @@ type Config struct {
 	Validations   ProviderSet  `yaml:"validations,omitempty"`
 	Notifications ProviderSet  `yaml:"notifications,omitempty"`
 	Projects      []Project    `yaml:"projects,omitempty"`
+	Console       Console      `yaml:"console,omitempty"`
 }
 
 // Installation identifies this deployment.
@@ -283,6 +284,7 @@ func (c *Config) applyEnv(env func(string) (string, bool)) error {
 	set("GOBLINS_DATA_DIR", &c.Installation.DataDir)
 	set("GOBLINS_LISTEN", &c.Server.Listen)
 	set("GOBLINS_METRICS_LISTEN", &c.Server.MetricsListen)
+	set("GOBLINS_CONSOLE_LISTEN", &c.Console.Listen)
 	set("GOBLINS_LOG_LEVEL", &c.Log.Level)
 	set("GOBLINS_LOG_FORMAT", &c.Log.Format)
 	set("GOBLINS_STORAGE_DRIVER", &c.Storage.Driver)
@@ -330,6 +332,7 @@ func (c *Config) Validate(known TypeChecker) error {
 			add("server.metrics_listen: must differ from server.listen")
 		}
 	}
+	c.validateConsole(add)
 	if c.Server.ShutdownTimeout <= 0 {
 		add("server.shutdown_timeout: must be positive")
 	}
