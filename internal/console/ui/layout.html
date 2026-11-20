@@ -1,0 +1,57 @@
+{{define "top"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="same-origin">
+<title>{{.}} · Goblins</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{{end}}
+
+{{define "nav"}}
+<header>
+  <a class="brand" href="/">Goblins</a>
+  <span class="who">{{.Operator}}{{if not .CanAct}} · read-only{{end}}</span>
+  <form method="post" action="/logout" class="inline">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button type="submit" class="link">Log out</button>
+  </form>
+</header>
+{{if .Notice}}<p class="notice">{{.Notice}}</p>{{end}}
+{{end}}
+
+{{define "bottom"}}
+</body>
+</html>
+{{end}}
+
+{{define "tasks"}}
+{{if .}}
+<table>
+  <thead><tr><th>Task</th><th>Project</th><th>State</th><th>Why</th><th>Updated</th></tr></thead>
+  <tbody>
+  {{range .}}
+  <tr>
+    <td><a href="/tasks/{{.ID}}">{{if .Title}}{{.Title}}{{else}}{{.ID}}{{end}}</a></td>
+    <td>{{.Project}}</td>
+    <td><span class="state {{.State}}">{{.State}}</span>{{if .Working}} · {{.Working}}{{end}}</td>
+    <td>{{.Reason}}{{if not .PausedUntil.IsZero}} (until {{when .PausedUntil}}){{end}}</td>
+    <td>{{when .Updated}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="empty">None.</p>
+{{end}}
+{{end}}
+
+{{define "button"}}
+<form method="post" action="/tasks/{{.Task}}/actions" class="inline">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <input type="hidden" name="action" value="{{.Action}}">
+  <button type="submit"{{if eq .Action "cancel"}} class="danger"{{end}}>{{.Label}}</button>
+</form>
+{{end}}

@@ -42,8 +42,8 @@ func Terminal(s core.State) bool {
 // CheckTransition reports whether the table allows from -> to, where resume is
 // the task's recorded state to return to.
 func CheckTransition(from, to, resume core.State) bool {
-	if Terminal(from) {
-		return from == to // only a status update reaches a finished task
+	if Terminal(from) { // a status update stays; only a failed task, run again, leaves
+		return from == to || from == core.StateFailed && (to == resume || to == core.StateInvestigating)
 	}
 	if from == to || slices.Contains(transitions[from], to) {
 		return true
@@ -84,7 +84,7 @@ func Decide(task *core.Task, ev core.Event, f Facts, p Policy) Decision {
 		return decideNew(ev, f, p)
 	}
 	if Terminal(task.State) && !statusOutcome(ev) {
-		return Decision{Ignored: "task is in a terminal state"}
+		return decideTerminal(task, ev, f, p)
 	}
 	m := &machine{t: cloneTask(*task), from: task.State, ev: ev, f: f, p: p}
 	m.step()
@@ -244,7 +244,7 @@ func (m *machine) blockWithDetail(reason, detail string) {
 
 func (m *machine) fail(reason string) {
 	m.t.Reason = reason
-	m.t.CurrentJob = nil
+	m.t.ResumeState = m.t.State // kept, with the current job, for `/goblins retry`
 	m.t.PausedUntil = time.Time{}
 	m.moveTo(core.StateFailed, reason)
 	m.comment("Goblins stopped working on this: " + reason)
