@@ -20,18 +20,25 @@ const (
 	actCancel  = "cancel"
 	// actRetry runs a failed task again from the step that failed.
 	actRetry = "retry"
+	// actDeploy approves deploying the commit a task waits to deploy.
+	actDeploy = "deploy"
 )
 
 // Action is what an operator asks for. Text is an answer; Revision and Hash name the design
-// being approved, so that a newer revision is never approved by mistake.
+// being approved, so that a newer revision is never approved by mistake, and SHA the commit
+// whose deployment is approved.
 type Action struct {
 	Action   string `json:"action"`
 	Text     string `json:"text,omitempty"`
 	Revision int    `json:"revision,omitempty"`
 	Hash     string `json:"hash,omitempty"`
+	SHA      string `json:"sha,omitempty"`
 }
 
-var hexHash = regexp.MustCompile(`^[0-9a-f]{8,64}$`)
+var (
+	hexHash = regexp.MustCompile(`^[0-9a-f]{8,64}$`)
+	hexSHA  = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+)
 
 // act enters an action as an operator comment. It returns once the event is stored: the
 // workflow then applies it, or refuses it, as it would the same comment on the ticket.
@@ -64,6 +71,12 @@ func (c *console) command(t core.Task, a Action) (string, error) {
 	switch a.Action {
 	case actPause, actResume, actCancel, actRetry:
 		return "/goblins " + a.Action, nil
+	case actDeploy:
+		if !hexSHA.MatchString(a.SHA) {
+			return "", core.Errorf(core.KindInvalid, "console.act",
+				"approving a deployment needs the commit it deploys")
+		}
+		return "/goblins deploy " + a.SHA, nil
 	case actApprove:
 		pol, ok := c.o.Policies(t.Project)
 		if !ok {

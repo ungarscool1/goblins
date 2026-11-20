@@ -64,7 +64,9 @@ type Project struct {
 	// Environment is where a commit that passed its checks is deployed and verified.
 	Environment      core.EnvironmentProvider
 	EnvironmentLease time.Duration
-	Review           core.ReviewProvider
+	// ApproveDeploy makes each deployment wait for a person's approval of its commit.
+	ApproveDeploy bool
+	Review        core.ReviewProvider
 	// ReviewFallbacks are tried in order when the reviewer before them is unavailable.
 	ReviewFallbacks []core.ReviewProvider
 	Notification    core.NotificationProvider
@@ -476,14 +478,22 @@ func (p *Pipeline) validate(ctx context.Context, jc scheduler.JobContext) (any, 
 	if err != nil {
 		return nil, err
 	}
-	if report, err = p.withEnvironment(ctx, jc, pr, payload.SHA, scratch, report); err != nil {
-		return nil, err
+	pending := pr.Environment != nil && pr.ApproveDeploy && !payload.DeployApproved &&
+		report.Status == core.ValidationPassed
+	if !pending {
+		if report, err = p.withEnvironment(ctx, jc, pr, payload.SHA, scratch, report); err != nil {
+			return nil, err
+		}
 	}
 	report.Summary += trusted.note()
 	for _, c := range report.Checks {
 		jc.Log("validation", fmt.Sprintf("%s: %s (exit %d)\n%s", c.Name, c.Status, c.ExitCode, c.Output))
 	}
-	return workflow.ValidateResult{Report: report}, nil
+	res := workflow.ValidateResult{Report: report, DeployPending: pending}
+	if pending {
+		res.Environment = pr.Environment.Info().Name
+	}
+	return res, nil
 }
 
 func (p *Pipeline) publish(ctx context.Context, jc scheduler.JobContext) (any, error) {

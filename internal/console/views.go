@@ -106,7 +106,7 @@ func (c *console) detail(ctx context.Context, id string) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
-	d := Detail{Task: t, Agents: c.o.Agents(t.Project), Actions: actionsIn(t.State)}
+	d := Detail{Task: t, Agents: c.o.Agents(t.Project), Actions: actionsIn(t)}
 	if d.Transitions, err = c.o.Store.ListTransitions(ctx, id); err != nil {
 		return Detail{}, err
 	}
@@ -225,8 +225,14 @@ func delivery(j core.Job) string {
 
 // actionsIn lists what an operator may ask for in a state. The workflow still decides: these
 // only keep the page from offering what it would refuse.
-func actionsIn(s core.State) []string {
+func actionsIn(t core.Task) []string {
+	s := t.State
 	switch {
+	case s == core.StateBlocked && t.Deploy != nil && t.Deploy.Approver == nil:
+		if t.Deploy.CommentKey != "" { // not on the ticket yet, so not approvable yet
+			return []string{actCancel}
+		}
+		return []string{actDeploy, actCancel}
 	case s == core.StateFailed:
 		return []string{actRetry}
 	case s.IsTerminal():

@@ -148,6 +148,7 @@ type Policy struct {
 	MaxLimitPause        time.Duration `yaml:"max_limit_pause,omitempty"`
 	MaxLimitPauses       int           `yaml:"max_limit_pauses,omitempty"`
 	MaxChangedFiles      int           `yaml:"max_changed_files,omitempty"`
+	MaxTaskTokens        int64         `yaml:"max_task_tokens,omitempty"`
 	WebResearch          bool          `yaml:"web_research,omitempty"`
 	// ValidationManifest is where the repository keeps its checks, read from the base commit.
 	ValidationManifest string `yaml:"validation_manifest,omitempty"`

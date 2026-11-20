@@ -109,7 +109,7 @@ func (c *console) designPage(w http.ResponseWriter, r *http.Request) {
 func (c *console) actionForm(w http.ResponseWriter, r *http.Request) {
 	rev, _ := strconv.Atoi(r.PostFormValue("revision"))
 	a := Action{Action: r.PostFormValue("action"), Text: r.PostFormValue("text"),
-		Revision: rev, Hash: r.PostFormValue("hash")}
+		Revision: rev, Hash: r.PostFormValue("hash"), SHA: r.PostFormValue("sha")}
 	id := r.PathValue("id")
 	if err := c.act(r.Context(), operatorOf(r), id, a); err != nil {
 		c.refuse(w, err)

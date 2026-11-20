@@ -200,6 +200,7 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 				return nil, err
 			}
 			pr.EnvironmentLease = pc.Environment.Lease
+			pr.ApproveDeploy = pc.Environment.Approve
 		}
 		if pc.Review != "" {
 			if pr.Review, err = build[core.ReviewProvider](b, providers.KindReview, cfg.Reviews, pc.Review); err != nil {

@@ -49,6 +49,7 @@ func runOnce(ctx context.Context, jc scheduler.JobContext, stage Stage, req core
 		return res, core.Errorf(core.KindInvalid, "pipeline.budget",
 			"the agent went over its budget of %d tool calls", stage.MaxToolCalls)
 	}
+	jc.Used(res.Usage)
 	if u := res.Usage; u != (core.AgentUsage{}) {
 		// Only what the CLI reported: nothing here estimates what is left of a subscription.
 		jc.Log("usage", fmt.Sprintf("%d input tokens, %d output tokens, %d turns",

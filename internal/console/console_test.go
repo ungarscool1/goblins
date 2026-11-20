@@ -497,3 +497,30 @@ func TestConversationFollowsThePullRequest(t *testing.T) {
 		t.Fatalf("conversation = %q", got)
 	}
 }
+
+// A deployment waiting for a person is approved from the page, for the commit it shows.
+func TestOperatorApprovesADeploymentFromThePage(t *testing.T) {
+	w := setup(t, false)
+	sha := strings.Repeat("c0ffee", 6) + "ab12"
+	task := core.Task{ID: "t-deploy", Project: "p", Kind: core.TaskIssue, Subject: issue("2"),
+		State: core.StateBlocked, Title: "Deploy me", Reason: "deploying waits for a person",
+		Deploy: &core.DeployGate{SHA: sha, RequestedAt: time.Now()}}
+	w.seed(task, nil)
+	cookie := w.login(opToken)
+	page := body(t, w.get("/tasks/t-deploy", cookie))
+	if !strings.Contains(page, "Approve the deployment") || strings.Contains(page, `value="resume"`) {
+		t.Fatalf("the page does not offer the deployment alone:\n%s", page)
+	}
+	v := url.Values{"action": {"deploy"}, "sha": {sha}, "csrf": {w.csrf(cookie, "/tasks/t-deploy")}}
+	if resp := w.form("/tasks/t-deploy/actions", cookie, v); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("%d %s", resp.StatusCode, body(t, resp))
+	}
+	v.Set("sha", "not a commit")
+	if resp := w.form("/tasks/t-deploy/actions", cookie, v); resp.StatusCode == http.StatusSeeOther {
+		t.Fatal("accepted a deployment without its commit")
+	}
+	got := w.operatorComments(task)
+	if len(got) != 1 || got[0].Comment.Body != "/goblins deploy "+sha {
+		t.Fatalf("operator comments = %+v", got)
+	}
+}

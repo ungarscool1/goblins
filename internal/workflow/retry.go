@@ -39,6 +39,7 @@ func (m *machine) retry(who string) {
 	for _, k := range []string{"plan", "implement", "review_fix", "triage", loopLimitPause} {
 		delete(m.t.Loops, k)
 	}
+	m.t.TokenBudgetFrom = m.t.TokensUsed
 	m.comment(fmt.Sprintf("Run again by @%s, from where it failed.", who))
 	m.resume("run again by " + who)
 }

@@ -744,3 +744,21 @@ func TestReportedResetTimeSetsTheHold(t *testing.T) {
 		t.Fatalf("holds = %+v, %v", holds, err)
 	}
 }
+
+// What a job's agents reported using reaches the task, whether the job succeeded or not.
+func TestAgentUsageReachesTheTask(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.sched.Handlers[workflow.JobPlan] = func(_ context.Context, jc scheduler.JobContext) (any, error) {
+		jc.Used(core.AgentUsage{InputTokens: 300, OutputTokens: 20, Turns: 2})
+		jc.Used(core.AgentUsage{InputTokens: 100, OutputTokens: 5})
+		return workflow.PlanResult{Questions: []string{"Why?"}}, nil
+	}
+	if _, err := e.sched.Inbox.Accept(ctx, "src", []core.Event{issueEvent("1")}); err != nil {
+		t.Fatal(err)
+	}
+	e.sched.Step(ctx)
+	if got := e.task("1").TokensUsed; got != 425 {
+		t.Fatalf("tokens used = %d, want 425", got)
+	}
+}

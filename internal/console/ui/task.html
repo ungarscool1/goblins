@@ -29,6 +29,19 @@
   </section>
   {{end}}{{end}}{{end}}
 
+  {{if .CanAct}}{{if .Can.deploy}}{{with .Task.Deploy}}
+  <section class="act">
+    <h2>Approve the deployment</h2>
+    <p class="hint">The checks passed on <code>{{.SHA}}</code>. This project asks a person before each deployment to its environment.</p>
+    <form method="post" action="/tasks/{{$.Task.ID}}/actions">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <input type="hidden" name="action" value="deploy">
+      <input type="hidden" name="sha" value="{{.SHA}}">
+      <button type="submit">Deploy <code>{{.SHA}}</code></button>
+    </form>
+  </section>
+  {{end}}{{end}}{{end}}
+
   {{with .Design}}
   <section>
     <h2>Design, revision {{.Revision}}</h2>

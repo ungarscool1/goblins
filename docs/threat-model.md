@@ -47,6 +47,7 @@ GitHub, Anthropic or Docker being compromised.
 | Hooks or filters planted in the workspace | Never run where a token is: publishing reads a bundle into a fresh repository, hooks are off everywhere | Workflow of workloads, Git |
 | Deploys onto a target another task uses | Exclusive leases in the database; a failed reset keeps the target reserved for a person | Go code, database |
 | A ticket or agent adds an environment step or target | Steps, targets and their credentials come from the operator's configuration only | Go code |
+| A commit is deployed to an environment without a person seeing it | With `approve: true`, each commit waits for `/goblins deploy <sha>` from a maintainer, written after the request, naming that commit | Go code |
 | A ticket or model runs a sensitive change unattended | Unattended needs a person's label; scope is decided from the commit's paths; leaving it withdraws the approval before anything is published ([ADR 0009](adr/0009-blueprint-and-approval-profiles.md)) | Go code |
 | A repository or ticket adds a tool    | Tools come from the agent's image and the operator's stage list only; repository MCP, hooks and skills are ignored | Go code, CLI flags |
 | A ticket or model rewrites what agents are told | Memories reach agents only once a person accepts them; documents are data in a delimiter; only plain words reach wiki queries | Go code |
@@ -57,7 +58,7 @@ GitHub, Anthropic or Docker being compromised.
 | Forged or replayed webhook            | HMAC checked first, repository allow-list, idempotent event identity | Go code |
 | Comment loop with itself              | Automation's comments are ignored                            | Go code     |
 | Paid API fallback                     | Billing variables unset, API key options refused, API-keyed sessions discarded | Go code, wrapper |
-| Runaway cost                          | Concurrency limits, bounded loops, deadlines, pause on quota | Go code |
+| Runaway cost                          | Concurrency limits, bounded loops, deadlines, pause on quota, a token budget per task (`max_task_tokens`) | Go code |
 | Secrets in logs                       | `core.Secret`, redacting logger and transcript, no raw CLI output in messages | Go code |
 | Secrets in check output on the ticket | Validation gets no credentials; output is redacted, bounded and fenced. Redaction only knows common shapes, so a secret a repository already holds can still be printed | Go code, separate containers |
 | Console used by someone else          | A token per operator, 32 characters at least, compared in constant time; logins throttled; a port of its own, off by default | Go code |

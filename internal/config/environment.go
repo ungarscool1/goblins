@@ -8,6 +8,8 @@ type Environment struct {
 	Name string `yaml:"name,omitempty"`
 	// Lease is how long a task keeps a shared target between uses. Two hours by default.
 	Lease time.Duration `yaml:"lease,omitempty"`
+	// Approve makes each deployment of a commit wait for a person's `/goblins deploy`.
+	Approve bool `yaml:"approve,omitempty"`
 }
 
 func (e Environment) validate(path string, p Project, set ProviderSet, add func(string, ...any)) {

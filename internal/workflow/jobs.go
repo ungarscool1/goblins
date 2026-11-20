@@ -85,6 +85,8 @@ type ValidatePayload struct {
 	SHA   string        `json:"sha"`
 	// Reuse reports the earlier pass at this exact commit instead of re-running.
 	Reuse bool `json:"reuse,omitempty"`
+	// DeployApproved means a person approved deploying this commit to the environment.
+	DeployApproved bool `json:"deploy_approved,omitempty"`
 }
 
 // ValidateResult reports a validation run.
@@ -92,6 +94,10 @@ type ValidateResult struct {
 	Report core.ValidationReport `json:"report"`
 	// Skipped means the project configures no validation. It is reported as such.
 	Skipped bool `json:"skipped,omitempty"`
+	// DeployPending means the checks passed, and deploying the commit to Environment waits
+	// for a person's approval. Nothing was deployed.
+	DeployPending bool   `json:"deploy_pending,omitempty"`
+	Environment   string `json:"environment,omitempty"`
 }
 
 // PublishPayload parametrizes publishing a commit.

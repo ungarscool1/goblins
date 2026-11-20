@@ -42,6 +42,9 @@ type Policy struct {
 	MaxLimitPauses int
 	// MaxChangedFiles blocks a change touching more files than this. Zero means no limit.
 	MaxChangedFiles int
+	// MaxTaskTokens stops a task for a person once its agents reported using this many
+	// tokens, input and output together. Zero means no limit.
+	MaxTaskTokens int64
 	// StopAtReport ends a task at its report, leaving a pull request to people entirely.
 	StopAtReport bool
 	// TrustedReviewBots are automated reviewers whose remarks count as review input.
