@@ -136,6 +136,11 @@ func TestReviewsNeverApproveAndAreIdempotent(t *testing.T) {
 	if err != nil || len(threads) != 1 || threads[0].Path != "a.go" || threads[0].Line != 3 {
 		t.Fatalf("threads = %+v, %v", threads, err)
 	}
+	// A remark says which review it came with, by the ID the review is listed under.
+	listed, err := s.ListReviews(ctx, r, pr.Number)
+	if err != nil || len(listed) != 1 || threads[0].ReviewID != listed[0].ID {
+		t.Fatalf("thread review %q, reviews %+v, %v", threads[0].ReviewID, listed, err)
+	}
 	if err := s.PostReview(ctx, r, pr.Number, core.ReviewDraft{IdempotencyKey: "rev2", Verdict: core.VerdictChangesRequested, Body: "no"}); err != nil {
 		t.Fatal(err)
 	}

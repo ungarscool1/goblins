@@ -117,7 +117,7 @@ func (w *world) restart() { w.boot() }
 type tracker struct{ w *world }
 
 func (a tracker) Permission(ctx context.Context, _ string, s core.Subject, actor core.Actor) (core.Permission, error) {
-	return a.w.project.Tracker.ActorPermission(ctx, core.IssueRef{Container: s.Container, ExternalID: s.ExternalID}, actor)
+	return a.w.project.Permission(ctx, s, actor)
 }
 
 func (w *world) subject() core.Subject {
@@ -240,8 +240,8 @@ func TestConversationToApproval(t *testing.T) {
 	if len(prs) != 1 || !prs[0].Draft || prs[0].Head != "goblins/"+task.ID || prs[0].Base != "main" {
 		t.Fatalf("pull requests = %+v", prs)
 	}
-	if !strings.Contains(w.posted(), "Status report") {
-		t.Fatalf("no report:\n%s", w.posted())
+	if !strings.Contains(w.posted(), "## Goblins status") {
+		t.Fatalf("no status:\n%s", w.posted())
 	}
 	if w.val.Calls[0].HeadSHA != headSHA {
 		t.Fatalf("validated %s", w.val.Calls[0].HeadSHA)
@@ -535,7 +535,7 @@ func TestAllowedSkippedValidationIsNeverAPass(t *testing.T) {
 		t.Fatalf("an untested commit is recorded as validated: %s", task.ValidatedSHA)
 	}
 	posted := w.posted()
-	if !strings.Contains(posted, "Validation: skipped") || !strings.Contains(posted, "nothing was tested") {
+	if strings.Contains(posted, "Validation of") || !strings.Contains(posted, "nothing was tested") {
 		t.Fatalf("not reported as skipped:\n%s", posted)
 	}
 }

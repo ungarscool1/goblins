@@ -38,7 +38,11 @@ func (p *Pipeline) reconcile(ctx context.Context, jc scheduler.JobContext) (any,
 	if !pull.Open {
 		return res, nil
 	}
-	perms := permissionCache{p: pr, ref: issueRef(jc.Task), known: map[string]core.Permission{}}
+	perms := permissionCache{p: pr, src: pr.Reviewers, known: map[string]core.Permission{},
+		ref: core.IssueRef{Container: pr.Repo.Slug, ExternalID: number}}
+	if perms.src == nil {
+		perms.src, perms.ref = pr.Tracker, issueRef(jc.Task)
+	}
 	if res.Reviews, err = p.reviewsWithPermission(ctx, pr, number, &perms); err != nil {
 		return nil, err
 	}
@@ -50,7 +54,7 @@ func (p *Pipeline) reconcile(ctx context.Context, jc scheduler.JobContext) (any,
 	if res.Findings, err = threadFindings(ctx, threads, head, &perms); err != nil {
 		return nil, err
 	}
-	reviewFs, err := reviewFindings(ctx, res.Reviews, res.Findings, head, &perms)
+	reviewFs, err := reviewFindings(ctx, res.Reviews, threads, head, &perms)
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +95,20 @@ func (p *Pipeline) protection(ctx context.Context, jc scheduler.JobContext, pr *
 	return &bp
 }
 
+// Permission says what access someone has where they spoke: on a pull request, as the SCM
+// knows them when it can say, since a tracker on another system knows them by other names.
+func (pr *Project) Permission(ctx context.Context, s core.Subject,
+	a core.Actor) (core.Permission, error) {
+	ref := core.IssueRef{Container: s.Container, ExternalID: s.ExternalID}
+	if s.Kind == core.SubjectPullRequest && pr.Reviewers != nil {
+		return pr.Reviewers.ActorPermission(ctx, ref, a)
+	}
+	return pr.Tracker.ActorPermission(ctx, ref, a)
+}
+
 type permissionCache struct {
 	p     *Project
+	src   core.PermissionSource
 	ref   core.IssueRef
 	known map[string]core.Permission
 }
@@ -103,7 +119,7 @@ func (c *permissionCache) of(ctx context.Context, a core.Actor) (core.Permission
 	if perm, ok := c.known[a.Login]; ok {
 		return perm, nil
 	}
-	perm, err := c.p.Tracker.ActorPermission(ctx, c.ref, a)
+	perm, err := c.src.ActorPermission(ctx, c.ref, a)
 	if core.IsKind(err, core.KindTransient) || core.IsKind(err, core.KindCancelled) {
 		return core.PermissionNone, err
 	}
@@ -200,9 +216,10 @@ func appendDiscussion(d []core.DiscussionEntry, e core.DiscussionEntry) []core.D
 
 // reviewFindings turns a change request into a finding. A review on an earlier commit is stale
 // as a finding, while the verdict itself keeps standing until cleared. One with no text at all
-// and no remarks by its author is still a real gate: it becomes a finding with an empty body,
-// which the workflow answers by asking what is wanted.
-func reviewFindings(ctx context.Context, reviews []core.Review, threads []core.ReviewFinding,
+// and no remarks of its own is still a real gate: it becomes a finding with an empty body,
+// which the workflow answers by asking what is wanted. Only remarks submitted with that very
+// review count: an earlier thread by the same person says nothing about a later request.
+func reviewFindings(ctx context.Context, reviews []core.Review, threads []core.ReviewThread,
 	head string, perms *permissionCache) ([]core.ReviewFinding, error) {
 	var out []core.ReviewFinding
 	for _, r := range reviews {
@@ -213,15 +230,16 @@ func reviewFindings(ctx context.Context, reviews []core.Review, threads []core.R
 		if r.Own || !ok || r.Verdict != core.VerdictChangesRequested {
 			continue
 		}
-		spoke := slices.ContainsFunc(threads,
-			func(f core.ReviewFinding) bool { return f.Author.Login == r.Author.Login })
+		spoke := slices.ContainsFunc(threads, func(t core.ReviewThread) bool {
+			return t.ReviewID == r.ID && t.Author.Login == r.Author.Login
+		})
 		if r.Body == "" && spoke {
 			continue
 		}
 		f := core.ReviewFinding{ID: "review:" + r.ID, Author: r.Author, Severity: core.ReviewHigh,
 			Confidence: core.ConfidenceHigh,
 			Body:       capText(r.Body, maxFindingBytes), HeadSHA: r.CommitSHA,
-			Provenance: r.Author.Login, Status: core.FindingOpen}
+			Provenance: r.Author.Login, Status: core.FindingOpen, Summary: spoke}
 		if r.Dismissed || (r.Body != "" && r.CommitSHA != head) {
 			f.Status = core.FindingStale
 		}

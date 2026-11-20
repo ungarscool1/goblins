@@ -35,6 +35,11 @@ Provider instances are declared per kind under a name of your choice, and
 projects refer to them by name, so trackers, source control, agents and runtimes
 can be combined freely. See [`configs/example.yaml`](../configs/example.yaml).
 
+When the tracker keeps tickets somewhere other than the repository, such as a Jira project, name
+it with `tracker_container` on the project. Event sources that list what they serve, such as
+GitHub's `repositories` or Jira's `projects`, are only routed and polled for those. See
+[jira.md](jira.md).
+
 ## Operator console
 
 `console` turns on the web console and its API, on a port of their own, with a token per
@@ -77,6 +82,18 @@ implementer's agent and runtime. Without it, the implementer's settings apply.
 Concurrency stays per account, with `max_concurrent` on an agent. Among jobs of equal priority, the
 project running the fewest goes first. A project that does not name an agent never runs it. What each
 run reports using is kept in its transcript.
+
+## Comment layout
+
+`communication.verbosity` sets how a project's designs read on the ticket:
+
+| Value | Design comment |
+| --- | --- |
+| `compact` (default) | A short summary, the full design collapsed under it, the approval command last |
+| `verbose` | The summary and every section, expanded |
+
+It only changes what people see first. The full design is what is stored, approved and given to
+the agents either way. See [workflow.md](workflow.md#design-comments).
 
 ## Commit messages and pull request titles
 
@@ -134,7 +151,7 @@ policy:
   trusted_paths: [conformance, Makefile, scripts/vm-suite]
 ```
 
-Whatever a change does in those paths is replaced for the checks, and the status report names what it
+Whatever a change does in those paths is replaced for the checks, and the status comment names what it
 edited. List everything the checks run. A trusted test suite run through an untrusted `Makefile` can
 still be subverted. A real change to these files needs merging first.
 
@@ -150,5 +167,5 @@ name a `review` or list `stages.reviewers`, or set `policy.allow_skipped_review:
 is refused at startup, and a task that still reaches such a step blocks.
 
 With the opt-in, the step reports `skipped`, never a pass: the commit is not recorded as
-validated, and the status report says that nothing was tested. Use these only when a person
+validated, and the status comment says that nothing was tested. Use these only when a person
 reviews every draft pull request.
