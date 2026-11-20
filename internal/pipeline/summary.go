@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -47,7 +48,12 @@ func renderSummary(d designDoc) string {
 	var b strings.Builder
 	b.WriteString(workflow.DesignSummaryHeading)
 	for _, p := range s.points() {
-		b.WriteString("**" + p[0] + ":** " + flatten(p[1]) + "\n\n")
+		text := flatten(p[1])
+		sep := " "
+		if listItem.MatchString(text) {
+			sep = "\n\n" // a list after the label on its line would lose its first item
+		}
+		b.WriteString("**" + p[0] + ":**" + sep + text + "\n\n")
 	}
 	return b.String()
 }
@@ -58,6 +64,9 @@ func derivedSummary(d designDoc) designSummary {
 	return designSummary{Change: firstSentence(d.Scope), Approach: firstSentence(d.Architecture),
 		Risks: firstSentence(d.Security), Validation: firstSentence(d.Tests)}
 }
+
+// listItem matches text that starts as a Markdown list does.
+var listItem = regexp.MustCompile(`^([-*+]|\d{1,9}[.)])\s`)
 
 func firstSentence(s string) string {
 	s = strings.TrimSpace(s)
