@@ -25,6 +25,8 @@ const (
 	JobComment   core.JobKind = "comment"
 	JobNotify    core.JobKind = "notify"
 	JobCleanup   core.JobKind = "cleanup"
+	// JobStatus posts or edits the task's one status comment.
+	JobStatus core.JobKind = "status"
 	// JobReleaseHold lets a limit key's jobs start again, when a person says so.
 	JobReleaseHold core.JobKind = "release-hold"
 )
@@ -195,6 +197,17 @@ type CommentResult struct {
 	PostedAt time.Time `json:"posted_at,omitzero"`
 }
 
+// StatusPayload is the status comment as rendered when the job was queued. A later change
+// queues another once this one is done, so the comment ends up current.
+type StatusPayload struct {
+	Body string `json:"body"`
+}
+
+// StatusResult names the status comment, once posted.
+type StatusResult struct {
+	CommentID string `json:"comment_id,omitempty"`
+}
+
 // NotifyPayload is a message for operators.
 type NotifyPayload struct {
 	Severity core.Severity `json:"severity"`
@@ -215,5 +228,5 @@ func EmitsStart(k core.JobKind) bool { return k == JobImplement || k == JobRevie
 
 // SideJob reports whether a job only performs an effect and never advances a task.
 func SideJob(k core.JobKind) bool {
-	return k == JobComment || k == JobNotify || k == JobCleanup || k == JobReply
+	return k == JobComment || k == JobNotify || k == JobCleanup || k == JobReply || k == JobStatus
 }

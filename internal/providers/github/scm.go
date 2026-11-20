@@ -191,6 +191,15 @@ func (s *SCM) PostReview(ctx context.Context, repo core.RepoRef, number string, 
 	return s.c.repoCall(ctx, repo.Slug, http.MethodPost, base, in, nil)
 }
 
+// ActorPermission implements core.PermissionSource, for people on pull requests: ref names the
+// repository.
+func (s *SCM) ActorPermission(ctx context.Context, ref core.IssueRef,
+	a core.Actor) (core.Permission, error) {
+	return s.tracker.ActorPermission(ctx, ref, a)
+}
+
+var _ core.PermissionSource = (*SCM)(nil)
+
 // ReviewThreads implements core.SourceControl.
 func (s *SCM) ReviewThreads(ctx context.Context, repo core.RepoRef, number string) ([]core.ReviewThread, error) {
 	own, err := s.c.AppLogin(ctx)
@@ -209,6 +218,7 @@ func (s *SCM) ReviewThreads(ctx context.Context, repo core.RepoRef, number strin
 				Body      string `json:"body"`
 				User      user   `json:"user"`
 				Commit    string `json:"commit_id"`
+				Review    int64  `json:"pull_request_review_id"`
 			}
 			if err := json.Unmarshal(raw, &c); err != nil {
 				return core.Wrap(core.KindTransient, "github.threads", err)
@@ -219,6 +229,9 @@ func (s *SCM) ReviewThreads(ctx context.Context, repo core.RepoRef, number strin
 				Body:     c.Body, Author: actorOf(c.User), CommitSHA: c.Commit}
 			if c.Line != nil {
 				t.Line = *c.Line
+			}
+			if c.Review != 0 {
+				t.ReviewID = strconv.FormatInt(c.Review, 10)
 			}
 			t.Own = t.Author.Type == core.ActorBot && t.Author.Login == own
 			t.ThreadID = strconv.FormatInt(cmp.Or(c.InReplyTo, c.ID), 10)

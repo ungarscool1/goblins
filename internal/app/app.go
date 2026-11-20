@@ -163,6 +163,7 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 		if pr.SCM, err = build[core.SourceControl](b, providers.KindSCM, cfg.SCMs, pc.SCM); err != nil {
 			return nil, err
 		}
+		pr.Reviewers, _ = pr.SCM.(core.PermissionSource)
 		if pr.Planner, err = stage(pc.Stages.Planner); err != nil {
 			return nil, err
 		}
@@ -207,6 +208,7 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 			}
 		}
 		policy := policyFor(pc)
+		policy.DesignStyle = designStyle(pc.Communication, pr.Tracker.Info())
 		pr.MinInput, pr.MinApprove = policy.MinInputPermission, policy.MinApprovePermission
 		pr.TrustedReviewBots = policy.TrustedReviewBots
 		pr.ValidationManifest, pr.TrustedPaths = pc.Policy.ValidationManifest, pc.Policy.TrustedPaths
@@ -215,22 +217,13 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 		policies[pc.ID] = policy
 		sys.Warnings = append(sys.Warnings, preflight(pc, pr)...)
 
-		for _, name := range pc.EventSource {
-			src, err := build[core.EventSource](b, providers.KindEventSource, cfg.EventSources, name)
-			if err != nil {
-				return nil, err
-			}
-			routes = append(routes, scheduler.Route{Source: name, Container: pc.Repository, Project: pc.ID, Tracker: pc.Tracker, SCM: pc.SCM})
-			if src.Info().Has(core.CapEventsWebhook) {
-				sys.Webhooks[name] = src
-			}
-			if pc.PollInterval > 0 {
-				if !src.Info().Has(core.CapEventsPoll) {
-					sys.Warnings = append(sys.Warnings, fmt.Sprintf("project %s: event source %s cannot poll, so poll_interval has no effect", pc.ID, name))
-					continue
-				}
-				polls = append(polls, scheduler.PollSource{Source: src, Container: pc.Repository, Interval: pc.PollInterval, Lookback: 24 * time.Hour})
-			}
+		r, ps, err := projectRoutes(b, cfg, pc, sys)
+		if err != nil {
+			return nil, err
+		}
+		routes, polls = append(routes, r...), append(polls, ps...)
+		if err := checkAgentBoundary(pc, pr.Tracker); err != nil {
+			return nil, err
 		}
 	}
 
@@ -259,6 +252,17 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 		sys.Scheduler.Spans = sys.Spans
 	}
 	return sys, nil
+}
+
+// designStyle picks a design layout from the project's preset and what its tracker can show.
+func designStyle(c config.Communication, tracker core.ProviderInfo) workflow.DesignStyle {
+	switch {
+	case c.Verbosity == config.VerbosityVerbose:
+		return workflow.DesignVerbose
+	case tracker.Has(core.CapTrackerCollapsible):
+		return workflow.DesignCompact
+	}
+	return workflow.DesignCompactPlain
 }
 
 func limitKey(agent string) string { return "agent:" + agent }
@@ -376,7 +380,7 @@ func (a authorizer) Permission(ctx context.Context, project string, s core.Subje
 	if !ok {
 		return core.PermissionNone, core.Errorf(core.KindInvalid, "app.authorize", "unknown project")
 	}
-	return pr.Tracker.ActorPermission(ctx, core.IssueRef{Container: s.Container, ExternalID: s.ExternalID}, actor)
+	return pr.Permission(ctx, s, actor)
 }
 
 // Run starts the service and blocks until ctx is cancelled and shutdown has ended.

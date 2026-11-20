@@ -113,17 +113,15 @@ func ReviewerPrompt(req core.ReviewRequest) string {
 	return b.String()
 }
 
-var reviewBlock = regexp.MustCompile("(?s)```goblins-review\\s*\\n(.*?)\\n?```")
-
 // ParseReview validates untrusted reviewer output. The last block counts, since earlier
 // text may quote one. Findings it cannot place on the commit lose their location.
 func ParseReview(output, sha string) (core.ReviewResult, error) {
-	matches := reviewBlock.FindAllStringSubmatch(output, -1)
-	if len(matches) == 0 {
+	block, ok := lastBlock(output, "goblins-review")
+	if !ok {
 		return core.ReviewResult{}, fmt.Errorf("no goblins-review block found")
 	}
 	var raw core.ReviewResult
-	dec := json.NewDecoder(strings.NewReader(matches[len(matches)-1][1]))
+	dec := json.NewDecoder(strings.NewReader(block))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&raw); err != nil {
 		return core.ReviewResult{}, fmt.Errorf("invalid review JSON: %w", err)
@@ -250,7 +248,10 @@ func (p *Pipeline) review(ctx context.Context, jc scheduler.JobContext) (any, er
 			Result: core.ReviewResult{Verdict: core.VerdictSkipped,
 				Summary: "no reviewer was available (" + strings.Join(failed, "; ") + ")"}}, nil
 	}
-	if res.Verdict != core.VerdictSkipped && !res.Published {
+	// On Goblins' own pull request, a review that found nothing goes into the status comment
+	// rather than on the pull request. Reviewing someone else's is the whole job, so it posts.
+	quiet := len(res.Findings) == 0 && jc.Task.Kind == core.TaskIssue
+	if res.Verdict != core.VerdictSkipped && !res.Published && !quiet {
 		if err := p.publishReview(ctx, jc, pr, sha, req.Diff, res); err != nil {
 			return nil, err
 		}
