@@ -94,6 +94,17 @@ func TestAChangeOutsideTheScopeStopsForAPerson(t *testing.T) {
 				ok.Task.Approval.Policy != "" {
 				t.Fatalf("after approval: %v, %+v", kinds(ok), ok.Task.Approval)
 			}
+			// The check of that change starts work, as the scheduler announces it, and from
+			// there the task goes on as any other. Found on the test host, where it stayed
+			// agent-ready and its pull request could not be recorded.
+			cur := ok.Task.CurrentJob
+			if !EmitsStart(cur.Kind) {
+				t.Fatalf("a %s job is not announced", cur.Kind)
+			}
+			run := Decide(ok.Task, core.Event{Project: "p", Type: core.EventJobStarted,
+				Subject: subj, Job: &core.JobOutcome{Kind: cur.Kind, Key: cur.IdempotencyKey}},
+				writeFacts(), p)
+			mustState(t, run, core.StateImplementing)
 		})
 	}
 }
