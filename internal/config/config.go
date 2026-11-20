@@ -37,6 +37,7 @@ type Config struct {
 	Installation  Installation `yaml:"installation"`
 	Server        Server       `yaml:"server"`
 	Log           Log          `yaml:"log"`
+	Tracing       Tracing      `yaml:"tracing,omitempty"`
 	Storage       Storage      `yaml:"storage"`
 	Scheduler     Scheduler    `yaml:"scheduler,omitempty"`
 	Trackers      ProviderSet  `yaml:"trackers,omitempty"`
@@ -294,6 +295,7 @@ func (c *Config) applyEnv(env func(string) (string, bool)) error {
 	set("GOBLINS_LOG_FORMAT", &c.Log.Format)
 	set("GOBLINS_STORAGE_DRIVER", &c.Storage.Driver)
 	set("GOBLINS_STORAGE_PATH", &c.Storage.Path)
+	set("GOBLINS_OTLP_ENDPOINT", &c.Tracing.OTLPEndpoint)
 	if v, ok := env("GOBLINS_SHUTDOWN_TIMEOUT"); ok {
 		d, err := time.ParseDuration(v)
 		if err != nil {
@@ -341,6 +343,7 @@ func (c *Config) Validate(known TypeChecker) error {
 	if c.Server.ShutdownTimeout <= 0 {
 		add("server.shutdown_timeout: must be positive")
 	}
+	c.Tracing.validate(add)
 	if _, err := observability.NewLogger(io.Discard, observability.LogOptions{Level: c.Log.Level, Format: c.Log.Format}); err != nil {
 		add("log: %v", err)
 	}

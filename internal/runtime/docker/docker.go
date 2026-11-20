@@ -123,7 +123,7 @@ func Register(reg *providers.Registry) {
 // Info implements core.Provider. Privileged mode, GPUs and KVM are deliberately
 // not offered, so workloads asking for them are refused.
 func (r *Runtime) Info() core.ProviderInfo {
-	caps := []core.Capability{core.CapRuntimeVolumes, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress, core.CapRuntimeResourceLimits, core.CapRuntimeReadOnlyRoot}
+	caps := []core.Capability{core.CapRuntimeVolumes, core.CapRuntimeVolumeList, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress, core.CapRuntimeResourceLimits, core.CapRuntimeReadOnlyRoot}
 	if r.opts.DiskLimits {
 		caps = append(caps, core.CapRuntimeDiskLimits)
 	}
@@ -572,23 +572,4 @@ func (r *Runtime) List(ctx context.Context, labels map[string]string) ([]core.Wo
 		res = append(res, st)
 	}
 	return res, nil
-}
-
-// EnsureVolume implements core.ExecutionRuntime. Creating an existing volume is a
-// no-op on the engine.
-func (r *Runtime) EnsureVolume(ctx context.Context, name string, labels map[string]string) error {
-	if !volumeName.MatchString(name) {
-		return core.Errorf(core.KindInvalid, "docker.volume", "invalid volume name %q", name)
-	}
-	_, err := r.call(ctx, http.MethodPost, "/volumes/create", map[string]any{"Name": name, "Labels": labels}, nil)
-	return err
-}
-
-// RemoveVolume implements core.ExecutionRuntime.
-func (r *Runtime) RemoveVolume(ctx context.Context, name string) error {
-	_, err := r.call(ctx, http.MethodDelete, "/volumes/"+url.PathEscape(name), nil, nil)
-	if core.IsKind(err, core.KindNotFound) {
-		return nil
-	}
-	return err
 }

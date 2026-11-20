@@ -19,6 +19,7 @@ startup errors, and all problems are reported at once.
 | `GOBLINS_LOG_FORMAT`        | `log.format`               |
 | `GOBLINS_STORAGE_DRIVER`    | `storage.driver`           |
 | `GOBLINS_STORAGE_PATH`      | `storage.path`             |
+| `GOBLINS_OTLP_ENDPOINT`     | `tracing.otlp_endpoint`    |
 
 ## Secrets
 

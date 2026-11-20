@@ -30,8 +30,12 @@ func (s *Scheduler) observeJob(ctx context.Context, log *slog.Logger, task core.
 	if task.PullRequest != nil {
 		attrs = append(attrs, "pull_request", task.PullRequest.Number)
 	}
-	observability.LogSpan(ctx, log, observability.Span{TaskID: task.ID,
-		Name: "job." + string(job.Kind), Start: start, Duration: took, Status: outcome, Attrs: attrs})
+	span := observability.Span{TaskID: task.ID, Name: "job." + string(job.Kind), Start: start,
+		Duration: took, Status: outcome, Attrs: attrs, SpanID: observability.NewSpanID()}
+	observability.LogSpan(ctx, log, span)
+	if s.Spans != nil {
+		s.Spans.Export(span)
+	}
 }
 
 // checkHealth looks for what nothing else would notice: a task that should be moving, with

@@ -95,6 +95,36 @@ retries right away.
   `max_review_fix_loops` cap how often a task goes around.
 - `/goblins pause` on a ticket stops that task. To stop everything, `docker compose stop goblins`.
 
+## Traces
+
+Every job attempt is a span. Without `tracing`, spans are only log lines. To send them to an
+OpenTelemetry collector as well, give its OTLP/HTTP endpoint:
+
+```yaml
+tracing:
+  otlp_endpoint: http://otel-collector:4318   # spans go to /v1/traces
+  headers_env: OTLP_HEADERS                    # optional: key=value,key=value
+  interval: 5s                                 # how long spans wait to be batched
+```
+
+All spans of a task share its trace ID, the one `goblins audit` prints, so one search in the
+collector shows the whole task. Attributes carry the job, attempt, design revision, commit and
+pull request, with the same redaction as logs. Headers can hold the collector's login, so they come
+from the environment, and the endpoint URL cannot carry one.
+
+Spans are encoded as OTLP JSON by Goblins itself, without the OpenTelemetry SDK
+([ADR 0007](adr/0007-otlp-without-an-sdk.md)). A collector that is down or slow never holds up
+work: up to 2048 spans wait, later ones are dropped, and stopping sends what is queued.
+`goblins_span_exports_total{outcome}` and `goblins_spans_dropped_total` show how export goes.
+
+## Workspaces left behind
+
+A finished or cancelled task removes its volumes with a cleanup job. When that job never runs, after
+a crash or a lost job, reconciliation finds the volumes by label and removes those of tasks
+completed or cancelled over an hour ago, and of tasks the database doesn't know. A failed task keeps
+its volumes, as its work may still be recovered by hand. `goblins_volumes_reclaimed_total` counts
+them. This needs a runtime with `runtime.volumes.list`, which Docker has.
+
 ## Metrics
 
 Set `server.metrics_listen` to serve Prometheus metrics on `/metrics` at that address, or set
