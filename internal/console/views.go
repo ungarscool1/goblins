@@ -120,12 +120,26 @@ func (c *console) detail(ctx context.Context, id string) (Detail, error) {
 		}
 		d.Design = &des
 	}
-	events, err := c.o.Store.ListEvents(ctx, t.Project, t.Subject, 500)
+	events, err := c.events(ctx, t)
 	if err != nil {
 		return Detail{}, err
 	}
 	d.Conversation = conversation(events, d.Jobs)
 	return d, nil
+}
+
+// events returns what was said about a task: on its ticket and, once it has one, on its pull
+// request, where reviews and their remarks arrive under the pull request's own subject.
+func (c *console) events(ctx context.Context, t core.Task) ([]core.Event, error) {
+	events, err := c.o.Store.ListEvents(ctx, t.Project, t.Subject, 500)
+	if err != nil || t.PullRequest == nil || t.Subject.Kind == core.SubjectPullRequest ||
+		c.o.SCM == nil {
+		return events, err
+	}
+	pr := core.Subject{Kind: core.SubjectPullRequest, Provider: c.o.SCM(t.Project),
+		Container: t.PullRequest.Repo.Slug, ExternalID: t.PullRequest.Number}
+	more, err := c.o.Store.ListEvents(ctx, t.Project, pr, 500)
+	return append(events, more...), err
 }
 
 // conversation rebuilds what was said from the durable record alone, so it survives restarts
@@ -135,9 +149,13 @@ func conversation(events []core.Event, jobs []core.Job) []Message {
 	out := []Message{}
 	at := map[string]int{}
 	for _, ev := range events {
+		if v, ok := verdict(ev); ok {
+			out = append(out, Message{At: ev.OccurredAt, Author: ev.Actor.Login, From: "person",
+				Text: v})
+			continue
+		}
 		cm := ev.Comment
-		if cm == nil || cm.Author.Type == core.ActorBot ||
-			(ev.Type != core.EventCommentCreated && ev.Type != core.EventCommentEdited) {
+		if cm == nil || cm.Author.Type == core.ActorBot || !said(ev.Type) {
 			continue
 		}
 		m := Message{At: cmp.Or(cm.CreatedAt, ev.OccurredAt), Author: cm.Author.Login,
@@ -167,6 +185,30 @@ func conversation(events []core.Event, jobs []core.Job) []Message {
 	}
 	slices.SortStableFunc(out, func(a, b Message) int { return a.At.Compare(b.At) })
 	return out
+}
+
+// said is whether an event carries something a person wrote: a comment, or a remark in a
+// review.
+func said(t core.EventType) bool {
+	switch t {
+	case core.EventCommentCreated, core.EventCommentEdited, core.EventReviewComment:
+		return true
+	}
+	return false
+}
+
+// verdict describes a person's review. Its text is on the pull request, not in the event.
+func verdict(ev core.Event) (string, bool) {
+	if ev.Type != core.EventPRReviewed || ev.Actor.Type != core.ActorHuman {
+		return "", false
+	}
+	switch ev.Verdict {
+	case core.VerdictApprove:
+		return "Approved the pull request.", true
+	case core.VerdictChangesRequested:
+		return "Requested changes on the pull request.", true
+	}
+	return "Reviewed the pull request.", true
 }
 
 func delivery(j core.Job) string {
@@ -255,17 +297,13 @@ func (c *console) transcript(ctx context.Context, id, job string) (Transcript, e
 	if err != nil {
 		return Transcript{}, err
 	}
-	all, err := c.o.Store.ListTranscript(ctx, id, maxTranscript)
+	// The job is chosen in the query, before the limit: later jobs cannot crowd out an earlier
+	// one's entries.
+	all, err := c.o.Store.ListTranscript(ctx, id, job, maxTranscript)
 	if err != nil {
 		return Transcript{}, err
 	}
-	if job != "" {
-		all = slices.DeleteFunc(slices.Clone(all), func(e core.TranscriptEntry) bool {
-			return e.JobID != job
-		})
-	}
-	tr := Transcript{Job: job, Jobs: jobs, Entries: entries(all, jobs, t.HeadSHA)}
-	return tr, nil
+	return Transcript{Job: job, Jobs: jobs, Entries: entries(all, jobs, t.HeadSHA)}, nil
 }
 
 func (c *console) design(ctx context.Context, r *http.Request) (core.Design, error) {

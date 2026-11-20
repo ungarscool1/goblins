@@ -503,9 +503,19 @@ func Run(t *testing.T, build func(t *testing.T) core.StateStore) {
 		if err := s.AppendTranscript(ctx, entries); err != nil {
 			t.Fatal(err)
 		}
-		got, err := s.ListTranscript(ctx, "t", 2)
+		got, err := s.ListTranscript(ctx, "t", "", 2)
 		if err != nil || len(got) != 2 || got[0].Text != "two" || got[1].Text != "three" {
 			t.Fatalf("transcript = %+v, %v", got, err)
+		}
+		// One job's entries are chosen before the limit, so a later job's cannot crowd them out.
+		later := []core.TranscriptEntry{{TaskID: "t", JobID: "k", Kind: "text", Text: "four", At: t0},
+			{TaskID: "t", JobID: "k", Kind: "text", Text: "five", At: t0}}
+		if err := s.AppendTranscript(ctx, later); err != nil {
+			t.Fatal(err)
+		}
+		got, err = s.ListTranscript(ctx, "t", "j", 2)
+		if err != nil || len(got) != 2 || got[0].Text != "two" || got[1].JobID != "j" {
+			t.Fatalf("job transcript = %+v, %v", got, err)
 		}
 		subject := core.Subject{Kind: core.SubjectIssue, Provider: "p", Container: "r",
 			ExternalID: "9"}

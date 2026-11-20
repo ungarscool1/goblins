@@ -25,7 +25,7 @@ type Store interface {
 	ListTasks(ctx context.Context, project string) ([]core.Task, error)
 	ListTransitions(ctx context.Context, taskID string) ([]core.Transition, error)
 	ListJobs(ctx context.Context, taskID string) ([]core.Job, error)
-	ListTranscript(ctx context.Context, taskID string, limit int) ([]core.TranscriptEntry, error)
+	ListTranscript(ctx context.Context, taskID, jobID string, limit int) ([]core.TranscriptEntry, error)
 	GetDesign(ctx context.Context, taskID string, revision int) (core.Design, error)
 	ListEvents(ctx context.Context, project string, subject core.Subject,
 		limit int) ([]core.Event, error)
@@ -40,7 +40,10 @@ type Options struct {
 	Policies workflow.Policies
 	// Agents describes who works on a project, one line per stage, such as
 	// "planner: main, model large".
-	Agents     func(project string) []string
+	Agents func(project string) []string
+	// SCM names a project's source control provider, which events about its pull requests
+	// are filed under.
+	SCM        func(project string) string
 	ReadOnly   bool
 	SessionTTL time.Duration
 	Log        *slog.Logger

@@ -719,11 +719,17 @@ func (s *Store) AppendTranscript(ctx context.Context, entries []core.TranscriptE
 }
 
 // ListTranscript implements core.StateStore.
-func (s *Store) ListTranscript(ctx context.Context, taskID string, limit int) ([]core.TranscriptEntry, error) {
+func (s *Store) ListTranscript(ctx context.Context, taskID, jobID string,
+	limit int) ([]core.TranscriptEntry, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
-	rows, err := s.db.QueryContext(ctx, s.rebind(`SELECT job_id, kind, text, at FROM transcripts WHERE task_id = ? ORDER BY id DESC LIMIT ?`), taskID, limit)
+	q, args := `SELECT job_id, kind, text, at FROM transcripts WHERE task_id = ?`, []any{taskID}
+	if jobID != "" {
+		q, args = q+` AND job_id = ?`, append(args, jobID)
+	}
+	rows, err := s.db.QueryContext(ctx, s.rebind(q+` ORDER BY id DESC LIMIT ?`),
+		append(args, limit)...)
 	if err != nil {
 		return nil, classify("storage.transcript", err)
 	}
