@@ -16,7 +16,9 @@ const (
 )
 
 // reopensOnReply says whether a new remark needs judging again. Only a person's words do when
-// waiting for a reply, so that two automated reviewers can never keep each other busy.
+// waiting for a reply, so that two automated reviewers can never keep each other busy. A
+// finding set aside as no longer applying reopens too: the reviewer may say it still does, or
+// change their mind after withdrawing it.
 func reopensOnReply(status core.FindingStatus, discussion []core.DiscussionEntry) bool {
 	if len(discussion) == 0 {
 		return false
@@ -28,7 +30,7 @@ func reopensOnReply(status core.FindingStatus, discussion []core.DiscussionEntry
 	switch status {
 	case core.FindingAwaitingReviewer, core.FindingDisputed, core.FindingFixedPending:
 		return last.Human
-	case core.FindingNeedsFix, core.FindingAddressed:
+	case core.FindingNeedsFix, core.FindingAddressed, core.FindingSuperseded:
 		return last.Human
 	}
 	return false

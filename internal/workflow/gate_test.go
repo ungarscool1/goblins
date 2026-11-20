@@ -204,6 +204,22 @@ func TestMergeFindings(t *testing.T) {
 	if reopened[0].Status != core.FindingOpen {
 		t.Fatalf("not reopened: %+v", reopened)
 	}
+	// Set aside, a finding comes back when its reviewer writes in its thread again, as on the
+	// test host, where a reviewer withdrew a request and then insisted on it.
+	settled := mergeFindings(nil, []core.ReviewFinding{{ID: "t", LastCommentID: "1",
+		Discussion: []core.DiscussionEntry{{CommentID: "1", Human: true}}}})
+	settled[0].Status = core.FindingSuperseded
+	insisted := mergeFindings(settled, []core.ReviewFinding{{ID: "t", LastCommentID: "3",
+		Discussion: []core.DiscussionEntry{{CommentID: "1", Human: true}, {CommentID: "2",
+			Own: true}, {CommentID: "3", Human: true}}}})
+	if insisted[0].Status != core.FindingOpen {
+		t.Fatalf("an insisting reviewer was ignored: %+v", insisted[0])
+	}
+	settled[0].Status = core.FindingSuperseded
+	if bot := mergeFindings(settled, []core.ReviewFinding{{ID: "t", LastCommentID: "4",
+		Discussion: []core.DiscussionEntry{{CommentID: "4"}}}}); bot[0].Status != core.FindingSuperseded {
+		t.Fatalf("automation reopened a settled finding: %+v", bot[0])
+	}
 	var many []core.ReviewFinding
 	for i := range maxFindings + 10 {
 		many = append(many, core.ReviewFinding{ID: string(rune(i + 1000))})
