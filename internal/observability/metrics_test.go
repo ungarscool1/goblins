@@ -29,9 +29,27 @@ func TestMetricsWriteThePrometheusFormat(t *testing.T) {
 	}
 }
 
+func TestCountersAddAndKeepPlainDigits(t *testing.T) {
+	m := NewMetrics()
+	m.Add("tokens_total", Labels{"direction", "input"}, 1_234_000)
+	m.Add("tokens_total", Labels{"direction", "input"}, 567)
+	m.Add("tokens_total", Labels{"direction", "output"}, 0)
+	var b bytes.Buffer
+	if err := m.Write(&b); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`tokens_total{direction="input"} 1234567` + "\n",
+		`tokens_total{direction="output"} 0` + "\n"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("%q is missing from:\n%s", want, b.String())
+		}
+	}
+}
+
 func TestNilMetricsRecordNothing(t *testing.T) {
 	var m *Metrics
 	m.Inc("a", nil)
+	m.Add("a", nil, 2)
 	m.Observe("b", 1, nil)
 	if err := m.Write(&bytes.Buffer{}); err != nil {
 		t.Fatal(err)

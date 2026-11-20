@@ -311,7 +311,7 @@ func (p *Pipeline) plan(ctx context.Context, jc scheduler.JobContext) (any, erro
 		return nil, err
 	}
 	ref := issueRef(jc.Task)
-	issue, err := pr.Tracker.GetIssue(ctx, ref)
+	issue, err := acceptedIssue(ctx, jc, pr)
 	if err != nil {
 		return nil, err
 	}
@@ -374,7 +374,7 @@ func (p *Pipeline) implement(ctx context.Context, jc scheduler.JobContext) (any,
 	if err != nil {
 		return nil, err
 	}
-	issue, err := pr.Tracker.GetIssue(ctx, issueRef(jc.Task))
+	issue, err := acceptedIssue(ctx, jc, pr)
 	if err != nil {
 		return nil, err
 	}
@@ -505,7 +505,7 @@ func (p *Pipeline) publish(ctx context.Context, jc scheduler.JobContext) (any, e
 	if res.Status.Phase != core.WorkloadSucceeded {
 		return nil, workspace.ClassifyPush(res.Stderr)
 	}
-	issue, err := pr.Tracker.GetIssue(ctx, issueRef(jc.Task))
+	issue, err := acceptedIssue(ctx, jc, pr)
 	if err != nil {
 		return nil, err
 	}

@@ -46,10 +46,10 @@ func NewMetrics() *Metrics {
 }
 
 // Inc adds one to a counter.
-func (m *Metrics) Inc(name string, l Labels) { m.Add(name, 1, l) }
+func (m *Metrics) Inc(name string, l Labels) { m.Add(name, l, 1) }
 
-// Add adds n to a counter.
-func (m *Metrics) Add(name string, n float64, l Labels) {
+// Add adds v, which must not be negative, to a counter.
+func (m *Metrics) Add(name string, l Labels, v float64) {
 	if m == nil {
 		return
 	}
@@ -58,7 +58,7 @@ func (m *Metrics) Add(name string, n float64, l Labels) {
 	if m.counters[name] == nil {
 		m.counters[name] = map[string]float64{}
 	}
-	m.counters[name][l.String()] += n
+	m.counters[name][l.String()] += v
 }
 
 // Observe records a duration in seconds.
@@ -96,7 +96,9 @@ func (m *Metrics) Write(w io.Writer) error {
 	for _, name := range slices.Sorted(maps.Keys(m.counters)) {
 		fmt.Fprintf(&b, "# TYPE %s counter\n", name)
 		for _, l := range slices.Sorted(maps.Keys(m.counters[name])) {
-			fmt.Fprintf(&b, "%s %g\n", series(name, l), m.counters[name][l])
+			// Plain digits, as token counts in exponent form are hard to read.
+			v := strconv.FormatFloat(m.counters[name][l], 'f', -1, 64)
+			fmt.Fprintf(&b, "%s %s\n", series(name, l), v)
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(m.hists)) {
