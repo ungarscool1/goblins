@@ -162,7 +162,8 @@ func TestOTLPCountsRejectedBatches(t *testing.T) {
 	c := &collector{status: http.StatusServiceUnavailable}
 	srv := httptest.NewServer(c)
 	defer srv.Close()
-	e, _ := NewOTLPExporter(OTLPOptions{Endpoint: srv.URL + "/", Interval: time.Hour})
+	m := NewMetrics()
+	e, _ := NewOTLPExporter(OTLPOptions{Endpoint: srv.URL + "/", Interval: time.Hour, Metrics: m})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { defer close(done); e.Run(ctx) }()
@@ -171,6 +172,40 @@ func TestOTLPCountsRejectedBatches(t *testing.T) {
 	<-done
 	if e.Dropped() != 1 || len(c.spans()) != 1 {
 		t.Fatalf("dropped = %d, delivered = %d", e.Dropped(), len(c.spans()))
+	}
+	var b strings.Builder
+	if err := m.Write(&b); err != nil || !strings.Contains(b.String(), "goblins_spans_dropped_total 1") {
+		t.Fatalf("metrics = %s, %v", b.String(), err)
+	}
+}
+
+// A collector that stalls gets one timeout for everything left at exit, not one per batch.
+func TestOTLPShutdownHasOneDeadline(t *testing.T) {
+	stall := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-stall:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	defer close(stall)
+	e, _ := NewOTLPExporter(OTLPOptions{Endpoint: srv.URL, Interval: time.Hour,
+		Timeout: 200 * time.Millisecond})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	for range 8 * otlpBatch {
+		e.Export(Span{TaskID: "t", Name: "x"})
+	}
+	cancel()
+	start := time.Now()
+	go func() { defer close(done); e.Run(ctx) }()
+	<-done
+	if took := time.Since(start); took > time.Second {
+		t.Fatalf("shutdown took %s", took)
+	}
+	if e.Dropped() != 8*otlpBatch {
+		t.Fatalf("dropped = %d", e.Dropped())
 	}
 }
 

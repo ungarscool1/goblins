@@ -582,7 +582,13 @@ func (p *Pipeline) cleanup(ctx context.Context, jc scheduler.JobContext) (any, e
 	if err != nil {
 		return nil, err
 	}
-	var errs []error
+	// Environments first: their release steps run in the scratch workspace, which still holds
+	// the tested checkout. A release to try again keeps it; a broken one needs a person, and
+	// keeping the workspace would not help them.
+	errs := []error{p.releaseEnvironments(ctx, jc, pr)}
+	if errs[0] != nil && !core.IsKind(errs[0], core.KindForbidden) {
+		return nil, core.Wrap(core.KindTransient, "pipeline.cleanup", errs[0])
+	}
 	for _, v := range []struct {
 		runtime core.ExecutionRuntime
 		purpose string
@@ -592,7 +598,6 @@ func (p *Pipeline) cleanup(ctx context.Context, jc scheduler.JobContext) (any, e
 			errs = append(errs, err)
 		}
 	}
-	errs = append(errs, p.releaseEnvironments(ctx, jc, pr))
 	if err := errors.Join(errs...); err != nil {
 		return nil, core.Wrap(core.KindTransient, "pipeline.cleanup", err)
 	}

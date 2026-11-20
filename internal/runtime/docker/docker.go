@@ -556,6 +556,14 @@ func (r *Runtime) Cleanup(ctx context.Context, name string) error {
 	return err
 }
 
+// orphanServices stands for a workload of which only services remain. It has failed: what
+// it was to run is not there.
+func orphanServices(workload string, labels map[string]string) core.WorkloadStatus {
+	l := maps.Clone(labels)
+	delete(l, labelService)
+	return core.WorkloadStatus{Name: workload, Phase: core.WorkloadFailed, ExitCode: -1, Labels: l}
+}
+
 // List implements core.ExecutionRuntime.
 func (r *Runtime) List(ctx context.Context, labels map[string]string) ([]core.WorkloadStatus, error) {
 	var f []string
@@ -574,8 +582,24 @@ func (r *Runtime) List(ctx context.Context, labels map[string]string) ([]core.Wo
 		return nil, err
 	}
 	res := make([]core.WorkloadStatus, 0, len(out))
+	seen := map[string]bool{}
+	for _, c := range out {
+		if len(c.Names) == 0 || c.Labels[labelService] != "" {
+			continue
+		}
+		seen[strings.TrimPrefix(c.Names[0], "/")] = true
+	}
 	for _, c := range out {
 		if len(c.Names) == 0 {
+			continue
+		}
+		if c.Labels[labelService] != "" {
+			// A service whose workload's container is gone, or never came: the workload is
+			// reported in its place, so that cleaning it up removes the service and network.
+			if w := c.Labels[labelWorkload]; w != "" && !seen[w] {
+				seen[w] = true
+				res = append(res, orphanServices(w, c.Labels))
+			}
 			continue
 		}
 		st, err := r.Status(ctx, strings.TrimPrefix(c.Names[0], "/"))

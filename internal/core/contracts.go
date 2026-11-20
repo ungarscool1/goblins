@@ -330,7 +330,9 @@ type ExecutionRuntime interface {
 	Create(ctx context.Context, spec WorkloadSpec) (WorkloadStatus, error)
 	Status(ctx context.Context, name string) (WorkloadStatus, error)
 	// Logs copies output to the writers. With follow it blocks until the
-	// workload ends or ctx is cancelled.
+	// workload ends or ctx is cancelled. A runtime that cannot tell the streams apart gives
+	// both writers the same merged log, so that what a caller looks for in either is there;
+	// a caller that joins the two keeps such a log once (runtime.Combined).
 	Logs(ctx context.Context, name string, follow bool, stdout, stderr io.Writer) error
 	// Cancel stops a workload. Cancelling a finished workload is a no-op.
 	Cancel(ctx context.Context, name string) error

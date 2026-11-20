@@ -12,7 +12,10 @@ import (
 	"github.com/ungarscool1/goblins/internal/core"
 )
 
-const labelWorkload = "goblins.workload"
+const (
+	labelWorkload = "goblins.workload"
+	labelService  = "goblins.service"
+)
 
 // servicesNetwork is the private network a workload shares with its services. It is internal:
 // nothing on it reaches anything else.
@@ -35,8 +38,11 @@ type serviceCreate struct {
 }
 
 // buildService is pure, like buildCreate. A service keeps its image's entrypoint and a writable
-// root, as databases need one, and nothing else of the workload: no mounts, no secrets.
-func (r *Runtime) buildService(workload string, s core.Service) serviceCreate {
+// root, as databases need one, and nothing else of the workload but its labels: no mounts, no
+// secrets. The labels say who owns it, so reconciliation finds it even if the workload's own
+// container was never created.
+func (r *Runtime) buildService(spec core.WorkloadSpec, s core.Service) serviceCreate {
+	workload := spec.Name
 	res := s.Resources
 	if res.MemoryBytes == 0 {
 		res.MemoryBytes = 1 << 30
@@ -47,9 +53,13 @@ func (r *Runtime) buildService(workload string, s core.Service) serviceCreate {
 	if res.PIDs == 0 {
 		res.PIDs = r.opts.Defaults.PIDs
 	}
-	c := serviceCreate{Image: s.Image, Cmd: s.Command, User: r.opts.User,
-		Labels: map[string]string{"goblins.managed": "true", labelWorkload: workload,
-			"goblins.service": s.Name},
+	labels := maps.Clone(spec.Labels)
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	maps.Copy(labels, map[string]string{"goblins.managed": "true", labelWorkload: workload,
+		labelService: s.Name})
+	c := serviceCreate{Image: s.Image, Cmd: s.Command, User: r.opts.User, Labels: labels,
 		HostConfig: hostConfig{NetworkMode: servicesNetwork(workload), Memory: res.MemoryBytes,
 			MemorySwap: res.MemoryBytes, NanoCpus: int64(res.CPUs * 1e9), PidsLimit: res.PIDs,
 			CapDrop: []string{"ALL"}, SecurityOpt: []string{"no-new-privileges:true"}, Init: true,
@@ -80,7 +90,7 @@ func (r *Runtime) startServices(ctx context.Context, spec core.WorkloadSpec) err
 	for _, s := range spec.Services {
 		name := serviceContainer(spec.Name, s.Name)
 		path := "/containers/create?name=" + url.QueryEscape(name)
-		body := r.buildService(spec.Name, s)
+		body := r.buildService(spec, s)
 		_, err := r.call(ctx, http.MethodPost, path, body, nil)
 		if core.IsKind(err, core.KindNotFound) && r.opts.PullMissing {
 			if err = r.pull(ctx, s.Image); err == nil {

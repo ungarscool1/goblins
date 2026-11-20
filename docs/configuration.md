@@ -174,7 +174,8 @@ validations:
 ```
 
 The code under test is assumed to read them, so they must never grant anything in production. Their
-values are removed from check output before it reaches the ticket or the implementer. A manifest may
+values, which must be at least 4 characters long, are removed from check output before it reaches
+the ticket or the implementer. A manifest may
 name them only with `manifest_secrets: true`. They are the one kind of credential a sandbox may hold
 ([ADR 0008](adr/0008-runner-and-sandbox.md)); agents and production credentials never reach a check.
 
