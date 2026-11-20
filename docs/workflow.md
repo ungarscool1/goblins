@@ -42,6 +42,7 @@ inside job results.
 | `awaiting-review`  | `reviewing` (new head), `implementing` (actionable feedback), `completed` (merged), `cancelled` (closed) |
 | any active         | `blocked`, `quota-paused`, `failed`, `cancelled`           |
 | `blocked`, `quota-paused` | the state recorded when they were entered, or `investigating` if requirements changed meanwhile |
+| `failed`           | the state it failed in, on `/goblins retry` only, or `investigating` when that is unknown |
 
 `CheckTransition` enforces the table on every commit, so a bug in the machine stops
 a task instead of corrupting it.
@@ -99,6 +100,7 @@ with at least `MinApprovePermission`:
 | `/goblins pause`        | Stop the running job and block                        |
 | `/goblins resume`       | Return from `blocked` or `quota-paused`               |
 | `/goblins cancel`       | Stop everything and clean up                          |
+| `/goblins retry`        | Run a `failed` task again, from the step that failed  |
 
 ## What a blocked ticket shows
 

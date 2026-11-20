@@ -64,7 +64,7 @@ func consoleOperators(list []config.Operator,
 				op.Name, console.MinTokenLength)
 		}
 		out = append(out, console.Operator{Name: op.Name, CanAct: op.Role == config.RoleOperator,
-			Token: core.NewSecret(token)})
+			Token: core.NewSecret(token), Projects: op.Projects})
 	}
 	return out, nil
 }

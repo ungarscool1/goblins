@@ -52,11 +52,12 @@ func summarize(t core.Task) Summary {
 	return s
 }
 
-func (c *console) queue(ctx context.Context) (Queue, error) {
+func (c *console) queue(ctx context.Context, op *Operator) (Queue, error) {
 	tasks, err := c.o.Store.ListTasks(ctx, "")
 	if err != nil {
 		return Queue{}, err
 	}
+	tasks = slices.DeleteFunc(tasks, func(t core.Task) bool { return !op.Sees(t.Project) })
 	slices.SortStableFunc(tasks, func(a, b core.Task) int {
 		return b.UpdatedAt.Compare(a.UpdatedAt)
 	})
@@ -226,6 +227,8 @@ func delivery(j core.Job) string {
 // only keep the page from offering what it would refuse.
 func actionsIn(s core.State) []string {
 	switch {
+	case s == core.StateFailed:
+		return []string{actRetry}
 	case s.IsTerminal():
 		return []string{}
 	case s == core.StateDesignProposed:
@@ -240,16 +243,54 @@ func actionsIn(s core.State) []string {
 
 // Transcript is a task's agent output, optionally for one job.
 type Transcript struct {
-	Job     string                 `json:"job,omitempty"`
-	Jobs    []core.Job             `json:"jobs"`
-	Entries []core.TranscriptEntry `json:"entries"`
+	Job     string     `json:"job,omitempty"`
+	Jobs    []core.Job `json:"jobs"`
+	Entries []Entry    `json:"entries"`
+}
+
+// Entry is a transcript entry with the run it came from: the stage, the attempt, the commit
+// it worked on and the agent session, as recorded with its job.
+type Entry struct {
+	core.TranscriptEntry
+	Stage   string `json:"stage"`
+	Attempt int    `json:"attempt"`
+	Commit  string `json:"commit,omitempty"`
+	Session string `json:"session,omitempty"`
+}
+
+func entries(all []core.TranscriptEntry, jobs []core.Job, head string) []Entry {
+	type run struct {
+		stage, commit, session string
+		attempt                int
+	}
+	runs := map[string]run{}
+	for _, j := range jobs {
+		var payload struct {
+			SHA string `json:"sha"`
+		}
+		var cp struct {
+			SessionID string `json:"session_id"`
+		}
+		_ = json.Unmarshal(j.Payload, &payload)
+		_ = json.Unmarshal(j.Checkpoint, &cp)
+		runs[j.ID] = run{stage: string(j.Kind), commit: cmp.Or(payload.SHA, head),
+			session: cp.SessionID, attempt: j.Attempt}
+	}
+	out := make([]Entry, len(all))
+	for i, e := range all {
+		r := runs[e.JobID]
+		out[i] = Entry{TranscriptEntry: e, Stage: r.stage, Attempt: r.attempt, Commit: r.commit,
+			Session: r.session}
+	}
+	return out
 }
 
 // maxTranscript bounds the entries a page shows.
 const maxTranscript = 2000
 
 func (c *console) transcript(ctx context.Context, id, job string) (Transcript, error) {
-	if _, err := c.o.Store.GetTask(ctx, id); err != nil {
+	t, err := c.o.Store.GetTask(ctx, id)
+	if err != nil {
 		return Transcript{}, err
 	}
 	jobs, err := c.o.Store.ListJobs(ctx, id)
@@ -258,11 +299,11 @@ func (c *console) transcript(ctx context.Context, id, job string) (Transcript, e
 	}
 	// The job is chosen in the query, before the limit: later jobs cannot crowd out an earlier
 	// one's entries.
-	entries, err := c.o.Store.ListTranscript(ctx, id, job, maxTranscript)
+	all, err := c.o.Store.ListTranscript(ctx, id, job, maxTranscript)
 	if err != nil {
 		return Transcript{}, err
 	}
-	return Transcript{Job: job, Jobs: jobs, Entries: entries}, nil
+	return Transcript{Job: job, Jobs: jobs, Entries: entries(all, jobs, t.HeadSHA)}, nil
 }
 
 func (c *console) design(ctx context.Context, r *http.Request) (core.Design, error) {

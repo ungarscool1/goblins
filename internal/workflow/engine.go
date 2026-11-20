@@ -111,7 +111,8 @@ func (e *Engine) process(ctx context.Context, ev core.Event, now time.Time) erro
 	switch {
 	case ev.Source == SourceOperator:
 		facts.ActorPermission = core.PermissionAdmin
-	case needsPermission(ev) && (current == nil || !Terminal(current.State)):
+	case needsPermission(ev) && (current == nil || !Terminal(current.State) ||
+		current.State == core.StateFailed):
 		perm, err := e.Auth.Permission(ctx, ev.Project, ev.Subject, ev.Actor)
 		switch {
 		case err == nil:

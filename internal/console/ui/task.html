@@ -66,6 +66,7 @@
   <section class="act row">
     {{if .Can.pause}}{{template "button" (button .Task.ID .CSRF "pause" "Pause, marking it blocked")}}{{end}}
     {{if .Can.resume}}{{template "button" (button .Task.ID .CSRF "resume" "Resume, running the interrupted step again")}}{{end}}
+    {{if .Can.retry}}{{template "button" (button .Task.ID .CSRF "retry" "Run again, from the step that failed")}}{{end}}
     {{if .Can.cancel}}{{template "button" (button .Task.ID .CSRF "cancel" "Cancel")}}{{end}}
   </section>
   {{end}}

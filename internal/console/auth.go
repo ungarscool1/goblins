@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,13 @@ type Operator struct {
 	// CanAct is false for a viewer.
 	CanAct bool
 	Token  core.Secret
+	// Projects, when set, are the only projects this operator sees and acts on.
+	Projects []string
+}
+
+// Sees reports whether the operator may see a project's tasks.
+func (o *Operator) Sees(project string) bool {
+	return o != nil && (len(o.Projects) == 0 || slices.Contains(o.Projects, project))
 }
 
 // MinTokenLength keeps tokens out of reach of guessing.

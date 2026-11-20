@@ -22,6 +22,7 @@ console:
 | `console.operators` | none | Who may log in. At least one when the console is on |
 | `operators[].role` | | `operator` can act, `viewer` only reads |
 | `operators[].token_env`, `token_file` | | The token, by reference. At least 32 characters |
+| `operators[].projects` | all | Projects this operator sees and acts on. Tasks of others answer as if they did not exist |
 | `console.read_only` | false | Refuses every action, whatever the role |
 | `console.session_ttl` | 12h | How long a browser stays logged in |
 
@@ -40,7 +41,8 @@ takes webhooks. In mock mode, set `GOBLINS_CONSOLE_LISTEN` and
 - **A task** shows its state and why, the agents configured for its project, the approved design and
   its pull request, test results, rounds used, the current design with links to earlier revisions,
   the conversation, its jobs and its history.
-- **Transcript** shows what agents and checks printed, for the task or one job. It was redacted
+- **Transcript** shows what agents and checks printed, for the task or one job, each entry with the
+  stage and attempt it came from, the commit it worked on and the agent session. It was redacted
   before it was stored.
 
 The conversation is rebuilt from the database: people's comments as Goblins received them, with
@@ -57,10 +59,12 @@ are kept for `scheduler.transcript_retention`.
 | Pause | `/goblins pause` | Marks the task blocked and stops its job |
 | Resume | `/goblins resume` | Runs the interrupted step again, with fresh round budgets |
 | Cancel | `/goblins cancel` | |
+| Run again | `/goblins retry` | Only for a failed task: runs the step that failed again, with fresh round budgets |
 
 An action is stored as an operator comment under the operator's name, with maintainer access. The
 workflow then applies it, or ignores it, exactly as it would that comment on the ticket. The task's
-history and `goblins audit` show who did what. A finished task takes no action.
+history and `goblins audit` show who did what. A completed or cancelled task takes no action, and a
+failed one only Run again.
 
 ## API
 

@@ -28,8 +28,28 @@ func (c *console) viewFor(r *http.Request) View {
 	return v
 }
 
+// scoped answers as if a task did not exist when it belongs to a project the operator may not
+// see, so that its existence is not told either.
+func (c *console) scoped(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		op := operatorOf(r)
+		if op == nil {
+			http.NotFound(w, r)
+			return
+		}
+		if len(op.Projects) > 0 {
+			t, err := c.o.Store.GetTask(r.Context(), r.PathValue("id"))
+			if err != nil || !op.Sees(t.Project) {
+				http.NotFound(w, r)
+				return
+			}
+		}
+		h(w, r)
+	}
+}
+
 func (c *console) index(w http.ResponseWriter, r *http.Request) {
-	q, err := c.queue(r.Context())
+	q, err := c.queue(r.Context(), operatorOf(r))
 	if err != nil {
 		c.fail(w, err)
 		return
@@ -125,7 +145,7 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 func (c *console) apiTasks(w http.ResponseWriter, r *http.Request) {
-	q, err := c.queue(r.Context())
+	q, err := c.queue(r.Context(), operatorOf(r))
 	if err != nil {
 		c.fail(w, err)
 		return

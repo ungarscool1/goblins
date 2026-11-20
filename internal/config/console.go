@@ -2,6 +2,7 @@ package config
 
 import (
 	"net"
+	"slices"
 	"time"
 )
 
@@ -24,6 +25,8 @@ type Operator struct {
 	Role      string `yaml:"role"`
 	TokenEnv  string `yaml:"token_env,omitempty"`
 	TokenFile string `yaml:"token_file,omitempty"`
+	// Projects, when set, are the only projects this operator sees and acts on.
+	Projects []string `yaml:"projects,omitempty"`
 }
 
 // Console roles. A viewer reads everything an operator reads and changes nothing.
@@ -59,6 +62,11 @@ func (c *Config) validateConsole(add func(string, ...any)) {
 		}
 		if (op.TokenEnv == "") == (op.TokenFile == "") {
 			add("console.operators[%d]: set exactly one of token_env and token_file", i)
+		}
+		for _, p := range op.Projects {
+			if !slices.ContainsFunc(c.Projects, func(pc Project) bool { return pc.ID == p }) {
+				add("console.operators[%d].projects: no project %q", i, p)
+			}
 		}
 	}
 }
