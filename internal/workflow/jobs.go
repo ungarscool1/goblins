@@ -213,7 +213,11 @@ func mustJSON(v any) json.RawMessage {
 }
 
 // EmitsStart reports whether a job's start matters to the state machine.
-func EmitsStart(k core.JobKind) bool { return k == JobImplement || k == JobReview }
+func EmitsStart(k core.JobKind) bool {
+	// A validate job starts work of its own when a person approved a change that had left an
+	// unattended scope: the task is agent-ready until then.
+	return k == JobImplement || k == JobReview || k == JobValidate
+}
 
 // SideJob reports whether a job only performs an effect and never advances a task.
 func SideJob(k core.JobKind) bool {
