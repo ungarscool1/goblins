@@ -107,6 +107,10 @@ func IssueTracker(t *testing.T, build func(t *testing.T) TrackerHarness) {
 		}
 	})
 
+	t.Run("own comments are edited in place, others never", func(t *testing.T) {
+		trackerEdits(t, build(t))
+	})
+
 	t.Run("seeded comments keep their human author", func(t *testing.T) {
 		h := build(t)
 		ref := h.Seed(t, "T", "B")
@@ -140,6 +144,10 @@ func IssueTracker(t *testing.T, build func(t *testing.T) TrackerHarness) {
 		info := h.Tracker.Info()
 		if !info.Has(core.CapTrackerCommentWrite) {
 			_, err := h.Tracker.PostComment(ctx, ref, core.CommentDraft{Body: "x"})
+			wantKind(t, err, core.KindUnsupported)
+		}
+		if !info.Has(core.CapTrackerCommentEdit) {
+			_, err := h.Tracker.UpdateComment(ctx, ref, "1", core.CommentDraft{Body: "x"})
 			wantKind(t, err, core.KindUnsupported)
 		}
 		if !info.Has(core.CapTrackerPermissions) {

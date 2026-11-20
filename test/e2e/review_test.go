@@ -87,9 +87,14 @@ func TestCodexReviewSendsClaudeBackOnTheSamePullRequest(t *testing.T) {
 	if task.ValidatedSHA != task.HeadSHA {
 		t.Fatalf("validated %s, head %s", task.ValidatedSHA, task.HeadSHA)
 	}
+	// The review of the correction found nothing: it is in the status, not on the pull request.
 	reviews := e.gh.Reviews(repo, prs[0].Number)
-	if len(reviews) != 2 {
+	if len(reviews) != 1 {
 		t.Fatalf("reviews = %+v", reviews)
+	}
+	clean := "Automated review of `" + task.HeadSHA + "` by codex-cli: no findings"
+	if !strings.Contains(e.botComments(), clean) {
+		t.Fatalf("%q is missing from:\n%s", clean, e.botComments())
 	}
 	first := reviews[0]
 	if first["event"] != "COMMENT" || first["commit_id"] == task.HeadSHA || !strings.Contains(fmt.Sprint(first["body"]), "does not prove") {
@@ -97,9 +102,6 @@ func TestCodexReviewSendsClaudeBackOnTheSamePullRequest(t *testing.T) {
 	}
 	if !strings.Contains(fmt.Sprint(first["comments"]), "the feature is not reviewed") {
 		t.Fatalf("finding not inline: %+v", first)
-	}
-	if reviews[1]["commit_id"] != task.HeadSHA {
-		t.Fatalf("second review = %+v", reviews[1])
 	}
 	// The reviewer got no write access, no tokens and no way to run commands.
 	got, err := os.ReadFile(e.codexFile("invocations"))
@@ -285,7 +287,6 @@ func TestPushBySomeoneElseIsCheckedOutReviewedAndValidated(t *testing.T) {
 	e.useCodex(true)
 	e.approve()
 	task := e.wantState(core.StateAwaitingReview)
-	pr := e.pullRequest()
 	runs := e.codexRuns()
 
 	// Someone pushes to the branch themselves.
@@ -312,9 +313,10 @@ func TestPushBySomeoneElseIsCheckedOutReviewedAndValidated(t *testing.T) {
 	if e.codexRuns() != runs+1 {
 		t.Fatalf("reviews = %d, want one more than %d", e.codexRuns(), runs)
 	}
-	reviews := e.gh.Reviews(repo, pr.Number)
-	if got := reviews[len(reviews)-1]["commit_id"]; got != pushed {
-		t.Fatalf("reviewed %v", got)
+	// It found nothing, so it is in the status rather than on the pull request.
+	clean := "Automated review of `" + pushed + "` by codex-cli: no findings"
+	if !strings.Contains(e.botComments(), clean) {
+		t.Fatalf("%q is missing from:\n%s", clean, e.botComments())
 	}
 }
 
