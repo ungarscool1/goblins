@@ -142,6 +142,8 @@ func (m *machine) outOfScope(res ImplementResult) bool {
 	m.t.Approval, m.t.Unattended, m.t.Escalated, m.t.CurrentJob = nil, nil, res.HeadSHA, nil
 	m.t.DesignProposedAt = m.f.Now
 	m.moveTo(core.StateDesignProposed, "the change left the unattended scope: "+why)
+	// The status comment already shows: it must not go on saying the work is under way.
+	m.progress("the change left the unattended scope, and waits for a person's approval")
 	m.t.DesignCommentKey = m.comment(fmt.Sprintf("The change at `%s` left this project's "+
 		"unattended scope: %s. Nothing was published. To go on with it, approve the design: "+
 		"`%s %d`.",
