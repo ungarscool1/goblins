@@ -3,6 +3,7 @@ package jira
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"regexp"
 	"slices"
@@ -38,6 +39,9 @@ type Tracker struct {
 	write    bool
 	agents   []string
 
+	log      *slog.Logger
+	warnOnce sync.Once
+
 	mu    sync.Mutex
 	perms map[string]cachedPermission
 }
@@ -55,6 +59,7 @@ type TrackerOptions struct {
 	Write bool
 	// Agents, when set, are the only agents projects on this tracker may use.
 	Agents []string
+	Log    *slog.Logger
 }
 
 // NewTracker returns a tracker.
@@ -67,8 +72,11 @@ func NewTracker(name string, c *Client, o TrackerOptions) (*Tracker, error) {
 			return nil, core.Errorf(core.KindInvalid, "jira.tracker", "%q is not a project key", p)
 		}
 	}
+	if o.Log == nil {
+		o.Log = slog.Default()
+	}
 	return &Tracker{name: name, c: c, projects: o.Projects, write: o.Write, agents: o.Agents,
-		perms: map[string]cachedPermission{}}, nil
+		log: o.Log, perms: map[string]cachedPermission{}}, nil
 }
 
 // Info implements core.Provider. Collapsible sections are not offered: Jira's markup has
@@ -235,7 +243,10 @@ var permissionLevels = []struct {
 const permissionCacheFor = time.Minute
 
 // ActorPermission implements core.IssueTracker. It asks Jira which of the levels the actor
-// has on this very issue, so issue security levels count too.
+// has on this very issue, so issue security levels count too. The account's own permissions
+// need nothing more than the account; anyone else's can only be looked up by an account that
+// administers the project. Without that, others have none: their words reach nobody, and
+// approvals are the account's own.
 func (t *Tracker) ActorPermission(ctx context.Context, ref core.IssueRef,
 	a core.Actor) (core.Permission, error) {
 	if err := t.check(ref); err != nil {
@@ -255,6 +266,52 @@ func (t *Tracker) ActorPermission(ctx context.Context, ref core.IssueRef,
 		return c.p, nil
 	}
 	t.mu.Unlock()
+	me, err := t.c.Myself(ctx)
+	if err != nil {
+		return core.PermissionNone, err
+	}
+	var p core.Permission
+	if (a.ID != "" && a.ID == me.id()) || (a.ID == "" && a.Login == me.login()) {
+		p, err = t.ownPermission(ctx, ref)
+	} else {
+		p, err = t.othersPermission(ctx, ref, a, who)
+	}
+	if err != nil {
+		return core.PermissionNone, err
+	}
+	t.mu.Lock()
+	t.perms[key] = cachedPermission{p: p, at: t.c.now()}
+	t.mu.Unlock()
+	return p, nil
+}
+
+// ownPermission reads the account's own permissions on the issue, which any account may.
+func (t *Tracker) ownPermission(ctx context.Context, ref core.IssueRef) (core.Permission, error) {
+	names := make([]string, len(permissionLevels))
+	for i, l := range permissionLevels {
+		names[i] = l.jira
+	}
+	var out struct {
+		Permissions map[string]struct {
+			Have bool `json:"havePermission"`
+		} `json:"permissions"`
+	}
+	q := url.Values{"issueKey": {ref.ExternalID}, "permissions": {strings.Join(names, ",")}}
+	if err := t.c.get(ctx, "/rest/api/2/mypermissions", q, &out); err != nil {
+		return core.PermissionNone, err
+	}
+	for _, l := range permissionLevels {
+		if out.Permissions[l.jira].Have {
+			return l.level, nil
+		}
+	}
+	return core.PermissionNone, nil
+}
+
+// othersPermission looks someone else up, which Jira allows to project administrators only.
+// Refused, they have no permission, which the log says once.
+func (t *Tracker) othersPermission(ctx context.Context, ref core.IssueRef, a core.Actor,
+	who string) (core.Permission, error) {
 	d, err := t.c.Deployment(ctx)
 	if err != nil {
 		return core.PermissionNone, err
@@ -264,25 +321,28 @@ func (t *Tracker) ActorPermission(ctx context.Context, ref core.IssueRef,
 		// Data Center looks people up by user name.
 		param, who = "username", a.Login
 	}
-	p := core.PermissionNone
 	for _, l := range permissionLevels {
 		var users []user
 		q := url.Values{"permissions": {l.jira}, "issueKey": {ref.ExternalID}, param: {who}}
-		if err := t.c.get(ctx, "/rest/api/2/user/permission/search", q, &users); err != nil {
+		err := t.c.get(ctx, "/rest/api/2/user/permission/search", q, &users)
+		if core.IsKind(err, core.KindForbidden) {
+			t.warnOnce.Do(func() {
+				t.log.Warn("this Jira account cannot look up other people's permissions, which "+
+					"needs Administer Projects: only its own comments and approvals count",
+					"tracker", t.name)
+			})
+			return core.PermissionNone, nil
+		}
+		if err != nil {
 			return core.PermissionNone, err
 		}
 		if slices.ContainsFunc(users, func(u user) bool {
-			return u.id() == a.ID ||
-				u.login() == who
+			return u.id() == a.ID || u.login() == who
 		}) {
-			p = l.level
-			break
+			return l.level, nil
 		}
 	}
-	t.mu.Lock()
-	t.perms[key] = cachedPermission{p: p, at: t.c.now()}
-	t.mu.Unlock()
-	return p, nil
+	return core.PermissionNone, nil
 }
 
 // SetLabels implements core.IssueTracker.

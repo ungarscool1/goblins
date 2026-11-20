@@ -153,6 +153,7 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 		if pr.SCM, err = build[core.SourceControl](b, providers.KindSCM, cfg.SCMs, pc.SCM); err != nil {
 			return nil, err
 		}
+		pr.Reviewers, _ = pr.SCM.(core.PermissionSource)
 		if pr.Planner, err = stage(pc.Stages.Planner); err != nil {
 			return nil, err
 		}
@@ -350,7 +351,7 @@ func (a authorizer) Permission(ctx context.Context, project string, s core.Subje
 	if !ok {
 		return core.PermissionNone, core.Errorf(core.KindInvalid, "app.authorize", "unknown project")
 	}
-	return pr.Tracker.ActorPermission(ctx, core.IssueRef{Container: s.Container, ExternalID: s.ExternalID}, actor)
+	return pr.Permission(ctx, s, actor)
 }
 
 // Run starts the service and blocks until ctx is cancelled and shutdown has ended.

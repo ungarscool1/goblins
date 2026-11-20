@@ -7,6 +7,12 @@ import (
 )
 
 // IssueTracker is a system of record for work items and their conversation.
+// PermissionSource says what access someone has. An SCM offers it for the people on its pull
+// requests, whose accounts are its own: a tracker on another system knows them by other names.
+type PermissionSource interface {
+	ActorPermission(ctx context.Context, ref IssueRef, actor Actor) (Permission, error)
+}
+
 type IssueTracker interface {
 	Provider
 	GetIssue(ctx context.Context, ref IssueRef) (Issue, error)

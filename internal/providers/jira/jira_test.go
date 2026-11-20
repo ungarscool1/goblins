@@ -1,6 +1,7 @@
 package jira_test
 
 import (
+	"cmp"
 	"context"
 	"strings"
 	"sync/atomic"
@@ -44,7 +45,8 @@ func newSite(t *testing.T, cloud bool) *site {
 	me := person(cloud, "me")
 	srv := fakejira.New(cloud, "Bearer "+token, me, clk.Now)
 	t.Cleanup(srv.Close)
-	srv.Grant(srv.ID(me), "ADD_COMMENTS", "BROWSE_PROJECTS")
+	// Administering the project lets the account look other people's permissions up.
+	srv.Grant(srv.ID(me), "ADD_COMMENTS", "BROWSE_PROJECTS", "ADMINISTER_PROJECTS")
 	c, err := jira.NewClient(jira.ClientOptions{URL: srv.URL,
 		Auth: jira.Bearer{Token: core.NewSecret(token)}, Now: clk.Now})
 	if err != nil {
@@ -124,6 +126,34 @@ func TestOwnCommentsAreOnlyThoseGoblinsPosted(t *testing.T) {
 				!strings.Contains(c.Body, "{{/approve-design 1}}") {
 				t.Errorf("body = %q", c.Body)
 			}
+		}
+	}
+}
+
+// An ordinary member cannot look anyone else's permissions up, as Jira keeps that to project
+// administrators. Its own come from what it may do itself; others have none.
+func TestAnOrdinaryAccountAnswersForItselfOnly(t *testing.T) {
+	for _, cloud := range []bool{true, false} {
+		s := newSite(t, cloud)
+		me := person(cloud, "me")
+		s.srv.ResetPermissions(s.srv.ID(me))
+		s.srv.Grant(s.srv.ID(me), "ADD_COMMENTS", "BROWSE_PROJECTS", "EDIT_ISSUES")
+		lead := person(cloud, "lead")
+		s.srv.Grant(s.srv.ID(lead), "EDIT_ISSUES", "BROWSE_PROJECTS")
+		tr := s.tracker(t, true)
+		i := s.srv.AddIssue("OPS", "T", "B", person(cloud, "reporter"))
+		ref := core.IssueRef{Container: "OPS", ExternalID: i.Key}
+		actor := func(u fakejira.User) core.Actor {
+			return core.Actor{ID: u.AccountID, Login: cmp.Or(u.Name, u.AccountID),
+				Type: core.ActorHuman}
+		}
+		if p, err := tr.ActorPermission(context.Background(), ref, actor(me)); err != nil ||
+			p != core.PermissionWrite {
+			t.Errorf("cloud=%v: own permission = %v, %v", cloud, p, err)
+		}
+		if p, err := tr.ActorPermission(context.Background(), ref, actor(lead)); err != nil ||
+			p != core.PermissionNone {
+			t.Errorf("cloud=%v: someone else's, unknowable = %v, %v", cloud, p, err)
 		}
 	}
 }

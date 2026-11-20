@@ -122,3 +122,38 @@ func TestPollWaitsOutARateLimit(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// After a bulk change, more issues than the page cap can share one update time. The poll reads
+// that time's issues to the end before its cursor moves past them, so what follows is reached.
+func TestPollGetsPastABulkChange(t *testing.T) {
+	s := newSite(t, true)
+	s.srv.PageSize = 2 // a page cap of 40 issues
+	src, err := jira.NewSource("jira", s.c, []string{"OPS"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reporter := person(true, "reporter")
+	start := s.clock.Now()
+	for range 50 {
+		s.srv.AddIssue("OPS", "bulk", "B", reporter)
+	}
+	s.clock.Advance(time.Second)
+	after := s.srv.AddIssue("OPS", "after the bulk change", "B", reporter).Key
+	s.clock.Advance(time.Minute)
+	cursor := ""
+	for poll := range 3 {
+		res, err := src.Poll(context.Background(), core.PollRequest{Container: "OPS",
+			Since: start, Cursor: cursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range res.Events {
+			if e.Subject.ExternalID == after {
+				return
+			}
+		}
+		cursor = res.NextCursor
+		t.Logf("poll %d: %d events, cursor %s", poll, len(res.Events), cursor)
+	}
+	t.Fatalf("%s was never reported", after)
+}

@@ -2,7 +2,8 @@
 
 The `jira` tracker and event source let a work installation take tickets from Jira Cloud or Jira
 Data Center. It acts as **one person**, with that person's own access. It never needs a Jira
-administrator, a bot account, an app installed by an admin, or a webhook.
+administrator, a bot account, an app installed by an admin, or a webhook, unless other people's
+approvals are to count too ([Permissions](#permissions)).
 
 Code still lives on an SCM such as GitHub: Jira holds the conversation, the SCM the pull request.
 
@@ -90,7 +91,11 @@ goblins comment --config goblins.yaml --task <task-id> --as me --body "/approve-
 
 ## Permissions
 
-Approval and input permissions are checked on the issue itself, so issue security levels count:
+Approval and input permissions are checked on the issue itself, so issue security levels count.
+The account's own permissions need nothing more than the account. Jira lets only project
+administrators look up **other people's**, so with an ordinary account, only its own comments and
+approvals count: others' are ignored, and the log says so once. For a team's approvals to count,
+the account needs *Administer projects* on the projects it serves.
 
 | Jira permission | Goblins level |
 | --- | --- |

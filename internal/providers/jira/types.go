@@ -133,12 +133,19 @@ func (c *Client) comments(ctx context.Context, key string, fn func(comment) erro
 // stops after limit issues, or the page cap, and says whether it stopped early.
 func (c *Client) search(ctx context.Context, jql, expand string, limit int,
 	fn func(issue) error) (truncated bool, error error) {
+	return c.searchPages(ctx, jql, expand, limit, nil, fn)
+}
+
+// searchPages is search, reading past the page cap, up to maxBoundaryPages, for as long as
+// more says to.
+func (c *Client) searchPages(ctx context.Context, jql, expand string, limit int, more func() bool,
+	fn func(issue) error) (truncated bool, error error) {
 	d, err := c.Deployment(ctx)
 	if err != nil {
 		return false, err
 	}
 	seen, token, start := 0, "", 0
-	for page := 0; page < maxPages; page++ {
+	for page := 0; page < maxPages || (more != nil && page < maxBoundaryPages && more()); page++ {
 		q := url.Values{"jql": {jql}, "fields": {issueFields},
 			"maxResults": {strconv.Itoa(pageSize)}}
 		if expand != "" {

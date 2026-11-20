@@ -26,6 +26,9 @@ const (
 	maxResponse = 8 << 20
 	maxPages    = 20
 	pageSize    = 100
+	// maxBoundaryPages bounds a poll that reads on past maxPages to finish the issues sharing
+	// one update time, as after a bulk change.
+	maxBoundaryPages = 200
 )
 
 // Deployment is the kind of Jira site. Cloud and Data Center share REST API version 2, but

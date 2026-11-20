@@ -241,6 +241,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		write(w, s.Me)
 	case p == "/rest/api/2/user/permission/search":
 		s.permissionSearch(w, r)
+	case p == "/rest/api/2/mypermissions":
+		s.myPermissions(w, r)
 	case p == "/rest/api/2/search/jql" && s.Cloud, p == "/rest/api/2/search" && !s.Cloud:
 		s.search(w, r)
 	case issuePath.MatchString(p):
@@ -395,8 +397,36 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	write(w, res)
 }
 
+// myPermissions answers for the account itself, as Jira lets any account.
+func (s *Server) myPermissions(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if _, ok := s.issues[q.Get("issueKey")]; !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	me := s.Me.AccountID
+	if !s.Cloud {
+		me = s.Me.Name
+	}
+	out := map[string]any{}
+	for _, p := range strings.Split(q.Get("permissions"), ",") {
+		out[p] = map[string]any{"key": p, "havePermission": s.perms[me][p]}
+	}
+	write(w, map[string]any{"permissions": out})
+}
+
+// permissionSearch looks someone up, which Jira allows project administrators only.
 func (s *Server) permissionSearch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	me := s.Me.AccountID
+	if !s.Cloud {
+		me = s.Me.Name
+	}
+	if !s.perms[me]["ADMINISTER_PROJECTS"] {
+		http.Error(w, `{"errorMessages":["You do not have the permission to see the specified `+
+			`users."]}`, http.StatusForbidden)
+		return
+	}
 	who := q.Get("accountId")
 	if !s.Cloud {
 		who = q.Get("username")

@@ -73,7 +73,8 @@ func jiraSetup(t *testing.T, write bool) (*env, *fakejira.Server, *fakejira.Issu
 	me := fakejira.User{AccountID: "me-account", AccountType: "atlassian"}
 	site := fakejira.New(true, "Bearer jira-token", me, time.Now)
 	t.Cleanup(site.Close)
-	site.Grant("me-account", "ADD_COMMENTS", "BROWSE_PROJECTS")
+	// The account administers the project, so the lead's own permission can be looked up.
+	site.Grant("me-account", "ADD_COMMENTS", "BROWSE_PROJECTS", "ADMINISTER_PROJECTS")
 	site.Grant("lead-account", "EDIT_ISSUES", "BROWSE_PROJECTS")
 	t.Setenv("E2E_JIRA_TOKEN", "jira-token")
 

@@ -68,11 +68,24 @@ func (s *Source) Poll(ctx context.Context, req core.PollRequest) (core.PollResul
 	jql := fmt.Sprintf(`project = "%s" AND %s ORDER BY updated ASC`, req.Container,
 		updatedSince(s.c.now(), since))
 	latest, evs := since, []core.Event{}
-	_, err = s.c.search(ctx, jql, "changelog", 0, func(i issue) error {
+	// The cursor is a time, and the next poll starts from it. Past the page cap, reading goes
+	// on while issues are no later than the latest one seen at the cap, so that the cursor
+	// never commits a time whose issues were read only in part: those would be read first
+	// again and again, after a bulk change, and nothing after them ever reached.
+	var last, atCap time.Time
+	pages := 0
+	more := func() bool {
+		if pages++; pages == 1 {
+			atCap = latest
+		}
+		return !last.After(atCap)
+	}
+	_, err = s.c.searchPages(ctx, jql, "changelog", 0, more, func(i issue) error {
+		updated := jiraTime(i.Fields.Updated)
+		last = updated
 		if i.Fields.Project.Key != req.Container || !issueKey.MatchString(i.Key) {
 			return nil
 		}
-		updated := jiraTime(i.Fields.Updated)
 		if updated.Before(since) {
 			return nil
 		}

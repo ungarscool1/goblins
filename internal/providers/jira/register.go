@@ -16,7 +16,7 @@ func Register(r *providers.Registry) {
 			return nil, err
 		}
 		return NewTracker(name, c, TrackerOptions{Projects: opts.Strings("projects"),
-			Write: opts.Bool("write", false), Agents: opts.Strings("agents")})
+			Write: opts.Bool("write", false), Agents: opts.Strings("agents"), Log: deps.Log})
 	})
 	r.Register(providers.KindEventSource, typeName, func(name string, deps providers.Deps,
 		opts providers.Options) (any, error) {

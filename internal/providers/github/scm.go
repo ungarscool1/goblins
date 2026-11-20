@@ -191,6 +191,15 @@ func (s *SCM) PostReview(ctx context.Context, repo core.RepoRef, number string, 
 	return s.c.repoCall(ctx, repo.Slug, http.MethodPost, base, in, nil)
 }
 
+// ActorPermission implements core.PermissionSource, for people on pull requests: ref names the
+// repository.
+func (s *SCM) ActorPermission(ctx context.Context, ref core.IssueRef,
+	a core.Actor) (core.Permission, error) {
+	return s.tracker.ActorPermission(ctx, ref, a)
+}
+
+var _ core.PermissionSource = (*SCM)(nil)
+
 // ReviewThreads implements core.SourceControl.
 func (s *SCM) ReviewThreads(ctx context.Context, repo core.RepoRef, number string) ([]core.ReviewThread, error) {
 	own, err := s.c.AppLogin(ctx)

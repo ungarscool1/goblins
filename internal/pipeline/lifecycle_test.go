@@ -1,6 +1,7 @@
 package pipeline_test
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -309,4 +310,26 @@ func TestPublishConflictBlocksAndResumeLooksAgain(t *testing.T) {
 	}
 	w.say(maintainer, "/goblins resume")
 	w.want(core.StateAwaitingReview)
+}
+
+// reviewers grants access by login, as an SCM whose accounts the tracker does not know would.
+type reviewers map[string]core.Permission
+
+func (r reviewers) ActorPermission(_ context.Context, _ core.IssueRef,
+	a core.Actor) (core.Permission, error) {
+	return r[a.Login], nil
+}
+
+// With the tracker on another system, people on the pull request are the SCM's: the SCM says
+// what they may do, and their remarks count even though the tracker has never heard of them.
+func TestReviewersAreAuthorizedByTheirOwnSystem(t *testing.T) {
+	w, number := live(t)
+	bob := core.Actor{Login: "gh-bob", Type: core.ActorHuman}
+	w.project.Reviewers = reviewers{"gh-bob": core.PermissionWrite}
+	runs := w.impl.RunCount()
+	w.remark(number, w.task().HeadSHA, bob, "this panics on empty input")
+	w.want(core.StateAwaitingReview)
+	if w.impl.RunCount() != runs+1 {
+		t.Fatalf("runs = %d, want %d: the reviewer's remark was withheld", w.impl.RunCount(), runs+1)
+	}
 }
