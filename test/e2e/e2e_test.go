@@ -774,6 +774,17 @@ func TestLostEventAndRestartRecoverOneTask(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 	e.settle()
 	task := e.wantState(core.StateWaitingForUser)
+	// What the CLI reported, through the real adapter. Counters start over with the process.
+	var usage strings.Builder
+	if err := e.sys.Metrics.Write(&usage); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`goblins_agent_runs_total{agent="claude",role="planner",`,
+		`,direction="output"} 45`, `goblins_agent_turns_total{agent="claude",role="planner",`} {
+		if !strings.Contains(usage.String(), want) {
+			t.Errorf("%q is missing from the metrics:\n%s", want, usage.String())
+		}
+	}
 
 	// The process dies. The webhook turns up after all, more than once.
 	e.boot()

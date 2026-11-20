@@ -102,7 +102,7 @@ func (e *OTLPExporter) Export(s Span) {
 // drop counts lost spans, in Dropped and in the metric alike.
 func (e *OTLPExporter) drop(n int) {
 	e.dropped.Add(int64(n))
-	e.o.Metrics.Add("goblins_spans_dropped_total", float64(n), nil)
+	e.o.Metrics.Add("goblins_spans_dropped_total", nil, float64(n))
 }
 
 // Dropped is how many spans were lost to a full queue or a failed export.
