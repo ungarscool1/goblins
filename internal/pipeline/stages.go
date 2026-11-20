@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -21,9 +22,10 @@ func (p *Pipeline) prepareStage(ctx context.Context, jc scheduler.JobContext, st
 	if len(stage.Tools) > 0 {
 		tools = strings.Join(stage.Tools, ", ")
 	}
-	jc.Log("stage", fmt.Sprintf("blueprint %s, %s: agent %s (%s), model %q, effort %q, "+
+	jc.Log("stage", fmt.Sprintf("blueprint %s, %s: agent %s (%s), model %s, effort %s, "+
 		"write files %v, web %v, allow-listed tools: %s, runtime %s", workflow.BlueprintVersion,
-		role, info.Name, info.Type, stage.Model, stage.Effort, req.Policy.WriteFiles,
-		req.Policy.Web, tools, stage.Runtime.Info().Name))
+		role, info.Name, info.Type, cmp.Or(stage.Model, "the agent's default"),
+		cmp.Or(stage.Effort, "the agent's default"), req.Policy.WriteFiles, req.Policy.Web, tools,
+		stage.Runtime.Info().Name))
 	return p.addMemory(ctx, jc, role, req)
 }
