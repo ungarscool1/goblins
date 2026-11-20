@@ -138,6 +138,19 @@ func TestPlainHTTPIsRefused(t *testing.T) {
 	}
 }
 
+// The proxy answers its own health probe, which is not a request through it.
+func TestHealthProbe(t *testing.T) {
+	addr := proxy(t, Options{Allow: []string{"allowed.test"}})
+	resp, err := http.Get("http://" + addr + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("probe: %d", resp.StatusCode)
+	}
+}
+
 func TestPatternsAndAddresses(t *testing.T) {
 	if _, err := New(Options{Allow: []string{"https://x.test"}}); err == nil {
 		t.Error("a URL was accepted as a host")

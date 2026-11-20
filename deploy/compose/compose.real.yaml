@@ -81,6 +81,8 @@ services:
     profiles: [egress]
     image: goblins:${GOBLINS_VERSION:-dev}
     command: ["egress-proxy", "--listen", "0.0.0.0:3128"]
+    healthcheck:
+      test: ["CMD", "goblins", "healthcheck", "--url", "http://127.0.0.1:3128/healthz"]
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
