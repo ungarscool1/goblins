@@ -46,6 +46,9 @@ runtimes:
     options:
       host: tcp://docker-proxy:2375
       network: goblins-personal-workers   # CHANGE ME: unique per installation
+      # With COMPOSE_PROFILES=egress, agents reach only the hosts the proxy allows:
+      # egress_proxy: http://egress-proxy:3128
+      # egress_network: goblins-personal-egress
 
 validations:
   checks:

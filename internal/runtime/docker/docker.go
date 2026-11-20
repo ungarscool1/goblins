@@ -56,6 +56,10 @@ type Options struct {
 	// DiskLimits declares that the storage driver supports per-container size limits.
 	DiskLimits bool
 	Defaults   core.Resources
+	// EgressProxy, when set, is the only way out for egress workloads: they join
+	// EgressNetwork, which is internal, and get it as their HTTPS proxy.
+	EgressProxy   string
+	EgressNetwork string
 }
 
 // Runtime implements core.ExecutionRuntime.
@@ -115,6 +119,7 @@ func Register(reg *providers.Registry) {
 		return New(name, Options{
 			Host: host, Network: opts.String("network"), User: opts.String("user"),
 			PullMissing: opts.Bool("pull_missing", true), DiskLimits: opts.Bool("disk_limits", false),
+			EgressProxy: opts.String("egress_proxy"), EgressNetwork: opts.String("egress_network"),
 			Defaults: core.Resources{MemoryBytes: int64(opts.Int("memory_mb", 4096)) << 20, CPUs: float64(opts.Int("cpus", 2)), PIDs: int64(opts.Int("pids", 512))},
 		})
 	})
@@ -123,7 +128,7 @@ func Register(reg *providers.Registry) {
 // Info implements core.Provider. Privileged mode, GPUs and KVM are deliberately
 // not offered, so workloads asking for them are refused.
 func (r *Runtime) Info() core.ProviderInfo {
-	caps := []core.Capability{core.CapRuntimeVolumes, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress, core.CapRuntimeResourceLimits, core.CapRuntimeReadOnlyRoot}
+	caps := []core.Capability{core.CapRuntimeVolumes, core.CapRuntimeVolumeList, core.CapRuntimeServices, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress, core.CapRuntimeResourceLimits, core.CapRuntimeReadOnlyRoot}
 	if r.opts.DiskLimits {
 		caps = append(caps, core.CapRuntimeDiskLimits)
 	}
@@ -259,7 +264,10 @@ func (r *Runtime) buildCreate(spec core.WorkloadSpec, deadline time.Time) (conta
 	case core.NetworkNone:
 		hc.NetworkMode = "none"
 	case core.NetworkEgress:
-		hc.NetworkMode = r.opts.Network
+		hc.NetworkMode = r.egressNetwork()
+	}
+	if len(spec.Services) > 0 {
+		hc.NetworkMode = servicesNetwork(spec.Name)
 	}
 	if spec.Resources.DiskBytes > 0 {
 		hc.StorageOpt = map[string]string{"size": strconv.FormatInt(spec.Resources.DiskBytes, 10)}
@@ -275,8 +283,12 @@ func (r *Runtime) buildCreate(spec core.WorkloadSpec, deadline time.Time) (conta
 	for _, k := range slices.Sorted(maps.Keys(spec.Env)) {
 		env = append(env, k+"="+spec.Env[k])
 	}
+	env = append(env, r.proxyEnv(spec.Network)...)
 	for _, k := range slices.Sorted(maps.Keys(spec.Secrets)) {
 		env = append(env, k+"="+spec.Secrets[k].Reveal())
+	}
+	for _, k := range slices.Sorted(maps.Keys(spec.TestSecrets)) {
+		env = append(env, k+"="+spec.TestSecrets[k].Reveal())
 	}
 	return containerCreate{
 		Image: spec.Image, Cmd: spec.Command, Entrypoint: []string{}, Env: env, WorkingDir: spec.WorkDir, User: r.opts.User, Labels: labels, HostConfig: hc,
@@ -297,9 +309,12 @@ func (r *Runtime) Create(ctx context.Context, spec core.WorkloadSpec) (core.Work
 		return core.WorkloadStatus{}, err
 	}
 	if spec.Network == core.NetworkEgress {
-		if err := r.ensureNetwork(ctx); err != nil {
+		if err := r.ensureEgress(ctx); err != nil {
 			return core.WorkloadStatus{}, err
 		}
+	}
+	if err := r.startServices(ctx, spec); err != nil {
+		return core.WorkloadStatus{}, err
 	}
 	path := "/containers/create?name=" + url.QueryEscape(spec.Name)
 	_, err = r.call(ctx, http.MethodPost, path, body, nil)
@@ -536,59 +551,7 @@ func (r *Runtime) Cleanup(ctx context.Context, name string) error {
 		r.mu.Lock()
 		delete(r.cancel, name)
 		r.mu.Unlock()
-	}
-	return err
-}
-
-// List implements core.ExecutionRuntime.
-func (r *Runtime) List(ctx context.Context, labels map[string]string) ([]core.WorkloadStatus, error) {
-	var f []string
-	for _, k := range slices.Sorted(maps.Keys(labels)) {
-		f = append(f, k+"="+labels[k])
-	}
-	filters, err := json.Marshal(map[string][]string{"label": f})
-	if err != nil {
-		return nil, core.Wrap(core.KindInternal, "docker.list", err)
-	}
-	var out []struct {
-		Names  []string          `json:"Names"`
-		Labels map[string]string `json:"Labels"`
-	}
-	if _, err := r.call(ctx, http.MethodGet, "/containers/json?all=1&filters="+url.QueryEscape(string(filters)), nil, &out); err != nil {
-		return nil, err
-	}
-	res := make([]core.WorkloadStatus, 0, len(out))
-	for _, c := range out {
-		if len(c.Names) == 0 {
-			continue
-		}
-		st, err := r.Status(ctx, strings.TrimPrefix(c.Names[0], "/"))
-		if core.IsKind(err, core.KindNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, st)
-	}
-	return res, nil
-}
-
-// EnsureVolume implements core.ExecutionRuntime. Creating an existing volume is a
-// no-op on the engine.
-func (r *Runtime) EnsureVolume(ctx context.Context, name string, labels map[string]string) error {
-	if !volumeName.MatchString(name) {
-		return core.Errorf(core.KindInvalid, "docker.volume", "invalid volume name %q", name)
-	}
-	_, err := r.call(ctx, http.MethodPost, "/volumes/create", map[string]any{"Name": name, "Labels": labels}, nil)
-	return err
-}
-
-// RemoveVolume implements core.ExecutionRuntime.
-func (r *Runtime) RemoveVolume(ctx context.Context, name string) error {
-	_, err := r.call(ctx, http.MethodDelete, "/volumes/"+url.PathEscape(name), nil, nil)
-	if core.IsKind(err, core.KindNotFound) {
-		return nil
+		err = r.removeServices(ctx, name)
 	}
 	return err
 }

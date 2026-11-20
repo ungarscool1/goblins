@@ -32,7 +32,13 @@ Usage:
                                              Say what happened to a task, and why
   goblins comment --task ID --as NAME --body TEXT [--config FILE|--mock]
                                              Enter a comment by hand, for trackers without one
+  goblins environments [--release LEASE] [--config FILE|--mock]
+                                             List development environment leases, or release one
+  goblins memory list|search|add|accept|supersede|forget|export|import [flags]
+                                             Read and curate what agents are told
   goblins healthcheck [--url URL]            Probe a running instance (container health)
+  goblins egress-proxy [--listen ADDR] [--allow HOSTS]
+                                             Proxy HTTPS for workloads to listed hosts only
   goblins version                            Print the version
 `
 
@@ -170,6 +176,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("unknown config command %q", args[1])
 	case "healthcheck":
 		return healthcheck(ctx, args[1:], stderr)
+	case "egress-proxy":
+		return egressProxy(ctx, args[1:], stderr)
+	case "environments":
+		return environments(ctx, args[1:], stdout, stderr)
+	case "memory":
+		return memoryCommand(ctx, args[1:], os.Stdin, stdout, stderr)
 	case "version":
 		_, _ = fmt.Fprintln(stdout, app.Version)
 		return nil

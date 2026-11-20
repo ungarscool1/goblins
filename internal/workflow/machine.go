@@ -14,8 +14,8 @@ import (
 	"github.com/ungarscool1/goblins/internal/core"
 )
 
-// transitions is the complete table of allowed state changes. docs/workflow.md
-// documents it; Decide's results are checked against it by CheckTransition.
+// transitions is the table of allowed state changes, with approval.go's additions.
+// docs/workflow.md documents it; Decide's results are checked against it by CheckTransition.
 var transitions = map[core.State][]core.State{
 	core.StateDiscovered:     {core.StateInvestigating, core.StateReviewing},
 	core.StateInvestigating:  {core.StateWaitingForUser, core.StateDesignProposed, core.StateInvestigating},
@@ -116,11 +116,8 @@ func decideNew(ev core.Event, f Facts, p Policy) Decision {
 		if ev.Issue == nil || !ev.Issue.Open {
 			return Decision{Ignored: "no open issue in event"}
 		}
-		if p.IntakeLabel != "" && (ev.Type != core.EventIssueLabeled || ev.Label != p.IntakeLabel) {
-			return Decision{Ignored: "intake label not applied"}
-		}
-		if p.IntakeLabel == "" && ev.Type != core.EventIssueOpened {
-			return Decision{Ignored: "label is not an intake signal for this project"}
+		if why := intakeRefusal(ev, f, p); why != "" {
+			return Decision{Ignored: why}
 		}
 		if f.ActorPermission < p.MinInputPermission {
 			return Decision{Ignored: "actor may not start work"}
@@ -128,6 +125,7 @@ func decideNew(ev core.Event, f Facts, p Policy) Decision {
 		t := cloneTask(core.Task{
 			ID: TaskID(ev.Project, ev.Subject), Project: ev.Project, Kind: core.TaskIssue, Subject: ev.Subject,
 			State: core.StateDiscovered, Title: ev.Issue.Title, AcceptedBody: ev.Issue.Body, RequirementsHash: ev.Issue.RequirementsHash(), CreatedAt: f.Now,
+			Unattended: unattendedBy(ev, f, p),
 		})
 		m := &machine{t: t, from: core.StateDiscovered, ev: ev, f: f, p: p}
 		m.enqueuePlan("new issue")
@@ -295,7 +293,7 @@ func (m *machine) step() {
 			m.ignore("timer no longer applies")
 		}
 	default:
-		m.ignore("event has no effect in this state")
+		m.onOtherEvent()
 	}
 }
 
@@ -467,10 +465,7 @@ func (m *machine) onApproval(args string, c *core.Comment) {
 		return
 	}
 	m.t.Approval = &core.Approval{Revision: rev, Hash: m.t.DesignHash, Approver: c.Author, CommentID: c.ID, At: c.CreatedAt}
-	m.t.Loops["implement"] = 1
-	m.enqueueMain(JobImplement, ImplementPayload{Revision: rev, Hash: m.t.DesignHash}, m.p.ImplementerLimitKey, 3)
-	m.moveTo(core.StateAgentReady, "design approved by "+c.Author.Login)
-	m.progress(fmt.Sprintf("design revision %d approved by @%s. Implementation is queued.", rev, c.Author.Login))
+	m.afterApproval(c.Author.Login)
 }
 
 func (m *machine) onIssueEdited() {
@@ -548,7 +543,7 @@ func (m *machine) onJobStarted() {
 		return
 	}
 	switch {
-	case m.t.State == core.StateAgentReady && o.Kind == JobImplement:
+	case m.t.State == core.StateAgentReady && (o.Kind == JobImplement || o.Kind == JobValidate):
 		m.moveTo(core.StateImplementing, "implementation started")
 	case m.t.State == core.StatePROpen && o.Kind == JobReview:
 		m.moveTo(core.StateReviewing, "review started")
@@ -616,7 +611,7 @@ func (m *machine) onSideJob(o *core.JobOutcome) {
 			m.t.DesignProposedAt = res.PostedAt
 			m.t.DesignCommentKey = ""
 			m.changed = true
-			m.reason = "design comment posted"
+			m.designPosted()
 			return
 		}
 	}
@@ -718,7 +713,7 @@ func (m *machine) onImplementDone(o *core.JobOutcome) {
 		m.block("the implementer finished without changing anything")
 		return
 	}
-	if m.overFileBudget(res) {
+	if m.overFileBudget(res) || m.outOfScope(res) {
 		return
 	}
 	m.enqueueMain(JobValidate, ValidatePayload{Stage: StagePrePR, SHA: res.HeadSHA}, "", 3)

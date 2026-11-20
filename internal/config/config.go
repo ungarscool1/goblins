@@ -37,6 +37,7 @@ type Config struct {
 	Installation  Installation `yaml:"installation"`
 	Server        Server       `yaml:"server"`
 	Log           Log          `yaml:"log"`
+	Tracing       Tracing      `yaml:"tracing,omitempty"`
 	Storage       Storage      `yaml:"storage"`
 	Scheduler     Scheduler    `yaml:"scheduler,omitempty"`
 	Trackers      ProviderSet  `yaml:"trackers,omitempty"`
@@ -47,6 +48,8 @@ type Config struct {
 	Reviews       ProviderSet  `yaml:"reviews,omitempty"`
 	Validations   ProviderSet  `yaml:"validations,omitempty"`
 	Notifications ProviderSet  `yaml:"notifications,omitempty"`
+	Environments  ProviderSet  `yaml:"environments,omitempty"`
+	Knowledge     ProviderSet  `yaml:"knowledge,omitempty"`
 	Projects      []Project    `yaml:"projects,omitempty"`
 	Console       Console      `yaml:"console,omitempty"`
 }
@@ -113,6 +116,8 @@ type Project struct {
 	Validation   string          `yaml:"validation,omitempty"`
 	Review       string          `yaml:"review,omitempty"`
 	Notification string          `yaml:"notification,omitempty"`
+	Environment  Environment     `yaml:"environment,omitempty"`
+	Memory       Memory          `yaml:"memory,omitempty"`
 	Stages       Stages          `yaml:"stages"`
 	Policy       Policy          `yaml:"policy,omitempty"`
 	Workspace    WorkspaceConfig `yaml:"workspace,omitempty"`
@@ -161,26 +166,8 @@ type Policy struct {
 	// from commits nothing has tested. Without it, such a project is refused.
 	AllowUnvalidatedDraftPR bool `yaml:"allow_unvalidated_draft_pr,omitempty"`
 	// AllowSkippedReview lets a project without a reviewer go on without independent review.
-	AllowSkippedReview bool `yaml:"allow_skipped_review,omitempty"`
-}
-
-// MergePolicy says what a pull request needs. Goblins never merges unless an auto_merge rule
-// expressly allows it, and such a rule cannot do without a person's approval.
-type MergePolicy struct {
-	RequiredChecks          []string `yaml:"required_checks,omitempty"`
-	MinHumanApprovals       int      `yaml:"min_human_approvals,omitempty"`
-	Approvers               []string `yaml:"approvers,omitempty"`
-	RequireBranchProtection bool     `yaml:"require_branch_protection,omitempty"`
-	// SensitivePaths adds to the built-in categories, as category name to path patterns.
-	SensitivePaths map[string][]string `yaml:"sensitive_paths,omitempty"`
-	AutoMerge      []AutoMergeRule     `yaml:"auto_merge,omitempty"`
-}
-
-// AutoMergeRule expressly allows merging a low-risk change touching only these paths.
-type AutoMergeRule struct {
-	Name     string   `yaml:"name"`
-	Paths    []string `yaml:"paths"`
-	MaxFiles int      `yaml:"max_files,omitempty"`
+	AllowSkippedReview bool     `yaml:"allow_skipped_review,omitempty"`
+	Approval           Approval `yaml:"approval,omitempty"`
 }
 
 // WorkspaceConfig configures Git workspaces.
@@ -217,6 +204,8 @@ type Stage struct {
 	FallbackModel string `yaml:"fallback_model,omitempty"`
 	// MaxToolCalls ends a run making more tool calls than this.
 	MaxToolCalls int `yaml:"max_tool_calls,omitempty"`
+	// Tools names allow-listed tools the agent declares, for this stage only.
+	Tools []string `yaml:"tools,omitempty"`
 }
 
 // Default returns a configuration with defaults filled in.
@@ -291,6 +280,7 @@ func (c *Config) applyEnv(env func(string) (string, bool)) error {
 	set("GOBLINS_LOG_FORMAT", &c.Log.Format)
 	set("GOBLINS_STORAGE_DRIVER", &c.Storage.Driver)
 	set("GOBLINS_STORAGE_PATH", &c.Storage.Path)
+	set("GOBLINS_OTLP_ENDPOINT", &c.Tracing.OTLPEndpoint)
 	if v, ok := env("GOBLINS_SHUTDOWN_TIMEOUT"); ok {
 		d, err := time.ParseDuration(v)
 		if err != nil {
@@ -338,6 +328,7 @@ func (c *Config) Validate(known TypeChecker) error {
 	if c.Server.ShutdownTimeout <= 0 {
 		add("server.shutdown_timeout: must be positive")
 	}
+	c.Tracing.validate(add)
 	if _, err := observability.NewLogger(io.Discard, observability.LogOptions{Level: c.Log.Level, Format: c.Log.Format}); err != nil {
 		add("log: %v", err)
 	}
@@ -442,6 +433,7 @@ func (c *Config) Validate(known TypeChecker) error {
 			add("%s.policy: max_limit_pauses and max_changed_files cannot be negative", path)
 		}
 		p.Communication.validate(path, add)
+		p.Policy.Approval.validate(path, p.Policy.IntakeLabel, add)
 		if s := p.Policy.CommitStyle; s != "" && s != "conventional" && s != "plain" {
 			add("%s.policy.commit_style: must be conventional or plain", path)
 		}
@@ -454,6 +446,8 @@ func (c *Config) Validate(known TypeChecker) error {
 		for j, es := range p.EventSource {
 			ref(fmt.Sprintf("event_sources[%d]", j), es, c.EventSources, true)
 		}
+		p.Environment.validate(path, p, c.Environments, add)
+		p.Memory.validate(path, c.Knowledge, add)
 		ref("stages.planner.agent", p.Stages.Planner.Agent, c.Agents, true)
 		ref("stages.planner.runtime", p.Stages.Planner.Runtime, c.Runtimes, true)
 		ref("stages.implementer.agent", p.Stages.Implementer.Agent, c.Agents, true)
@@ -495,6 +489,8 @@ func (c *Config) sets() []namedSet {
 		{"reviews", providers.KindReview, c.Reviews},
 		{"validations", providers.KindValidation, c.Validations},
 		{"notifications", providers.KindNotification, c.Notifications},
+		{"environments", providers.KindEnvironment, c.Environments},
+		{"knowledge", providers.KindKnowledge, c.Knowledge},
 	}
 }
 

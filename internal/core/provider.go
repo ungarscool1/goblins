@@ -23,6 +23,8 @@ const (
 	ProviderReview       ProviderKind = "review"
 	ProviderValidation   ProviderKind = "validation"
 	ProviderNotification ProviderKind = "notification"
+	ProviderEnvironment  ProviderKind = "environment"
+	ProviderKnowledge    ProviderKind = "knowledge"
 )
 
 // Capability names an optional feature of an adapter. Orchestration code asks
@@ -56,11 +58,17 @@ const (
 	CapAgentResume    Capability = "agent.resume"
 	CapAgentStreaming Capability = "agent.streaming"
 	CapAgentEffort    Capability = "agent.effort"
+	// CapAgentTools runs allow-listed tools a stage names.
+	CapAgentTools Capability = "agent.tools"
 
 	// CapReviewWorkspace asks the orchestrator for a pinned checkout and diff.
 	CapReviewWorkspace Capability = "review.workspace"
 
-	CapRuntimeVolumes        Capability = "runtime.volumes"
+	CapRuntimeVolumes Capability = "runtime.volumes"
+	// CapRuntimeServices runs service containers next to a workload, on a private network.
+	CapRuntimeServices Capability = "runtime.services"
+	// CapRuntimeVolumeList lists volumes by label, so those of finished tasks can be found.
+	CapRuntimeVolumeList     Capability = "runtime.volumes.list"
 	CapRuntimeNetworkNone    Capability = "runtime.network.none"
 	CapRuntimeNetworkEgress  Capability = "runtime.network.egress"
 	CapRuntimeResourceLimits Capability = "runtime.resources.limits"

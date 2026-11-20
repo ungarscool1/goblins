@@ -31,11 +31,11 @@ inside job results.
 | From               | To                                                         |
 | ------------------ | ---------------------------------------------------------- |
 | `discovered`       | `investigating`, `reviewing` (review-only tasks)           |
-| `investigating`    | `waiting-for-user`, `design-proposed`, `investigating`     |
+| `investigating`    | `waiting-for-user`, `design-proposed`, `investigating`, `agent-ready` (unattended) |
 | `waiting-for-user` | `investigating`                                            |
-| `design-proposed`  | `agent-ready`, `investigating`                             |
-| `agent-ready`      | `implementing`, `investigating` (requirements changed)     |
-| `implementing`     | `pr-open`, `investigating` (requirements changed)          |
+| `design-proposed`  | `agent-ready`, `investigating`, `implementing` (a change that left the unattended scope, approved) |
+| `agent-ready`      | `implementing`, `investigating` (requirements changed), `design-proposed` (left the unattended scope) |
+| `implementing`     | `pr-open`, `investigating` (requirements changed), `design-proposed` (left the unattended scope) |
 | `pr-open`          | `reviewing`, `testing` (commit already reviewed)           |
 | `reviewing`        | `testing`, `implementing` (findings to correct), `awaiting-review`, `completed` (review-only tasks) |
 | `testing`          | `awaiting-review`, `completed` (`stop_at_report`)          |

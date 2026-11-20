@@ -7,9 +7,12 @@ import (
 	"github.com/ungarscool1/goblins/internal/providers/claude"
 	"github.com/ungarscool1/goblins/internal/providers/codex"
 	"github.com/ungarscool1/goblins/internal/providers/command"
+	"github.com/ungarscool1/goblins/internal/providers/environment"
 	"github.com/ungarscool1/goblins/internal/providers/fake"
 	gh "github.com/ungarscool1/goblins/internal/providers/github"
+	"github.com/ungarscool1/goblins/internal/providers/knowledge"
 	"github.com/ungarscool1/goblins/internal/runtime/docker"
+	"github.com/ungarscool1/goblins/internal/runtime/kubernetes"
 )
 
 // Registry returns a registry with all built-in adapters. The fake adapters act on the
@@ -21,6 +24,9 @@ func Registry(world *fake.World) *providers.Registry {
 	claude.Register(r)
 	codex.Register(r)
 	docker.Register(r)
+	kubernetes.Register(r)
 	command.Register(r)
+	environment.Register(r)
+	knowledge.Register(r)
 	return r
 }

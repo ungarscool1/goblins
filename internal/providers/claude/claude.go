@@ -48,6 +48,9 @@ type Options struct {
 	ConfigVolume     string
 	OAuthToken       core.Secret // optional, from `claude setup-token`
 	ResourceDefaults core.Resources
+	// MCPServers are tools installed in the image and allow-listed by the operator. A stage
+	// gets only those it names; repository MCP configuration is ignored either way.
+	MCPServers map[string]MCPServer
 }
 
 // Agent implements core.AgentProvider.
@@ -83,8 +86,13 @@ func Register(r *providers.Registry) {
 		if opts.String("image") == "" {
 			return nil, core.Errorf(core.KindInvalid, "claude.config", "image is required")
 		}
+		mcp, err := mcpServers(opts)
+		if err != nil {
+			return nil, err
+		}
 		return New(name, Options{
 			Image: opts.String("image"), Executable: opts.String("executable"), ConfigVolume: opts.String("config_volume"), OAuthToken: tok,
+			MCPServers:       mcp,
 			ResourceDefaults: core.Resources{MemoryBytes: int64(opts.Int("memory_mb", 4096)) << 20, CPUs: float64(opts.Int("cpus", 2)), PIDs: int64(opts.Int("pids", 512))},
 		}), nil
 	})
@@ -93,7 +101,7 @@ func Register(r *providers.Registry) {
 // Info implements core.Provider.
 func (a *Agent) Info() core.ProviderInfo {
 	return core.ProviderInfo{Kind: core.ProviderAgent, Type: typeName, Name: a.name, ContractVersion: core.ContractVersion,
-		Capabilities: []core.Capability{core.CapAgentResume, core.CapAgentStreaming, core.CapAgentEffort}}
+		Capabilities: a.caps()}
 }
 
 // Models implements core.AgentProvider. The CLI has no way to list models, and
@@ -107,9 +115,11 @@ func (a *Agent) shellScript(args []string) string {
 func (a *Agent) baseSpec(name string, cmd []string) core.WorkloadSpec {
 	spec := core.WorkloadSpec{
 		Name: name, Image: a.opts.Image, Command: cmd, Network: core.NetworkEgress,
-		Mounts:    []core.Mount{{Volume: a.opts.ConfigVolume, Target: configMount}},
+		Mounts: []core.Mount{{Volume: a.opts.ConfigVolume, Target: configMount,
+			Credentials: true}},
 		Resources: a.opts.ResourceDefaults,
 		Security:  core.SecurityProfile{ReadOnlyRoot: true},
+		Trust:     core.TrustCredentialed,
 		Env: map[string]string{
 			"CLAUDE_CONFIG_DIR": configMount, "HOME": "/tmp", "DISABLE_AUTOUPDATER": "1",
 			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -120,6 +130,9 @@ func (a *Agent) baseSpec(name string, cmd []string) core.WorkloadSpec {
 	}
 	return spec
 }
+
+// CredentialVolumes implements core.CredentialHolder.
+func (a *Agent) CredentialVolumes() []string { return []string{a.opts.ConfigVolume} }
 
 // args builds the CLI invocation. Tool names come from the abstract policy alone,
 // so neither configuration nor a repository can add a command-running tool.
@@ -164,7 +177,11 @@ func (a *Agent) Run(ctx context.Context, req core.AgentRequest, sink func(core.A
 	if name == "" {
 		name = "goblins-agent-" + core.Digest(req.IdempotencyKey)[:16]
 	}
-	spec := a.baseSpec(name, []string{"sh", "-c", a.shellScript(args(req, true))})
+	cliArgs, err := a.withTools(args(req, true), req.Tools)
+	if err != nil {
+		return core.AgentResult{}, err
+	}
+	spec := a.baseSpec(name, []string{"sh", "-c", a.shellScript(cliArgs)})
 	spec.Env["GOBLINS_PROMPT"] = req.Prompt
 	spec.Labels = req.Labels
 	spec.Timeout = req.Timeout
@@ -245,7 +262,7 @@ func (a *Agent) runShort(ctx context.Context, runtime core.ExecutionRuntime, nam
 	if err != nil {
 		return "", st, err
 	}
-	return out.String() + errb.String(), st, nil
+	return rt.Combined(out.String(), errb.String()), st, nil
 }
 
 // AuthStatus implements core.AgentProvider. It runs no model call, so it can back
@@ -446,4 +463,12 @@ func classify(status int, text string, st core.WorkloadStatus) error {
 		return core.Errorf(core.KindCancelled, "claude.run", "the agent run was cancelled")
 	}
 	return core.Errorf(core.KindTransient, "claude.run", "the agent exited unexpectedly (exit %d)", st.ExitCode)
+}
+
+func (a *Agent) caps() []core.Capability {
+	caps := []core.Capability{core.CapAgentResume, core.CapAgentStreaming, core.CapAgentEffort}
+	if len(a.opts.MCPServers) > 0 {
+		caps = append(caps, core.CapAgentTools)
+	}
+	return caps
 }

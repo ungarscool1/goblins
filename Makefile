@@ -34,6 +34,11 @@ image:
 mock: build
 	./bin/goblins serve --mock
 
+.PHONY: helm-test
+helm-test:
+	helm lint deploy/helm/goblins
+	go test -count=1 ./test/helm/...
+
 .PHONY: docker-test
 docker-test:
 	go test -tags docker -count=1 ./test/integration/... ./test/e2e/...

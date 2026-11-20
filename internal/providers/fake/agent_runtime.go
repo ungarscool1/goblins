@@ -142,19 +142,19 @@ type Runtime struct {
 
 	mu        sync.Mutex
 	workloads map[string]*workload
-	volumes   map[string]bool
+	volumes   map[string]map[string]string
 	Created   []core.WorkloadSpec
 }
 
 // AllRuntimeCaps lists capabilities of the default fake runtime.
 var AllRuntimeCaps = []core.Capability{
 	core.CapRuntimeVolumes, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress,
-	core.CapRuntimeResourceLimits, core.CapRuntimeReadOnlyRoot,
+	core.CapRuntimeResourceLimits, core.CapRuntimeReadOnlyRoot, core.CapRuntimeVolumeList,
 }
 
 // NewRuntime returns a fake runtime without privileged features.
 func NewRuntime(name string) *Runtime {
-	return &Runtime{Name: name, TypeName: "fake", Caps: AllRuntimeCaps, workloads: map[string]*workload{}, volumes: map[string]bool{}}
+	return &Runtime{Name: name, TypeName: "fake", Caps: AllRuntimeCaps, workloads: map[string]*workload{}, volumes: map[string]map[string]string{}}
 }
 
 func (r *Runtime) Info() core.ProviderInfo {
@@ -278,14 +278,35 @@ func (r *Runtime) List(_ context.Context, labels map[string]string) ([]core.Work
 	return out, nil
 }
 
-func (r *Runtime) EnsureVolume(_ context.Context, name string, _ map[string]string) error {
+func (r *Runtime) EnsureVolume(_ context.Context, name string, labels map[string]string) error {
 	if !r.Info().Has(core.CapRuntimeVolumes) {
 		return core.Unsupported(r.Info(), core.CapRuntimeVolumes)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.volumes[name] = true
+	if _, ok := r.volumes[name]; !ok {
+		r.volumes[name] = maps.Clone(labels)
+	}
 	return nil
+}
+
+// ListVolumes implements core.VolumeLister.
+func (r *Runtime) ListVolumes(_ context.Context,
+	labels map[string]string) ([]core.VolumeStatus, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []core.VolumeStatus
+	for _, name := range slices.Sorted(maps.Keys(r.volumes)) {
+		l := r.volumes[name]
+		match := true
+		for k, v := range labels {
+			match = match && l[k] == v
+		}
+		if match {
+			out = append(out, core.VolumeStatus{Name: name, Labels: maps.Clone(l)})
+		}
+	}
+	return out, nil
 }
 
 func (r *Runtime) RemoveVolume(_ context.Context, name string) error {
@@ -299,5 +320,6 @@ func (r *Runtime) RemoveVolume(_ context.Context, name string) error {
 func (r *Runtime) HasVolume(name string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.volumes[name]
+	_, ok := r.volumes[name]
+	return ok
 }

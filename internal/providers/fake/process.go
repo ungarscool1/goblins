@@ -24,7 +24,10 @@ import (
 // It is NOT a sandbox. It exists for tests and is never registered as a provider,
 // so no configuration can select it.
 type ProcessRuntime struct {
-	Name string
+	// ExtraCaps are advertised too, such as services, which the process runtime records but
+	// does not start.
+	ExtraCaps []core.Capability
+	Name      string
 	// Root holds volumes.
 	Root string
 	// PathPrefix is prepended to PATH, typically where a fake CLI lives.
@@ -70,7 +73,7 @@ func NewProcessRuntime(name, root, pathPrefix string) *ProcessRuntime {
 // Info implements core.Provider. As a test double it accepts the requests a real runtime
 // must honor, so that adapters can be tested with their normal specs; it enforces none.
 func (r *ProcessRuntime) Info() core.ProviderInfo {
-	i := info(core.ProviderRuntime, r.Name, []core.Capability{core.CapRuntimeVolumes, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress, core.CapRuntimeResourceLimits, core.CapRuntimeReadOnlyRoot})
+	i := info(core.ProviderRuntime, r.Name, append([]core.Capability{core.CapRuntimeVolumes, core.CapRuntimeNetworkNone, core.CapRuntimeNetworkEgress, core.CapRuntimeResourceLimits, core.CapRuntimeReadOnlyRoot}, r.ExtraCaps...))
 	i.Type = "fake-process"
 	return i
 }
@@ -123,6 +126,9 @@ func (r *ProcessRuntime) Create(_ context.Context, spec core.WorkloadSpec) (core
 		cmd.Env = append(cmd.Env, k+"="+rewrite(v))
 	}
 	for k, v := range spec.Secrets {
+		cmd.Env = append(cmd.Env, k+"="+v.Reveal())
+	}
+	for k, v := range spec.TestSecrets {
 		cmd.Env = append(cmd.Env, k+"="+v.Reveal())
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

@@ -19,6 +19,21 @@ type meteredAgent struct {
 	metrics *observability.Metrics
 }
 
+// Unwrap is the provider being metered, which alone says what else it offers, such as tools or
+// the logins it holds.
+func (a meteredAgent) Unwrap() core.AgentProvider { return a.AgentProvider }
+
+// unwrapAgent finds the provider under any wrapper.
+func unwrapAgent(a core.AgentProvider) core.AgentProvider {
+	for {
+		w, ok := a.(interface{ Unwrap() core.AgentProvider })
+		if !ok {
+			return a
+		}
+		a = w.Unwrap()
+	}
+}
+
 func (a meteredAgent) Run(ctx context.Context, req core.AgentRequest,
 	sink func(core.AgentEvent)) (core.AgentResult, error) {
 	res, err := a.AgentProvider.Run(ctx, req, sink)

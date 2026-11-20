@@ -4,6 +4,7 @@ package runtime
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/ungarscool1/goblins/internal/core"
@@ -17,6 +18,19 @@ type Result struct {
 	Status core.WorkloadStatus
 	Stdout string
 	Stderr string
+}
+
+// Output is everything the workload wrote.
+func (r Result) Output() string { return Combined(r.Stdout, r.Stderr) }
+
+// Combined joins what a workload wrote to its two streams. A runtime that merges them gives
+// both writers the same log, which is kept once rather than twice: when one writer kept less
+// of it, what it kept is the end of the other's.
+func Combined(stdout, stderr string) string {
+	if strings.HasSuffix(stdout, stderr) {
+		return stdout
+	}
+	return stdout + stderr
 }
 
 // RunToCompletion starts a workload, waits for it, and always removes it. Cancelling
@@ -67,3 +81,13 @@ func (t *Tail) Write(p []byte) (int, error) {
 }
 
 func (t *Tail) String() string { return string(t.b) }
+
+// ProxyEnv is the environment that sends a workload's HTTPS through an egress proxy, in both
+// spellings tools read. Nothing bypasses it: the workload's network has no other way out.
+func ProxyEnv(proxy string) []string {
+	if proxy == "" {
+		return nil
+	}
+	return []string{"HTTPS_PROXY=" + proxy, "https_proxy=" + proxy, "HTTP_PROXY=" + proxy,
+		"http_proxy=" + proxy, "NO_PROXY=", "no_proxy="}
+}

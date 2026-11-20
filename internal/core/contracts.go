@@ -118,6 +118,15 @@ type AgentRequest struct {
 	WorkDir         string
 	Timeout         time.Duration
 	Labels          map[string]string
+	// Tools names allow-listed tools for this run, from the agent's ToolCatalog. Requires
+	// CapAgentTools. A repository or a ticket never adds one.
+	Tools []string
+}
+
+// ToolCatalog is implemented by agents offering tools an operator installed and allow-listed,
+// such as MCP servers in the agent's image. Stages pick from it by name.
+type ToolCatalog interface {
+	Tools() []string
 }
 
 // AgentEventKind classifies stream entries.
@@ -194,6 +203,8 @@ type Mount struct {
 	Volume   string
 	Target   string
 	ReadOnly bool
+	// Credentials marks a volume holding a login. Only credentialed workloads may mount it.
+	Credentials bool
 }
 
 // NetworkPolicy restricts workload connectivity.
@@ -237,12 +248,28 @@ type WorkloadSpec struct {
 	Security  SecurityProfile
 	Timeout   time.Duration
 	Labels    map[string]string
+	// Trust says what the workload may hold. The zero value is a sandbox: see WorkloadTrust.
+	Trust WorkloadTrust
+	// Services run next to the workload and end with it. Requires CapRuntimeServices.
+	Services []Service
+	// TestSecrets are credentials for test systems only, such as a staging account. Unlike
+	// Secrets, a sandbox may hold them, as the code it runs is assumed to read them.
+	TestSecrets map[string]Secret
 }
 
 // CheckWorkloadSpec rejects a spec needing capabilities rt does not advertise. All
 // runtimes share it so they refuse the same way, before starting anything.
 func CheckWorkloadSpec(rt ExecutionRuntime, spec WorkloadSpec) error {
+	if err := checkTrust(spec); err != nil {
+		return err
+	}
+	if err := checkServices(spec); err != nil {
+		return err
+	}
 	var req []Capability
+	if len(spec.Services) > 0 {
+		req = append(req, CapRuntimeServices)
+	}
 	if spec.Security.Privileged {
 		req = append(req, CapRuntimePrivileged)
 	}
@@ -308,7 +335,9 @@ type ExecutionRuntime interface {
 	Create(ctx context.Context, spec WorkloadSpec) (WorkloadStatus, error)
 	Status(ctx context.Context, name string) (WorkloadStatus, error)
 	// Logs copies output to the writers. With follow it blocks until the
-	// workload ends or ctx is cancelled.
+	// workload ends or ctx is cancelled. A runtime that cannot tell the streams apart gives
+	// both writers the same merged log, so that what a caller looks for in either is there;
+	// a caller that joins the two keeps such a log once (runtime.Combined).
 	Logs(ctx context.Context, name string, follow bool, stdout, stderr io.Writer) error
 	// Cancel stops a workload. Cancelling a finished workload is a no-op.
 	Cancel(ctx context.Context, name string) error
@@ -319,6 +348,18 @@ type ExecutionRuntime interface {
 	// EnsureVolume creates a durable volume if needed. RemoveVolume is idempotent.
 	EnsureVolume(ctx context.Context, name string, labels map[string]string) error
 	RemoveVolume(ctx context.Context, name string) error
+}
+
+// VolumeStatus is a durable volume and its labels.
+type VolumeStatus struct {
+	Name   string
+	Labels map[string]string
+}
+
+// VolumeLister is implemented by runtimes advertising CapRuntimeVolumeList. It finds the
+// volumes a lost task left behind, which nothing else would remove.
+type VolumeLister interface {
+	ListVolumes(ctx context.Context, labels map[string]string) ([]VolumeStatus, error)
 }
 
 // ReviewRequest asks for an independent review of a pull request at one exact commit.

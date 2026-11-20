@@ -1,0 +1,79 @@
+{{- if .Values.egressProxy.enabled }}
+{{- $ns := include "goblins.workloadNamespace" . }}
+# The allow-listing proxy: the only way out for agents and Git steps.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: goblins-egress-proxy
+  namespace: {{ $ns }}
+  labels: {{- include "goblins.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: egress-proxy}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: egress-proxy}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      serviceAccountName: {{ .Values.workloads.serviceAccount }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: proxy
+          image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [egress-proxy, --listen, "0.0.0.0:3128"]
+          env:
+            - {name: GOBLINS_EGRESS_ALLOW, value: {{ join "," .Values.egressProxy.allow | quote }}}
+          ports: [{name: proxy, containerPort: 3128}]
+          readinessProbe:
+            tcpSocket: {port: proxy}
+          securityContext: {{- include "goblins.restricted" . | nindent 12 }}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 128Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: goblins-egress-proxy
+  namespace: {{ $ns }}
+  labels: {{- include "goblins.labels" . | nindent 4 }}
+spec:
+  selector: {app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: egress-proxy}
+  ports: [{name: proxy, port: 3128, targetPort: proxy}]
+---
+{{- if .Values.workloads.networkPolicies }}
+# The proxy takes tunnels from egress workloads only, and reaches DNS and the internet outside
+# the cluster. It still checks every name it resolves against private addresses itself.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: goblins-egress-proxy
+  namespace: {{ $ns }}
+  labels: {{- include "goblins.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/component: egress-proxy}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/managed-by: goblins, goblins.dev/network: egress}}
+      ports: [{protocol: TCP, port: 3128}]
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: {{- toYaml .Values.workloads.egressExcept | nindent 14 }}
+      ports: [{protocol: TCP, port: 443}]
+{{- end }}
+{{- end }}

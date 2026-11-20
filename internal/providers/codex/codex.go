@@ -131,12 +131,16 @@ func (a *Agent) baseSpec(name string, cmd []string) core.WorkloadSpec {
 		Name: name, Image: a.opts.Image, Network: core.NetworkEgress,
 		Command: []string{"sh", "-c", agentcli.Script(billingEnv,
 			append([]string{a.opts.Executable}, cmd...))},
-		Mounts:    []core.Mount{{Volume: a.opts.HomeVolume, Target: homeMount}},
+		Mounts:    []core.Mount{{Volume: a.opts.HomeVolume, Target: homeMount, Credentials: true}},
 		Resources: a.opts.ResourceDefaults,
 		Security:  core.SecurityProfile{ReadOnlyRoot: true},
 		Env:       map[string]string{"CODEX_HOME": homeMount, "HOME": "/tmp"},
+		Trust:     core.TrustCredentialed,
 	}
 }
+
+// CredentialVolumes implements core.CredentialHolder.
+func (a *Agent) CredentialVolumes() []string { return []string{a.opts.HomeVolume} }
 
 // args builds the CLI invocation. Everything comes from the abstract policy, so neither
 // configuration nor a repository can add a command-running tool. No flag grants anything
@@ -373,7 +377,7 @@ func (a *Agent) runShort(ctx context.Context, runtime core.ExecutionRuntime, nam
 	if err != nil {
 		return "", st, err
 	}
-	return out.String() + errb.String(), st, nil
+	return rt.Combined(out.String(), errb.String()), st, nil
 }
 
 // AuthStatus implements core.AgentProvider. It runs no model call, so it can back health

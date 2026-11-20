@@ -48,6 +48,13 @@ func parseManifest(raw []byte, o Options) ([]Check, error) {
 			return nil, fmt.Errorf("check %s asks for KVM, "+
 				"which this installation does not allow manifests", c.Name)
 		}
+		if len(c.Secrets) > 0 && !o.ManifestSecrets {
+			return nil, fmt.Errorf("check %s asks for test secrets, "+
+				"which this installation does not allow manifests", c.Name)
+		}
+		if err := c.knownSecrets(o.TestSecrets); err != nil {
+			return nil, err
+		}
 		if c.Image == "" {
 			c.Image = m.Image
 		}
@@ -73,6 +80,9 @@ func (c Check) valid() error {
 	}
 	if c.Timeout < 0 {
 		return fmt.Errorf("check %s: negative timeout", c.Name)
+	}
+	if err := c.validServices(); err != nil {
+		return err
 	}
 	if len(c.Artifacts) > maxArtifacts {
 		return fmt.Errorf("check %s: at most %d artifacts", c.Name, maxArtifacts)

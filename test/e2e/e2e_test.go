@@ -34,9 +34,11 @@ import (
 	"github.com/ungarscool1/goblins/internal/providers/claude"
 	"github.com/ungarscool1/goblins/internal/providers/codex"
 	"github.com/ungarscool1/goblins/internal/providers/command"
+	"github.com/ungarscool1/goblins/internal/providers/environment"
 	"github.com/ungarscool1/goblins/internal/providers/fake"
 	gh "github.com/ungarscool1/goblins/internal/providers/github"
 	"github.com/ungarscool1/goblins/internal/providers/github/fakegithub"
+	"github.com/ungarscool1/goblins/internal/providers/knowledge"
 	"github.com/ungarscool1/goblins/internal/workflow"
 )
 
@@ -173,6 +175,8 @@ func (e *env) registry() *providers.Registry {
 	claude.Register(r)
 	codex.Register(r)
 	command.Register(r)
+	environment.Register(r)
+	knowledge.Register(r)
 	r.Register(providers.KindRuntime, "test-process", func(string, providers.Deps, providers.Options) (any, error) { return e.rt, nil })
 	return r
 }
@@ -652,6 +656,39 @@ func TestTestsThatNeverPassBlockAndPublishNothing(t *testing.T) {
 	if out, _ := exec.Command("git", "-C", e.bare, "for-each-ref", "refs/heads/goblins").Output(); len(out) != 0 {
 		t.Fatalf("failing code was pushed: %s", out)
 	}
+}
+
+// Code a hostile agent leaves for Git to run never runs where a token is: publishing reads a
+// bundle into a fresh repository, and hooks are off everywhere.
+func TestPlantedHooksNeverSeeACredential(t *testing.T) {
+	e := setup(t)
+	e.toDesign()
+	e.scenario("plants_hooks")
+	task := e.task()
+	e.comment(maintainer, fmt.Sprintf("/approve-design %d", task.DesignRevision))
+	e.settle()
+	e.boot()
+	e.settle()
+	e.wantState(core.StateCompleted)
+	ran, _ := os.ReadFile(e.configFile("hooks-ran"))
+	planted, _ := os.ReadFile(e.configFile("planted"))
+	if !strings.Contains(string(planted), "PLANTED") {
+		t.Fatalf("nothing was planted:\n%s", planted)
+	}
+	for line := range strings.SplitSeq(strings.TrimSpace(string(ran)), "\n") {
+		if line != "" && !strings.HasSuffix(line, " none") {
+			t.Errorf("planted code ran with a credential: %q", line)
+		}
+	}
+	for _, s := range e.rt.Specs {
+		if strings.Contains(s.Name, "-check-") && s.Trust != core.TrustSandbox {
+			t.Errorf("%s: a check is not a sandbox", s.Name)
+		}
+		if len(s.Secrets) > 0 && s.Trust != core.TrustCredentialed {
+			t.Errorf("%s: secrets in a sandbox", s.Name)
+		}
+	}
+	e.assertCredentialBoundary(t)
 }
 
 func TestMissingPullRequestPermissionBlocks(t *testing.T) {

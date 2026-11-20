@@ -1,0 +1,97 @@
+# Goblins on Kubernetes. The control plane runs in the release namespace; workloads run in a
+# namespace of their own, under the "restricted" Pod Security Standard, with no token, no
+# privileges and network policies that deny everything they don't need.
+
+image:
+  repository: goblins
+  tag: ""            # defaults to the chart's appVersion
+  pullPolicy: IfNotPresent
+
+# goblins.yaml, rendered with tpl, so it can use the helpers below, such as
+# {{ include "goblins.workloadNamespace" . }}. Secrets never go here: refer to them with
+# *_env or *_file, and provide them through existingSecret or secretFiles.
+config: |
+  version: 1
+  installation: {name: personal, data_dir: /var/lib/goblins}
+  server: {listen: "0.0.0.0:8080"}
+  {{- if eq .Values.storage.driver "postgres" }}
+  storage: {driver: postgres, dsn_env: GOBLINS_POSTGRES_DSN}
+  {{- end }}
+  runtimes:
+    k8s:
+      type: kubernetes
+      options:
+        namespace: {{ include "goblins.workloadNamespace" . }}
+        service_account: {{ .Values.workloads.serviceAccount }}
+        network_policies: {{ .Values.workloads.networkPolicies }}
+        {{- if .Values.egressProxy.enabled }}
+        egress_proxy: http://goblins-egress-proxy.{{ include "goblins.workloadNamespace" . }}.svc:3128
+        {{- end }}
+  projects: []
+
+# A Secret whose keys become environment variables of the control plane, such as
+# GOBLINS_WEBHOOK_SECRET or CLAUDE_CODE_OAUTH_TOKEN.
+existingSecret: ""
+# Secrets mounted as files under /run/secrets/<name>, such as a GitHub App key:
+#   secretFiles: {github-app: my-github-app-secret}
+secretFiles: {}
+
+storage:
+  driver: sqlite     # sqlite, on a volume of its own, or postgres
+  sqlite:
+    size: 2Gi
+    storageClass: ""
+  postgres:
+    # A Secret holding the DSN, when the database is outside this chart.
+    dsnSecret: {name: "", key: dsn}
+
+# A PostgreSQL inside the chart, for storage.driver postgres without an external database.
+postgresql:
+  enabled: false
+  image: postgres:17.6-alpine
+  size: 8Gi
+  storageClass: ""
+
+workloads:
+  namespace: ""          # defaults to <release namespace>-workloads
+  createNamespace: true
+  serviceAccount: goblins-workload
+  # Only turn this off on a cluster whose network plugin does not enforce NetworkPolicy.
+  # Goblins then refuses workloads that need no network, such as checks.
+  networkPolicies: true
+  # Destinations egress workloads (agents) may not reach: the cluster and the metadata address.
+  egressExcept: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10]
+
+# With it, agents and Git steps reach the internet only through this proxy, which opens HTTPS
+# tunnels to the listed hosts. Their network policy then allows DNS and the proxy, nothing else.
+egressProxy:
+  enabled: false
+  # A starting point: check the proxy's log for "egress denied" and adjust.
+  allow: [api.anthropic.com, claude.ai, console.anthropic.com, platform.claude.com, github.com]
+
+# One pod for an interactive subscription login into the agent's volume:
+#   kubectl -n <workloads namespace> attach -it goblins-agent-login
+agentLogin:
+  enabled: false
+  image: goblins-agent-claude:dev
+  command: [claude, auth, login]
+  configDirEnv: CLAUDE_CONFIG_DIR
+  # The volume the agent mounts: its config_volume option.
+  volume: claude-config
+  size: 1Gi
+
+replicas: 1   # more than one needs storage.driver postgres
+service:
+  port: 8080
+metrics:
+  enabled: false
+  port: 9090
+# Exposes /webhooks only. Nothing else of the control plane is meant to be public.
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  tls: []
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {memory: 512Mi}

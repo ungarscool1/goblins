@@ -524,17 +524,45 @@ func ExecutionRuntime(t *testing.T, build func(t *testing.T) RuntimeHarness) {
 			return
 		}
 		name := uniqueName(t, "vol")
+		labels := map[string]string{"goblins.test": "contract", "goblins.name": name}
 		for range 2 {
-			if err := h.Runtime.EnsureVolume(ctx, name, map[string]string{"goblins.test": "contract"}); err != nil {
+			if err := h.Runtime.EnsureVolume(ctx, name, labels); err != nil {
 				t.Fatal(err)
 			}
 		}
+		checkVolumeList(t, h.Runtime, name, labels)
 		for range 2 {
 			if err := h.Runtime.RemoveVolume(ctx, name); err != nil {
 				t.Fatal(err)
 			}
 		}
 	})
+}
+
+// checkVolumeList checks that a runtime listing volumes finds one by its labels, and only it.
+func checkVolumeList(t *testing.T, rt core.ExecutionRuntime, name string,
+	labels map[string]string) {
+	t.Helper()
+	lister, ok := rt.(core.VolumeLister)
+	if !rt.Info().Has(core.CapRuntimeVolumeList) {
+		return
+	}
+	if !ok {
+		t.Fatal("advertises runtime.volumes.list without implementing it")
+	}
+	vols, err := lister.ListVolumes(context.Background(), map[string]string{"goblins.name": name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vols) != 1 || vols[0].Name != name ||
+		vols[0].Labels["goblins.test"] != labels["goblins.test"] {
+		t.Fatalf("volumes = %+v", vols)
+	}
+	other, err := lister.ListVolumes(context.Background(),
+		map[string]string{"goblins.name": name + "-x"})
+	if err != nil || len(other) != 0 {
+		t.Fatalf("a label filter matched %+v, %v", other, err)
+	}
 }
 
 // Notification checks idempotent delivery does not fail on retries.

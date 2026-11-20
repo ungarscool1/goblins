@@ -49,12 +49,16 @@ orchestrator can run anywhere that can reach an engine, and nothing assumes they
 | -------------------------- | ----------------------- | ------------------------------ |
 | Domain model and contracts | `internal/core`         | [providers.md](providers.md)   |
 | States and gates           | `internal/workflow`     | [workflow.md](workflow.md)     |
+| Blueprint, approval profiles, tools | `internal/workflow/approval.go` | [blueprints.md](blueprints.md) |
+| Engineering memory         | `internal/memory`, `internal/providers/knowledge` | [memory.md](memory.md) |
 | Control loop               | `internal/scheduler`    | [workflow.md](workflow.md)     |
 | Job handlers and prompts   | `internal/pipeline`     | [workflow.md](workflow.md)     |
 | Persistence                | `internal/storage`      | [workflow.md](workflow.md)     |
 | GitHub                     | `internal/providers/github` | [github.md](github.md)     |
 | Claude CLI                 | `internal/providers/claude` | [claude.md](claude.md)     |
 | Docker and workspaces      | `internal/runtime`      | [docker-runtime.md](docker-runtime.md) |
+| Kubernetes and Helm        | `internal/runtime/kubernetes`, `deploy/helm` | [kubernetes.md](kubernetes.md) |
+| Development environments   | `internal/providers/environment`, `internal/pipeline/environment.go` | [environments.md](environments.md) |
 
 ## How it is tested
 

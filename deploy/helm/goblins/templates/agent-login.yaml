@@ -1,0 +1,55 @@
+{{- if .Values.agentLogin.enabled }}
+{{- $ns := include "goblins.workloadNamespace" . }}
+# The agent's login lives in this claim. Only agent pods mount it: checks, which run a
+# change's code, never do. See docs/kubernetes.md.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.agentLogin.volume }}
+  namespace: {{ $ns }}
+  labels: {{- include "goblins.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: {{ .Values.agentLogin.size }}}}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: goblins-agent-login
+  namespace: {{ $ns }}
+  labels:
+    {{- include "goblins.labels" . | nindent 4 }}
+    app.kubernetes.io/managed-by: goblins
+    goblins.dev/network: egress
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  enableServiceLinks: false
+  serviceAccountName: {{ .Values.workloads.serviceAccount }}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: login
+      image: {{ .Values.agentLogin.image }}
+      command: {{- toYaml .Values.agentLogin.command | nindent 8 }}
+      stdin: true
+      tty: true
+      env:
+        - {name: {{ .Values.agentLogin.configDirEnv }}, value: /agent-config}
+        - {name: HOME, value: /tmp}
+      securityContext: {{- include "goblins.restricted" . | nindent 8 }}
+      volumeMounts:
+        - {name: config, mountPath: /agent-config}
+        - {name: tmp, mountPath: /tmp}
+  volumes:
+    - name: config
+      persistentVolumeClaim: {claimName: {{ .Values.agentLogin.volume }}}
+    - name: tmp
+      emptyDir: {}
+{{- end }}

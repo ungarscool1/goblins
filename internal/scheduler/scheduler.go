@@ -128,6 +128,8 @@ type Scheduler struct {
 	Now      func() time.Time
 	Cfg      Config
 	Metrics  *observability.Metrics
+	// Spans, when set, also receives every span that is logged.
+	Spans observability.SpanExporter
 	// Stalled is how many tasks the last health check found with no job to move them.
 	Stalled atomic.Int64
 
@@ -397,6 +399,14 @@ func (s *Scheduler) record(bg context.Context, shuttingDown, timedOut bool, log 
 		kind, message = core.KindTimeout, "the job exceeded its time limit"
 	}
 	log.Warn("job attempt failed", "error_kind", kind, "err", runErr)
+	// Waiting for a resource another task holds is not a failure: wait, at no attempt's cost.
+	if at := core.RetryAtOf(runErr); kind == core.KindConflict && at.After(now) {
+		err := s.Store.RequeueInterruptedJob(bg, job.ID, job.LeaseOwner, job.Attempt, at, message)
+		if err != nil {
+			log.Warn("cannot requeue waiting job", "err", err)
+		}
+		return
+	}
 	retryable := kind == core.KindTransient || kind == core.KindTimeout || kind == core.KindInternal
 	if retryable && job.Attempt < job.MaxAttempts {
 		if err := s.Store.RetryJob(bg, job.ID, job.LeaseOwner, job.Attempt, now.Add(s.backoff(job.Attempt)), message); err != nil {
@@ -423,6 +433,7 @@ func (s *Scheduler) maybeReconcile(ctx context.Context) {
 	s.mu.Unlock()
 	if due {
 		s.ReconcileWorkloads(ctx)
+		s.ReconcileVolumes(ctx)
 		s.checkHealth(ctx)
 	}
 }
