@@ -74,6 +74,11 @@ With `egressProxy.enabled` in the chart, the runtime gets `egress_proxy`, and th
 allows DNS and the proxy's pods only. The proxy opens HTTPS tunnels to `egressProxy.allow`, and
 checks resolved addresses itself, as on Docker ([ADR 0008](adr/0008-runner-and-sandbox.md)).
 
+Only the policy enforces this, so `egress_proxy` without `network_policies: true` is refused, and
+the chart won't render the proxy without `workloads.networkPolicies`. An egress policy that already
+exists and still lets workloads out directly, such as one made before the proxy was configured, is
+refused too: workloads don't start until it's replaced, by applying the chart or deleting it.
+
 ### Workspaces and restarts
 
 Durable volumes are PersistentVolumeClaims, created when first used, so a workspace survives a pod
