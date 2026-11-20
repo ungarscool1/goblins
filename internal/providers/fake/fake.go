@@ -252,14 +252,6 @@ func (t *Tracker) ActorPermission(_ context.Context, ref core.IssueRef, a core.A
 	return t.W.perms[ref.Container+"/"+a.Login], nil
 }
 
-// ActorPermission implements core.PermissionSource, with the world's permissions.
-func (s *SCM) ActorPermission(_ context.Context, ref core.IssueRef, a core.Actor) (core.Permission,
-	error) {
-	s.W.mu.Lock()
-	defer s.W.mu.Unlock()
-	return s.W.perms[ref.Container+"/"+a.Login], nil
-}
-
 func (t *Tracker) SetLabels(_ context.Context, ref core.IssueRef, add, remove []string) error {
 	if !t.Info().Has(core.CapTrackerLabels) {
 		return core.Unsupported(t.Info(), core.CapTrackerLabels)

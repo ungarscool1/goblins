@@ -12,7 +12,6 @@
 
 width . 344
 
-file internal/providers/fake/fake.go 601
 file internal/storage/store.go 759
 file internal/workflow/machine.go 784
 
