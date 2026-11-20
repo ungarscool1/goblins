@@ -24,7 +24,7 @@ func NewTracker(name string, c *Client) *Tracker { return &Tracker{name: name, c
 
 // Info implements core.Provider.
 func (t *Tracker) Info() core.ProviderInfo {
-	return info(core.ProviderTracker, t.name, core.CapTrackerCommentWrite, core.CapTrackerLabels, core.CapTrackerTransitions, core.CapTrackerPermissions)
+	return info(core.ProviderTracker, t.name, core.CapTrackerCommentWrite, core.CapTrackerCommentEdit, core.CapTrackerLabels, core.CapTrackerTransitions, core.CapTrackerPermissions)
 }
 
 type label struct {
@@ -155,6 +155,41 @@ func (t *Tracker) PostComment(ctx context.Context, ref core.IssueRef, d core.Com
 		return core.Comment{}, err
 	}
 	return c.canonical(ref), nil
+}
+
+// UpdateComment implements core.IssueTracker. It reads the comment first: an App may be able to
+// edit other people's comments, and this must only ever touch its own, on this issue.
+func (t *Tracker) UpdateComment(ctx context.Context, ref core.IssueRef, id string,
+	d core.CommentDraft) (core.Comment, error) {
+	own, err := t.c.AppLogin(ctx)
+	if err != nil {
+		return core.Comment{}, err
+	}
+	path := "/repos/" + ref.Container + "/issues/comments/" + url.PathEscape(id)
+	var c comment
+	if err := t.c.repoCall(ctx, ref.Container, http.MethodGet, path, nil, &c); err != nil {
+		return core.Comment{}, err
+	}
+	cc := c.canonical(ref)
+	if cc.Author.Type != core.ActorBot || cc.Author.Login != own ||
+		!strings.HasSuffix(c.IssueURL, "/issues/"+ref.ExternalID) {
+		return core.Comment{}, core.Errorf(core.KindForbidden, "github.update_comment",
+			"comment %s is not this integration's comment on this issue", id)
+	}
+	body := d.Body
+	if d.IdempotencyKey != "" {
+		body += "\n\n" + idemMarker(d.IdempotencyKey)
+	}
+	if c.Body != body {
+		err := t.c.repoCall(ctx, ref.Container, http.MethodPatch, path,
+			map[string]string{"body": body}, &c)
+		if err != nil {
+			return core.Comment{}, err
+		}
+	}
+	cc = c.canonical(ref)
+	cc.Own = true
+	return cc, nil
 }
 
 // ActorPermission implements core.IssueTracker.

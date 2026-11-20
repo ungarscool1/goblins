@@ -24,6 +24,7 @@ type World struct {
 	issues     map[string]*core.Issue
 	comments   map[string][]core.Comment
 	byKey      map[string]core.Comment
+	edits      int
 	perms      map[string]core.Permission
 	branches   map[string]string
 	prs        map[string]*core.PullRequest
@@ -174,7 +175,8 @@ type Tracker struct {
 }
 
 // AllTrackerCaps lists every tracker capability.
-var AllTrackerCaps = []core.Capability{core.CapTrackerCommentWrite, core.CapTrackerLabels, core.CapTrackerTransitions, core.CapTrackerPermissions}
+var AllTrackerCaps = []core.Capability{core.CapTrackerCommentWrite, core.CapTrackerCommentEdit,
+	core.CapTrackerLabels, core.CapTrackerTransitions, core.CapTrackerPermissions}
 
 // NewTracker returns a fully capable fake tracker.
 func NewTracker(w *World, name string) *Tracker {
