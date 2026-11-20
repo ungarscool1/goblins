@@ -45,6 +45,12 @@ GitHub, Anthropic or Docker being compromised.
 | A sandbox gets a secret or a login    | Trust is part of every workload: sandboxes with secrets or login volumes are refused by every runtime ([ADR 0008](adr/0008-runner-and-sandbox.md)) | Go code |
 | Agent sends the workspace anywhere    | With `egress_proxy`: an internal network, and tunnels to listed hosts only, checked after resolving | Docker or Kubernetes network, proxy |
 | Hooks or filters planted in the workspace | Never run where a token is: publishing reads a bundle into a fresh repository, hooks are off everywhere | Workflow of workloads, Git |
+| Deploys onto a target another task uses | Exclusive leases in the database; a failed reset keeps the target reserved for a person | Go code, database |
+| A ticket or agent adds an environment step or target | Steps, targets and their credentials come from the operator's configuration only | Go code |
+| A ticket or model runs a sensitive change unattended | Unattended needs a person's label; scope is decided from the commit's paths; leaving it withdraws the approval before anything is published ([ADR 0009](adr/0009-blueprint-and-approval-profiles.md)) | Go code |
+| A repository or ticket adds a tool    | Tools come from the agent's image and the operator's stage list only; repository MCP, hooks and skills are ignored | Go code, CLI flags |
+| A ticket or model rewrites what agents are told | Memories reach agents only once a person accepts them; documents are data in a delimiter; only plain words reach wiki queries | Go code |
+| One project or installation reads another's memory | Namespaces per installation and project; imports land in the namespace given | Go code, database |
 | Unattended re-login, security keys    | Never attempted: an expired login pauses the task for a person, and MFA is never bypassed | Go code |
 | Cluster API from a worker pod         | No service account token, no service links, network policies deny the cluster's addresses | Go code, Kubernetes |
 | Secret values readable in pod specs   | Secrets are Secret objects referenced by key, owned by the pod | Go code, Kubernetes |

@@ -65,8 +65,10 @@ type ImplementResult struct {
 	BaseSHA   string `json:"base_sha"`
 	HeadSHA   string `json:"head_sha"`
 	Changed   bool   `json:"changed"`
-	// ChangedFiles counts the files that differ from the base branch.
-	ChangedFiles int `json:"changed_files,omitempty"`
+	// ChangedFiles counts the files that differ from the base branch, and ChangedPaths names
+	// up to workspace.MaxChangedPaths of them. They are repository content: data, to match.
+	ChangedFiles int      `json:"changed_files,omitempty"`
+	ChangedPaths []string `json:"changed_paths,omitempty"`
 }
 
 // ValidateStage says where in the workflow validation runs.
@@ -224,7 +226,11 @@ func mustJSON(v any) json.RawMessage {
 }
 
 // EmitsStart reports whether a job's start matters to the state machine.
-func EmitsStart(k core.JobKind) bool { return k == JobImplement || k == JobReview }
+func EmitsStart(k core.JobKind) bool {
+	// A validate job starts work of its own when a person approved a change that had left an
+	// unattended scope: the task is agent-ready until then.
+	return k == JobImplement || k == JobReview || k == JobValidate
+}
 
 // SideJob reports whether a job only performs an effect and never advances a task.
 func SideJob(k core.JobKind) bool {

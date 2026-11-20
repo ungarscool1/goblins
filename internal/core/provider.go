@@ -23,6 +23,8 @@ const (
 	ProviderReview       ProviderKind = "review"
 	ProviderValidation   ProviderKind = "validation"
 	ProviderNotification ProviderKind = "notification"
+	ProviderEnvironment  ProviderKind = "environment"
+	ProviderKnowledge    ProviderKind = "knowledge"
 )
 
 // Capability names an optional feature of an adapter. Orchestration code asks
@@ -56,6 +58,8 @@ const (
 	CapAgentResume    Capability = "agent.resume"
 	CapAgentStreaming Capability = "agent.streaming"
 	CapAgentEffort    Capability = "agent.effort"
+	// CapAgentTools runs allow-listed tools a stage names.
+	CapAgentTools Capability = "agent.tools"
 
 	// CapReviewWorkspace asks the orchestrator for a pinned checkout and diff.
 	CapReviewWorkspace Capability = "review.workspace"

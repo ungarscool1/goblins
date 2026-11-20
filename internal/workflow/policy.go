@@ -19,6 +19,8 @@ type Policy struct {
 	IntakeLabel string
 	// ReviewPullRequests starts review-only tasks for pull requests by humans.
 	ReviewPullRequests bool
+	// Approval says when a design may be implemented without a person approving it.
+	Approval ApprovalProfile
 	// DesignStyle lays out design comments. It never changes what is approved.
 	DesignStyle DesignStyle
 	// BotLogins are identities that must never count as human approval.

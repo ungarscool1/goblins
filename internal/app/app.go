@@ -129,8 +129,7 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 			return pipeline.Stage{}, err
 		}
 		agent := meteredAgent{AgentProvider: built, name: s.Agent, metrics: sys.Metrics}
-		// The provider itself, not the meter around it, says which logins it holds.
-		runtime, err := guardedRuntime(b, cfg, s.Runtime, built)
+		runtime, err := guardedRuntime(b, cfg, s.Runtime, agent)
 		if err != nil {
 			return pipeline.Stage{}, err
 		}
@@ -139,8 +138,12 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 		if m := cfg.Agents[s.Agent].MaxConcurrent; m > 0 {
 			limits[limitKey(s.Agent)] = m
 		}
+		if err := checkTools(s, agent); err != nil {
+			return pipeline.Stage{}, err
+		}
 		return pipeline.Stage{Agent: agent, Runtime: runtime, Model: s.Model, Effort: s.Effort,
-			Timeout: s.Timeout, FallbackModel: s.FallbackModel, MaxToolCalls: s.MaxToolCalls}, nil
+			Timeout: s.Timeout, FallbackModel: s.FallbackModel, MaxToolCalls: s.MaxToolCalls,
+			Tools: s.Tools}, nil
 	}
 
 	for _, pc := range cfg.Projects {
@@ -188,6 +191,16 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 				return nil, err
 			}
 		}
+		if pr.Memory, err = memoryFor(b, cfg, pc); err != nil {
+			return nil, err
+		}
+		if pc.Environment.Name != "" {
+			if pr.Environment, err = build[core.EnvironmentProvider](b, providers.KindEnvironment,
+				cfg.Environments, pc.Environment.Name); err != nil {
+				return nil, err
+			}
+			pr.EnvironmentLease = pc.Environment.Lease
+		}
 		if pc.Review != "" {
 			if pr.Review, err = build[core.ReviewProvider](b, providers.KindReview, cfg.Reviews, pc.Review); err != nil {
 				return nil, err
@@ -228,7 +241,8 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 	}
 
 	sys.Inbox = scheduler.NewInbox(store, log, routes)
-	pipe := &pipeline.Pipeline{Installation: cfg.Installation.Name, Projects: sys.Projects, Designs: store, Log: log}
+	pipe := &pipeline.Pipeline{Installation: cfg.Installation.Name, Projects: sys.Projects, Designs: store, Log: log,
+		Environments: store, Memories: store}
 	hostname, _ := os.Hostname()
 	owner := cfg.Installation.Name + "/" + hostname + "/" + strconv.Itoa(os.Getpid())
 	engine := &workflow.Engine{Store: store, Owner: owner, Log: log, Now: now, Auth: authorizer{projects: sys.Projects},
@@ -266,87 +280,6 @@ func designStyle(c config.Communication, tracker core.ProviderInfo) workflow.Des
 }
 
 func limitKey(agent string) string { return "agent:" + agent }
-
-func policyFor(pc config.Project) workflow.Policy {
-	p := workflow.DefaultPolicy()
-	c := pc.Policy
-	if c.ApproveCommand != "" {
-		p.ApproveCommand = c.ApproveCommand
-	}
-	if c.MinApprovePermission != "" {
-		p.MinApprovePermission = core.ParsePermission(c.MinApprovePermission)
-	}
-	if c.MinInputPermission != "" {
-		p.MinInputPermission = core.ParsePermission(c.MinInputPermission)
-	}
-	p.IntakeLabel = c.IntakeLabel
-	p.ReviewPullRequests = c.ReviewPullRequests
-	p.BotLogins = c.BotLogins
-	if c.MaxPlanLoops > 0 {
-		p.MaxPlanLoops = c.MaxPlanLoops
-	}
-	if c.MaxImplementLoops > 0 {
-		p.MaxImplementLoops = c.MaxImplementLoops
-	}
-	if c.QuotaPause > 0 {
-		p.QuotaPause = c.QuotaPause
-	}
-	if c.AuthPause > 0 {
-		p.AuthPause = c.AuthPause
-	}
-	if c.RateLimitPause > 0 {
-		p.RateLimitPause = c.RateLimitPause
-	}
-	if c.MaxLimitPause > 0 {
-		p.MaxLimitPause = c.MaxLimitPause
-	}
-	if c.MaxLimitPauses > 0 {
-		p.MaxLimitPauses = c.MaxLimitPauses
-	}
-	p.MaxChangedFiles = c.MaxChangedFiles
-	if c.MaxReviewFixLoops > 0 {
-		p.MaxReviewFixLoops = c.MaxReviewFixLoops
-	}
-	if c.ReviewMinSeverity != "" {
-		p.ReviewMinSeverity = core.ReviewSeverity(c.ReviewMinSeverity)
-	}
-	p.StopAtReport = c.StopAtReport
-	p.TrustedReviewBots = c.TrustedReviewBots
-	p.Merge = mergePolicy(c.Merge)
-	p.SkipReviewTriage = c.SkipReviewTriage
-	if c.MaxDebateRounds > 0 {
-		p.MaxDebateRounds = c.MaxDebateRounds
-	}
-	if c.MaxTriageRounds > 0 {
-		p.MaxTriageRounds = c.MaxTriageRounds
-	}
-	if c.ReplyTimeout > 0 {
-		p.ReplyTimeout = c.ReplyTimeout
-	}
-	if len(pc.Stages.Reviewers) > 0 {
-		p.ReviewerLimitKey = limitKey(pc.Stages.Reviewers[0].Agent)
-	}
-	p.PlannerLimitKey = limitKey(pc.Stages.Planner.Agent)
-	p.ImplementerLimitKey = limitKey(pc.Stages.Implementer.Agent)
-	return p
-}
-
-func mergePolicy(c config.MergePolicy) workflow.MergePolicy {
-	m := workflow.DefaultMergePolicy()
-	m.RequiredChecks, m.Approvers = c.RequiredChecks, c.Approvers
-	m.RequireBranchProtection = c.RequireBranchProtection
-	if c.MinHumanApprovals > 0 {
-		m.MinHumanApprovals = c.MinHumanApprovals
-	}
-	for category, paths := range c.SensitivePaths {
-		m.SensitivePaths[category] = append(m.SensitivePaths[category], paths...)
-	}
-	for _, r := range c.AutoMerge {
-		rule := workflow.AutoMergeRule{Name: r.Name, Paths: r.Paths, MaxFiles: r.MaxFiles}
-		m.AutoMerge = append(m.AutoMerge, rule)
-	}
-	return m
-}
 
 // preflight reports configurations that would run but cannot work as expected. Missing
 // capabilities still surface as blocked tasks; this tells the operator ahead of time.
