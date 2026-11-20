@@ -375,17 +375,21 @@ result "{\"head_sha\":\"$GOBLINS_SHA\"}"
 	return s, nil
 }
 
-// ClassifyPush maps a failed push onto a workflow-relevant error.
+// ClassifyPush maps a failed push onto a workflow-relevant error. Only git's own refusal to
+// replace commits it does not have means the branch diverged. A forge that turns a push
+// down for a reason of its own, such as an error during an outage, is worth trying again.
 func ClassifyPush(stderr string) error {
 	switch {
 	case strings.Contains(stderr, "does not contain the expected commit"):
 		return core.Errorf(core.KindForbidden, "workspace.publish", "the workspace bundle does not match the validated commit")
-	case containsAny(stderr, "non-fast-forward", "fetch first", "rejected"):
-		if containsAny(stderr, "workflow", "protected branch", "refusing to allow") {
-			return core.Errorf(core.KindForbidden, "workspace.publish", "the remote rejected the push; check branch protection and the changed files")
-		}
+	case containsAny(stderr, "non-fast-forward", "fetch first"):
 		return core.Errorf(core.KindConflict, "workspace.publish", "the remote branch has diverged, and Goblins does not force-push")
-	case containsAny(stderr, "Authentication failed", "could not read Username", "403", "denied", "not found"):
+	case strings.Contains(stderr, "[remote rejected]") &&
+		containsAny(stderr, "workflow", "protected branch", "refusing to allow", "declined"):
+		return core.Errorf(core.KindForbidden, "workspace.publish",
+			"the remote rejected the push; check branch protection and the changed files")
+	case containsAny(stderr, "Authentication failed", "could not read Username",
+		"returned error: 403", "Permission to", "denied", "not found"):
 		return core.Errorf(core.KindForbidden, "workspace.publish", "the remote refused the push; check the permissions granted to Goblins")
 	}
 	return core.Errorf(core.KindTransient, "workspace.publish", "pushing the branch failed")
