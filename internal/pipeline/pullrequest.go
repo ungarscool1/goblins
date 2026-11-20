@@ -47,8 +47,6 @@ type or scope, as in feat!: . changes has one short line per change.
 {"title": "feat(scope): add a thing", "summary": "", "changes": [""], "testing": ""}
 ` + "```"
 
-var descriptionBlock = regexp.MustCompile("(?s)```goblins-description\\s*\\n(.*?)\\n?```")
-
 // changeDescription says what a commit does, as read from its diff.
 type changeDescription struct {
 	Title   string   `json:"title"`
@@ -121,12 +119,12 @@ func describerPrompt(title, design, diff string) string {
 // parseDescription validates untrusted output. The last block counts, since earlier text may
 // quote one.
 func parseDescription(output string) (*changeDescription, error) {
-	blocks := descriptionBlock.FindAllStringSubmatch(output, -1)
-	if len(blocks) == 0 {
+	block, ok := lastBlock(output, "goblins-description")
+	if !ok {
 		return nil, fmt.Errorf("no goblins-description block")
 	}
 	var d changeDescription
-	if err := json.Unmarshal([]byte(blocks[len(blocks)-1][1]), &d); err != nil {
+	if err := json.NewDecoder(strings.NewReader(block)).Decode(&d); err != nil {
 		return nil, err
 	}
 	d.Summary = strings.TrimSpace(capText(d.Summary, maxSummaryBytes))

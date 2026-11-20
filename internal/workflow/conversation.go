@@ -158,6 +158,12 @@ func (m *machine) onTriageDone(o *core.JobOutcome) {
 			continue // the model named something it was not asked about
 		}
 		f.Plan, f.Evidence = capNote(item.Plan), capNote(item.Evidence)
+		if f.Summary && (item.Decision == TriageSuperseded || item.Decision == TriageUnclear) {
+			// The inline threads carry the request, and get the answers. Explaining at the top
+			// of the pull request that a summary says nothing more is noise.
+			m.setStatus(f, core.FindingSuperseded, "sums up the inline remarks: "+item.Evidence)
+			continue
+		}
 		switch item.Decision {
 		case TriageValid:
 			m.setStatus(f, core.FindingNeedsFix, "judged valid: "+item.Plan)
@@ -246,7 +252,7 @@ func (m *machine) confirmFixes() {
 		}
 		f.FixSHA = m.t.HeadSHA
 		m.setStatus(f, core.FindingFixedPending, "correction in "+m.t.HeadSHA)
-		if !m.p.SkipReviewTriage {
+		if !m.p.SkipReviewTriage && !f.Summary {
 			m.reply(f, cleanReply(fixReply(*f, m.t.ValidatedSHA == m.t.HeadSHA)))
 		}
 	}

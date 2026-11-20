@@ -82,6 +82,18 @@ Concurrency stays per account, with `max_concurrent` on an agent. Among jobs of 
 project running the fewest goes first. A project that does not name an agent never runs it. What each
 run reports using is kept in its transcript.
 
+## Comment layout
+
+`communication.verbosity` sets how a project's designs read on the ticket:
+
+| Value | Design comment |
+| --- | --- |
+| `compact` (default) | A short summary, the full design collapsed under it, the approval command last |
+| `verbose` | The summary and every section, expanded |
+
+It only changes what people see first. The full design is what is stored, approved and given to
+the agents either way. See [workflow.md](workflow.md#design-comments).
+
 ## Commit messages and pull request titles
 
 Commits and pull request titles follow [Conventional Commits](https://www.conventionalcommits.org).
@@ -138,7 +150,7 @@ policy:
   trusted_paths: [conformance, Makefile, scripts/vm-suite]
 ```
 
-Whatever a change does in those paths is replaced for the checks, and the status report names what it
+Whatever a change does in those paths is replaced for the checks, and the status comment names what it
 edited. List everything the checks run. A trusted test suite run through an untrusted `Makefile` can
 still be subverted. A real change to these files needs merging first.
 
@@ -154,5 +166,5 @@ name a `review` or list `stages.reviewers`, or set `policy.allow_skipped_review:
 is refused at startup, and a task that still reaches such a step blocks.
 
 With the opt-in, the step reports `skipped`, never a pass: the commit is not recorded as
-validated, and the status report says that nothing was tested. Use these only when a person
+validated, and the status comment says that nothing was tested. Use these only when a person
 reviews every draft pull request.
