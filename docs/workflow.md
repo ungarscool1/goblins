@@ -343,8 +343,28 @@ its output is one of two things, as JSON in a fenced `goblins-plan` block:
 - **Questions**, which are posted as one grouped comment. The task then waits, for as long as
   it takes, at no cost. A reply from a permitted person resumes the same agent session.
 - **A design** with required sections: scope, architecture, alternatives, constraints,
-  implementation plan, tests, security considerations, out of scope. Goblins renders it,
-  hashes it, stores it as an immutable revision and posts it with the approval command.
+  implementation plan, tests, security considerations, out of scope, plus a short summary.
+  Goblins renders it, hashes it, stores it as an immutable revision and posts it with the
+  approval command.
+
+### Design comments
+
+A design comment opens with its summary: the change and why, the approach, the risks that
+matter for approval and how it will be tested. The full design follows in a collapsed section,
+and the approval command, revision and hash come last, outside it. The summary comes from the
+same planner run. When it is missing, empty or longer than 600 characters a point, Goblins
+derives one from the first sentence of the scope, architecture, security and tests sections
+instead, so no extra model run is needed and older planners still get a short comment.
+
+The summary is part of the design, not a view of it. It is stored and hashed with the
+sections, so an approval covers exactly what was shown, and changing the summary alone makes a
+new revision that needs a new approval. The implementer, reviewers and triage always get the
+whole design, whatever the layout.
+
+The design is model output, so it cannot open or close a collapsed section, or carry a comment
+marker: those tags are shown as text. A tracker without `tracker.markup.collapsible` gets the
+summary first and the full design after a rule. `communication.verbosity: verbose` shows every
+section expanded instead.
 
 ### What a model can and cannot do
 

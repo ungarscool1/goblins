@@ -36,6 +36,8 @@ const (
 	CapTrackerLabels      Capability = "tracker.labels"
 	CapTrackerTransitions Capability = "tracker.transitions"
 	CapTrackerPermissions Capability = "tracker.permissions"
+	// CapTrackerCollapsible means comments can hold a collapsed section (HTML details).
+	CapTrackerCollapsible Capability = "tracker.markup.collapsible"
 
 	CapSCMPullRequests Capability = "scm.pull_requests"
 	CapSCMDraft        Capability = "scm.pull_requests.draft"

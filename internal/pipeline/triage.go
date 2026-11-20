@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -34,6 +33,9 @@ For each finding, read the code it is about, then choose one decision:
 - superseded: a later commit, a duplicate or a resolved finding already took care of it. Say which, in evidence.
 - design_change: doing this would materially contradict the approved design. Say why, in evidence.
 - conflict: reviewers want incompatible things. Name both, in evidence.
+
+A reply is posted in the review thread for people to read: keep it to a few sentences, with the
+evidence that settles the point and nothing that repeats the finding.
 
 End your reply with exactly one fenced block tagged goblins-triage containing JSON:
 ` + "```goblins-triage" + `
@@ -159,19 +161,17 @@ func renderFinding(f core.ReviewFinding, max int) string {
 	return capText(b.String(), max)
 }
 
-var triageBlock = regexp.MustCompile("(?s)```goblins-triage\\s*\\n(.*?)\\n?```")
-
 // ParseTriage validates untrusted output. A question or an objection with nothing to say is not
 // usable: it would post an empty remark in someone's thread.
 func ParseTriage(output string) ([]workflow.TriageItem, error) {
-	matches := triageBlock.FindAllStringSubmatch(output, -1)
-	if len(matches) == 0 {
+	block, ok := lastBlock(output, "goblins-triage")
+	if !ok {
 		return nil, fmt.Errorf("no goblins-triage block found")
 	}
 	var raw struct {
 		Items []workflow.TriageItem `json:"items"`
 	}
-	dec := json.NewDecoder(strings.NewReader(matches[len(matches)-1][1]))
+	dec := json.NewDecoder(strings.NewReader(block))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("invalid triage JSON: %w", err)

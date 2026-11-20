@@ -77,6 +77,18 @@ Concurrency stays per account, with `max_concurrent` on an agent. Among jobs of 
 project running the fewest goes first. A project that does not name an agent never runs it. What each
 run reports using is kept in its transcript.
 
+## Comment layout
+
+`communication.verbosity` sets how a project's designs read on the ticket:
+
+| Value | Design comment |
+| --- | --- |
+| `compact` (default) | A short summary, the full design collapsed under it, the approval command last |
+| `verbose` | The summary and every section, expanded |
+
+It only changes what people see first. The full design is what is stored, approved and given to
+the agents either way. See [workflow.md](workflow.md#design-comments).
+
 ## Commit messages and pull request titles
 
 Commits and pull request titles follow [Conventional Commits](https://www.conventionalcommits.org).
