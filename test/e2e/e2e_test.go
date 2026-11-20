@@ -498,7 +498,7 @@ func TestIssueToDraftPullRequest(t *testing.T) {
 			t.Errorf("transition to %s missing: %v", s, path)
 		}
 	}
-	if transcript, _ := e.store.ListTranscript(ctx, task.ID, 0); len(transcript) == 0 {
+	if transcript, _ := e.store.ListTranscript(ctx, task.ID, "", 0); len(transcript) == 0 {
 		t.Fatal("no transcript persisted")
 	}
 }
