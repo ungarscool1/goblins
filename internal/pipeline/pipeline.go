@@ -510,6 +510,7 @@ func (p *Pipeline) publish(ctx context.Context, jc scheduler.JobContext) (any, e
 		return nil, err
 	}
 	if res.Status.Phase != core.WorkloadSucceeded {
+		jc.Log("system", "git push failed:\n"+res.Stderr)
 		return nil, workspace.ClassifyPush(res.Stderr)
 	}
 	issue, err := acceptedIssue(ctx, jc, pr)

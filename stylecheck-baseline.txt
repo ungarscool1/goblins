@@ -10,9 +10,9 @@
 # An entry is not a licence to add more. New code goes in under budget; the
 # backlog exists so the cleanup can land module by module.
 
-width . 343
+width . 340
 
-file internal/storage/store.go 700
+file internal/storage/store.go 659
 file internal/workflow/machine.go 779
 
 review internal/runtime/workspace/workspace.go 2
