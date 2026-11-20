@@ -38,6 +38,7 @@ import (
 	"github.com/ungarscool1/goblins/internal/providers/fake"
 	gh "github.com/ungarscool1/goblins/internal/providers/github"
 	"github.com/ungarscool1/goblins/internal/providers/github/fakegithub"
+	"github.com/ungarscool1/goblins/internal/providers/jira"
 	"github.com/ungarscool1/goblins/internal/providers/knowledge"
 	"github.com/ungarscool1/goblins/internal/workflow"
 )
@@ -177,6 +178,7 @@ func (e *env) registry() *providers.Registry {
 	command.Register(r)
 	environment.Register(r)
 	knowledge.Register(r)
+	jira.Register(r)
 	r.Register(providers.KindRuntime, "test-process", func(string, providers.Deps, providers.Options) (any, error) { return e.rt, nil })
 	return r
 }
