@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/ungarscool1/goblins/internal/core"
@@ -162,8 +161,6 @@ func ImplementerPrompt(issue core.Issue, design core.Design, feedback,
 	return b.String()
 }
 
-var planBlock = regexp.MustCompile("(?s)```goblins-plan\\s*\\n(.*?)\\n?```")
-
 type designDoc struct {
 	Scope              string `json:"scope"`
 	Architecture       string `json:"architecture"`
@@ -189,15 +186,15 @@ func (d designDoc) sections() [][2]string {
 // rather than taken verbatim, so its structure and size are under deterministic control.
 // The rendered design starts with its summary, so the hash people approve covers both.
 func ParsePlan(output string) (questions []string, design string, err error) {
-	matches := planBlock.FindAllStringSubmatch(output, -1)
-	if len(matches) == 0 {
+	block, ok := lastBlock(output, "goblins-plan")
+	if !ok {
 		return nil, "", fmt.Errorf("no goblins-plan block found")
 	}
 	var raw struct {
 		Questions []string   `json:"questions"`
 		Design    *designDoc `json:"design"`
 	}
-	dec := json.NewDecoder(strings.NewReader(matches[len(matches)-1][1]))
+	dec := json.NewDecoder(strings.NewReader(block))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&raw); err != nil {
 		return nil, "", fmt.Errorf("invalid plan JSON: %w", err)

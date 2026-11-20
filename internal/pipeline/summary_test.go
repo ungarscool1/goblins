@@ -135,6 +135,28 @@ func TestSummaryCannotSplitTheDesign(t *testing.T) {
 	}
 }
 
+// A fenced snippet in a point cannot open a code block: the label in front of its first line
+// would disarm that one, and the closing line would then open a block holding the rest.
+func TestSummaryCannotOpenACodeBlock(t *testing.T) {
+	d := prLens27(t)
+	d.Summary = &designSummary{Change: "c", Approach: "```text\nUse the existing API.\n```",
+		Risks: "~~~\nr", Validation: "v"}
+	_, body, err := ParsePlan(planOutput(t, d))
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, sections := workflow.SplitDesign(body)
+	for _, l := range strings.Split(summary, "\n") {
+		if strings.HasPrefix(l, "```") || strings.HasPrefix(l, "~~~") {
+			t.Errorf("summary line %q opens a code block:\n%s", l, summary)
+		}
+	}
+	if !strings.Contains(summary, "Use the existing API.") ||
+		!strings.HasPrefix(sections, "### Scope") {
+		t.Errorf("summary:\n%s\nsections start with %.40q", summary, sections)
+	}
+}
+
 func TestTheSummaryIsPartOfWhatIsApproved(t *testing.T) {
 	d := prLens27(t)
 	d.Summary = &designSummary{Change: "c", Approach: "a", Risks: "r", Validation: "v"}

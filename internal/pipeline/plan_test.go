@@ -156,3 +156,16 @@ func TestReviewPromptIsPinnedToItsVersion(t *testing.T) {
 		t.Fatalf("version %s, digest %s", workflow.ReviewPromptVersion, reviewerSystemDigest())
 	}
 }
+
+// A design may hold a fenced snippet: the block is read as JSON, not up to the next fence.
+func TestParsePlanKeepsFencesInsideStrings(t *testing.T) {
+	out := "Here it is:\n```goblins-plan\n" + strings.Replace(fullDesign, `"p"`,
+		`"Add:\n`+"```go\\nfunc Health() {}\\n```"+`\n"`, 1) + "\n```\nDone.\n"
+	_, d, err := ParsePlan(out)
+	if err != nil || !strings.Contains(d, "func Health() {}") {
+		t.Fatalf("design %q, %v", d, err)
+	}
+	if _, _, err := ParsePlan("```goblins-planner\n" + fullDesign + "\n```"); err == nil {
+		t.Fatal("a block with another info string was read")
+	}
+}

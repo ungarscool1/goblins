@@ -80,9 +80,11 @@ func firstSentence(s string) string {
 	return s
 }
 
-// flatten keeps a summary point to one block that cannot start a heading: the design's
-// sections begin at the first heading after the summary, so the summary must not hold one.
-// Line breaks stay, so the approach can be a short list.
+// flatten keeps a summary point to one block that cannot start a heading or a code block: the
+// design's sections begin at the first heading after the summary, so the summary must not hold
+// one, and a fence whose opening line the label disarms would leave its closing line to open a
+// block that swallows the rest of the comment. Line breaks stay, so the approach can be a short
+// list.
 func flatten(s string) string {
 	var kept []string
 	for _, l := range strings.Split(strings.TrimSpace(s), "\n") {
@@ -90,7 +92,8 @@ func flatten(s string) string {
 		switch {
 		case l == "":
 			continue
-		case strings.HasPrefix(l, "#"), strings.Trim(l, "-=") == "":
+		case strings.HasPrefix(l, "#"), strings.Trim(l, "-=") == "",
+			strings.HasPrefix(l, "```"), strings.HasPrefix(l, "~~~"):
 			l = `\` + l
 		}
 		kept = append(kept, l)
