@@ -120,6 +120,14 @@ services:
 | `goblins_job_duration_seconds{kind}` | How long attempts take |
 | `goblins_task_transitions_total{to}` | State changes, including into `quota-paused` |
 | `goblins_events_total{result}` | Events taken in, as `new` or `duplicate` |
+| `goblins_agent_runs_total{agent,role,model}` | Agent runs, including review, description and a fallback model's run |
+| `goblins_agent_tokens_total{agent,role,model,direction}` | Tokens the CLI reported, as `input` or `output`. Input includes cache reads and writes |
+| `goblins_agent_turns_total{agent,role,model}` | Turns the CLI reported |
 
-Counters start over with each process. Set `scheduler.transcript_retention` to remove transcripts of
-finished tasks after that long. By default they stay.
+`agent` is the agent's name in `goblins.yaml`, and `model` is the stage's model, or `default`.
+Describing a pull request counts under the `reviewer` role, as it runs with a reviewer's tools.
+Token counts are only what a CLI reports, nothing is estimated, so they say how much was used, not
+how much of a subscription is left.
+
+Counters start over with each process. Set `scheduler.transcript_retention` to remove transcripts
+of finished tasks after that long. By default they stay.
