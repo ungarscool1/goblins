@@ -4,6 +4,7 @@ package runtime
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/ungarscool1/goblins/internal/core"
@@ -17,6 +18,19 @@ type Result struct {
 	Status core.WorkloadStatus
 	Stdout string
 	Stderr string
+}
+
+// Output is everything the workload wrote.
+func (r Result) Output() string { return Combined(r.Stdout, r.Stderr) }
+
+// Combined joins what a workload wrote to its two streams. A runtime that merges them gives
+// both writers the same log, which is kept once rather than twice: when one writer kept less
+// of it, what it kept is the end of the other's.
+func Combined(stdout, stderr string) string {
+	if strings.HasSuffix(stdout, stderr) {
+		return stdout
+	}
+	return stdout + stderr
 }
 
 // RunToCompletion starts a workload, waits for it, and always removes it. Cancelling

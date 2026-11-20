@@ -4,6 +4,9 @@
 {{- if and (eq .Values.storage.driver "postgres") (not .Values.postgresql.enabled) (not .Values.storage.postgres.dsnSecret.name) }}
 {{- fail "storage.driver postgres needs postgresql.enabled or storage.postgres.dsnSecret.name" }}
 {{- end }}
+{{- if and .Values.egressProxy.enabled (not .Values.workloads.networkPolicies) }}
+{{- fail "egressProxy.enabled needs workloads.networkPolicies: only a policy keeps workloads from bypassing the proxy" }}
+{{- end }}
 {{- if eq .Values.storage.driver "sqlite" }}
 apiVersion: v1
 kind: PersistentVolumeClaim

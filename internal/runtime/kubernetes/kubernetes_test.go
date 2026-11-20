@@ -10,6 +10,7 @@ import (
 
 	"github.com/ungarscool1/goblins/internal/core"
 	"github.com/ungarscool1/goblins/internal/providers/contract"
+	goruntime "github.com/ungarscool1/goblins/internal/runtime"
 	"github.com/ungarscool1/goblins/internal/runtime/kubernetes/fakek8s"
 )
 
@@ -230,6 +231,11 @@ func TestLogs(t *testing.T) {
 			"out\n")) {
 			t.Fatalf("streams were mixed: %q / %q", out.String(), errb.String())
 		}
+		// Joined, a merged log is there once: a caller parsing it, such as the JSON of an
+		// agent's login status, reads one document.
+		if got := goruntime.Combined(out.String(), errb.String()); strings.Count(got, "to stderr") != 1 {
+			t.Fatalf("split=%v: joined output %q", split, got)
+		}
 	}
 }
 
@@ -330,5 +336,68 @@ func TestNoNetworkPodsAreGuarded(t *testing.T) {
 		if guarded != (name == "none") {
 			t.Errorf("%s: guarded = %v", name, guarded)
 		}
+	}
+}
+
+// A proxy only confines workloads that a policy keeps from ignoring it.
+func TestEgressProxyNeedsEnforcedPolicies(t *testing.T) {
+	srv := fakek8s.New("goblins-work", token)
+	defer srv.Close()
+	o := Options{Client: ClientOptions{URL: srv.URL, Token: core.NewSecret(token)},
+		Namespace: "goblins-work", EgressProxy: "http://goblins-egress-proxy:3128"}
+	if _, err := New("k8s", o); !core.IsKind(err, core.KindInvalid) {
+		t.Fatalf("a proxy without network policies: %v", err)
+	}
+}
+
+// Policies made before the proxy was configured still let workloads out directly: they are
+// refused, not trusted.
+func TestEgressProxyRefusesAnOlderOpenPolicy(t *testing.T) {
+	open, srv := newRuntime(t, nil)
+	spec := core.WorkloadSpec{Name: "first", Image: "i", Command: []string{"ok"},
+		Network: core.NetworkEgress}
+	if _, err := open.Create(context.Background(), spec); err != nil {
+		t.Fatal(err)
+	}
+	proxied, err := New("k8s", Options{Client: ClientOptions{URL: srv.URL,
+		Token: core.NewSecret(token)}, Namespace: "goblins-work", NetworkPolicies: true,
+		EgressProxy: "http://goblins-egress-proxy:3128"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.Name = "second"
+	_, err = proxied.Create(context.Background(), spec)
+	if !core.IsKind(err, core.KindInvalid) || !strings.Contains(err.Error(), policyEgress) {
+		t.Fatalf("an open egress policy behind a proxy: %v", err)
+	}
+	if _, ok := srv.Objects("pods")[objectName("second")]; ok {
+		t.Fatal("the workload started anyway")
+	}
+}
+
+// Behind a proxy, the egress policy Goblins creates allows DNS and the proxy's pods only, and
+// passes its own check on the next start.
+func TestEgressProxyPolicyAllowsOnlyTheProxy(t *testing.T) {
+	proxy := func(o *Options) { o.EgressProxy = "http://goblins-egress-proxy:3128" }
+	rt, srv := newRuntime(t, proxy)
+	spec := core.WorkloadSpec{Name: "out", Image: "i", Command: []string{"ok"},
+		Network: core.NetworkEgress}
+	if _, err := rt.Create(context.Background(), spec); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(srv.Objects("networkpolicies")[policyEgress])
+	if strings.Contains(string(raw), "ipBlock") || !strings.Contains(string(raw), "egress-proxy") ||
+		!strings.Contains(string(raw), `"port":3128`) {
+		t.Fatalf("egress policy = %s", raw)
+	}
+	again, err := New("k8s", Options{Client: ClientOptions{URL: srv.URL,
+		Token: core.NewSecret(token)}, Namespace: "goblins-work", NetworkPolicies: true,
+		EgressProxy: "http://goblins-egress-proxy:3128"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.Name = "out-again"
+	if _, err := again.Create(context.Background(), spec); err != nil {
+		t.Fatalf("its own policy was refused: %v", err)
 	}
 }
