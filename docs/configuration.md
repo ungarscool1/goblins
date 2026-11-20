@@ -13,6 +13,7 @@ startup errors, and all problems are reported at once.
 | `GOBLINS_DATA_DIR`          | `installation.data_dir`    |
 | `GOBLINS_LISTEN`            | `server.listen`            |
 | `GOBLINS_METRICS_LISTEN`    | `server.metrics_listen`    |
+| `GOBLINS_CONSOLE_LISTEN`    | `console.listen`           |
 | `GOBLINS_SHUTDOWN_TIMEOUT`  | `server.shutdown_timeout`  |
 | `GOBLINS_LOG_LEVEL`         | `log.level`                |
 | `GOBLINS_LOG_FORMAT`        | `log.format`               |
@@ -37,6 +38,11 @@ When the tracker keeps tickets somewhere other than the repository, such as a Ji
 it with `tracker_container` on the project. Event sources that list what they serve, such as
 GitHub's `repositories` or Jira's `projects`, are only routed and polled for those. See
 [jira.md](jira.md).
+
+## Operator console
+
+`console` turns on the web console and its API, on a port of their own, with a token per
+operator. See [console.md](console.md).
 
 ## Pull request descriptions
 
