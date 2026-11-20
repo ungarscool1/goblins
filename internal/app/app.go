@@ -115,7 +115,8 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 	b := &builder{cfg: cfg, reg: o.Registry, seen: map[string]core.Provider{},
 		guarded: map[string]core.ExecutionRuntime{},
 		deps:    providers.Deps{Log: log, Installation: cfg.Installation.Name, DataDir: cfg.Installation.DataDir, Getenv: os.LookupEnv, Now: now}}
-	sys := &System{Store: store, Webhooks: map[string]core.EventSource{}, Projects: map[string]*pipeline.Project{}, Agents: map[string]core.AgentProvider{}, Runtimes: map[string]core.ExecutionRuntime{}}
+	sys := &System{Store: store, Webhooks: map[string]core.EventSource{}, Projects: map[string]*pipeline.Project{}, Agents: map[string]core.AgentProvider{}, Runtimes: map[string]core.ExecutionRuntime{},
+		Metrics: observability.NewMetrics()}
 
 	policies := map[string]workflow.Policy{}
 	var routes []scheduler.Route
@@ -123,10 +124,11 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 	limits := map[string]int{}
 
 	stage := func(s config.Stage) (pipeline.Stage, error) {
-		agent, err := build[core.AgentProvider](b, providers.KindAgent, cfg.Agents, s.Agent)
+		built, err := build[core.AgentProvider](b, providers.KindAgent, cfg.Agents, s.Agent)
 		if err != nil {
 			return pipeline.Stage{}, err
 		}
+		agent := meteredAgent{AgentProvider: built, name: s.Agent, metrics: sys.Metrics}
 		runtime, err := guardedRuntime(b, cfg, s.Runtime, agent)
 		if err != nil {
 			return pipeline.Stage{}, err
@@ -261,7 +263,6 @@ func Build(cfg config.Config, store core.StateStore, log *slog.Logger, o Options
 			Limits: scheduler.Limits{MaxGlobal: cfg.Scheduler.MaxGlobal,
 				MaxPerProject: cfg.Scheduler.MaxPerProject, MaxPerKey: limits},
 			TranscriptRetention: cfg.Scheduler.TranscriptRetention}}
-	sys.Metrics = observability.NewMetrics()
 	sys.Scheduler.Metrics, sys.Inbox.Metrics, engine.Metrics = sys.Metrics, sys.Metrics, sys.Metrics
 	spans, err := newTraceExporter(cfg, sys.Metrics, log)
 	if err != nil {

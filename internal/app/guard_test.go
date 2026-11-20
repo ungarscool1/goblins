@@ -15,6 +15,11 @@ func TestStagesCanOnlyNameToolsTheirAgentOffers(t *testing.T) {
 	if err := checkTools(config.Stage{Agent: "c", Tools: []string{"docs"}}, withDocs); err != nil {
 		t.Fatal(err)
 	}
+	// Metered, as every stage's agent is, it still offers its tools.
+	metered := meteredAgent{AgentProvider: withDocs, name: "c"}
+	if err := checkTools(config.Stage{Agent: "c", Tools: []string{"docs"}}, metered); err != nil {
+		t.Fatalf("metered: %v", err)
+	}
 	if err := checkTools(config.Stage{Agent: "c", Tools: []string{"shell"}}, withDocs); err == nil {
 		t.Fatal("a tool the agent does not offer was accepted")
 	}
