@@ -131,6 +131,36 @@ func (s *Server) addComment(i *Issue, author User, body string, props []map[stri
 	return c
 }
 
+// comment reads or edits one comment. Only its author may edit it, as in Jira.
+func (s *Server) comment(w http.ResponseWriter, r *http.Request, i *Issue, id string) {
+	n := slices.IndexFunc(i.Comments, func(c Comment) bool { return c.ID == id })
+	if n < 0 {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	c := &i.Comments[n]
+	switch r.Method {
+	case http.MethodGet:
+		write(w, c)
+	case http.MethodPut:
+		if s.ID(c.Author) != s.ID(s.Me) {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		var in struct {
+			Body string `json:"body"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		c.Body, c.Updated = in.Body, s.now().Format(Time)
+		i.Updated = s.now()
+		out := *c
+		out.Properties = nil
+		write(w, out)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
 // EditComment changes a comment's text later.
 func (s *Server) EditComment(key, id, body string) {
 	s.mu.Lock()
@@ -203,7 +233,7 @@ func (s *Server) Issue(key string) Issue {
 
 var (
 	issuePath = regexp.MustCompile(`^/rest/api/2/issue/([A-Z][A-Z0-9_]*-\d+)` +
-		`(/comment|/transitions)?$`)
+		`(/comment|/comment/\d+|/transitions)?$`)
 	jqlRe = regexp.MustCompile(`^project = "([A-Z0-9_]+)"( AND statusCategory != Done)?` +
 		`( AND updated >= -(\d+)m)? ORDER BY updated ASC$`)
 )
@@ -292,6 +322,8 @@ func (s *Server) issue(w http.ResponseWriter, r *http.Request, i *Issue, sub str
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		w.WriteHeader(http.StatusCreated)
 		write(w, s.addComment(i, s.Me, in.Body, in.Properties))
+	case strings.HasPrefix(sub, "/comment/"):
+		s.comment(w, r, i, strings.TrimPrefix(sub, "/comment/"))
 	case sub == "/transitions" && r.Method == http.MethodGet:
 		write(w, map[string]any{"transitions": []map[string]any{
 			{"id": "21", "name": "Start", "to": map[string]string{"name": "In Progress"}},

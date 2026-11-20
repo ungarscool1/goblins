@@ -78,8 +78,9 @@ edit counts with the permission of the person who made it, not the reporter's.
 
 With `write: true`, Goblins comments, labels and transitions as the account. Every comment it
 writes starts with *Goblins (automated):*, and carries a hidden comment property that makes a
-retry find it instead of posting twice. Your own comments, written by hand under the same
-account, stay yours: they can approve a design, and Goblins' never can.
+retry find it instead of posting twice. It edits only those comments, such as a status kept up
+to date in place. Your own comments, written by hand under the same account, stay yours: Goblins
+never edits them, they can approve a design, and Goblins' never can.
 
 Without `write`, nothing is ever sent to Jira except reads. Questions and designs go to the
 project's notification provider, or the task blocks and waits for an answer through the

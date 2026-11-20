@@ -79,13 +79,17 @@ func NewTracker(name string, c *Client, o TrackerOptions) (*Tracker, error) {
 		log: o.Log, perms: map[string]cachedPermission{}}, nil
 }
 
+// capCommentEdit is tracker.comment.edit: comments Goblins posted can be edited in place, for a
+// status that updates quietly.
+const capCommentEdit core.Capability = "tracker.comment.edit"
+
 // Info implements core.Provider. Collapsible sections are not offered: Jira's markup has
 // an expand macro, but not one every site renders.
 func (t *Tracker) Info() core.ProviderInfo {
 	caps := []core.Capability{core.CapTrackerPermissions}
 	if t.write {
 		caps = append(caps, core.CapTrackerCommentWrite, core.CapTrackerLabels,
-			core.CapTrackerTransitions)
+			core.CapTrackerTransitions, capCommentEdit)
 	}
 	return info(core.ProviderTracker, t.name, caps...)
 }
@@ -241,6 +245,43 @@ var permissionLevels = []struct {
 }
 
 const permissionCacheFor = time.Minute
+
+// UpdateComment replaces the text of a comment Goblins posted on this issue, and only such a
+// comment: it is a person's account, and their own words are never edited.
+func (t *Tracker) UpdateComment(ctx context.Context, ref core.IssueRef, id string,
+	d core.CommentDraft) (core.Comment, error) {
+	if err := t.writable(capCommentEdit); err != nil {
+		return core.Comment{}, err
+	}
+	if err := t.check(ref); err != nil {
+		return core.Comment{}, err
+	}
+	if _, err := strconv.ParseUint(id, 10, 64); err != nil {
+		return core.Comment{}, core.Errorf(core.KindInvalid, "jira.update_comment",
+			"%q is not a comment ID", id)
+	}
+	me, err := t.c.Myself(ctx)
+	if err != nil {
+		return core.Comment{}, err
+	}
+	path := "/rest/api/2/issue/" + ref.ExternalID + "/comment/" + id
+	var c comment
+	if err := t.c.get(ctx, path, url.Values{"expand": {"properties"}}, &c); err != nil {
+		return core.Comment{}, err
+	}
+	if !c.canonical(ref, me).Own {
+		return core.Comment{}, core.Errorf(core.KindForbidden, "jira.update_comment",
+			"comment %s is not one Goblins posted on %s", id, ref.ExternalID)
+	}
+	if body := Prefix + ToWiki(d.Body); c.Body != body {
+		props := c.Properties
+		if err := t.c.call(ctx, "PUT", path, map[string]any{"body": body}, &c); err != nil {
+			return core.Comment{}, err
+		}
+		c.Properties = props // the answer leaves them out; they are unchanged
+	}
+	return c.canonical(ref, me), nil
+}
 
 // ActorPermission implements core.IssueTracker. It asks Jira which of the levels the actor
 // has on this very issue, so issue security levels count too. The account's own permissions

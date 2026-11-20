@@ -3,6 +3,7 @@ package jira_test
 import (
 	"cmp"
 	"context"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -221,5 +222,38 @@ func TestProjectsOutsideTheAllowListAreRefused(t *testing.T) {
 	if _, err := tr.ListIssues(ctx,
 		core.IssueQuery{Container: `OPS" OR project = "SEC`}); err == nil {
 		t.Fatal("a container reached JQL")
+	}
+}
+
+// Goblins edits its own status comment in place, and never a person's words.
+func TestOnlyGoblinsCommentsAreEdited(t *testing.T) {
+	s := newSite(t, true)
+	tr := s.tracker(t, true)
+	i := s.srv.AddIssue("OPS", "T", "B", person(true, "reporter"))
+	ref := core.IssueRef{Container: "OPS", ExternalID: i.Key}
+	ctx := context.Background()
+	posted, err := tr.PostComment(ctx, ref, core.CommentDraft{IdempotencyKey: "status",
+		Body: "**Planning.**"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited, err := tr.UpdateComment(ctx, ref, posted.ID, core.CommentDraft{
+		IdempotencyKey: "status", Body: "**Awaiting review.**"})
+	if err != nil || edited.ID != posted.ID || !edited.Own ||
+		edited.Body != jira.Prefix+"*Awaiting review.*" {
+		t.Fatalf("edited = %+v, %v", edited, err)
+	}
+	all, _ := tr.ListComments(ctx, ref, time.Time{})
+	if len(all) != 1 || !all[0].Own || all[0].Body != edited.Body {
+		t.Fatalf("comments = %+v", all)
+	}
+	human := s.srv.AddComment(i.Key, person(true, "me"), "my own words")
+	if _, err := tr.UpdateComment(ctx, ref, human.ID, core.CommentDraft{Body: "x"}); !core.IsKind(
+		err, core.KindForbidden) {
+		t.Fatalf("a person's comment: %v", err)
+	}
+	if ro := s.tracker(t, false); slices.Contains(ro.Info().Capabilities,
+		"tracker.comment.edit") {
+		t.Fatal("a read-only tracker offers edits")
 	}
 }
