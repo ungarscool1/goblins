@@ -30,7 +30,7 @@ func serveConsole(ctx context.Context, cfg config.Config, store core.StateStore,
 	}
 	h := console.Handler(console.Options{Store: store, Operators: ops, ReadOnly: con.ReadOnly,
 		SessionTTL: con.SessionTTL, Log: log,
-		Policies: consolePolicies(cfg), Agents: consoleAgents(cfg)})
+		Policies: consolePolicies(cfg), Agents: consoleAgents(cfg), SCM: consoleSCM(cfg)})
 	ln, err := net.Listen("tcp", con.Listen)
 	if err != nil {
 		return core.Wrap(core.KindInvalid, "app.console_listen",
@@ -112,6 +112,14 @@ func consoleAgents(cfg config.Config) func(string) []string {
 		agents[pc.ID] = lines
 	}
 	return func(p string) []string { return agents[p] }
+}
+
+func consoleSCM(cfg config.Config) func(string) string {
+	scm := map[string]string{}
+	for _, pc := range cfg.Projects {
+		scm[pc.ID] = pc.SCM
+	}
+	return func(p string) string { return scm[p] }
 }
 
 func stageLine(role string, s config.Stage) string {

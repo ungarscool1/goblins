@@ -3,6 +3,7 @@ package console_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -47,7 +49,8 @@ func setup(t *testing.T, readOnly bool) *world {
 			{Name: "ops", CanAct: true, Token: core.NewSecret(opToken)},
 			{Name: "watcher", Token: core.NewSecret(viewerToken)}},
 		Policies: func(string) (workflow.Policy, bool) { return workflow.DefaultPolicy(), true },
-		Agents:   func(string) []string { return []string{"planner: fake, model big"} }})
+		Agents:   func(string) []string { return []string{"planner: fake, model big"} },
+		SCM:      func(string) string { return "g" }})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return &world{t: t, store: store, srv: srv}
@@ -451,5 +454,40 @@ func decode(t *testing.T, resp *http.Response, v any) {
 	}
 	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Once a task has a pull request, what people say there is part of its conversation: comments,
+// remarks in reviews, and the reviews themselves.
+func TestConversationFollowsThePullRequest(t *testing.T) {
+	w := setup(t, false)
+	pr := &core.PullRequest{Repo: core.RepoRef{Slug: "o/r"}, Number: "7"}
+	w.seed(core.Task{ID: "t-pr", Project: "p", Kind: core.TaskIssue, Subject: issue("4"),
+		State: core.StateAwaitingReview, PullRequest: pr}, nil)
+	sub := core.Subject{Kind: core.SubjectPullRequest, Provider: "g", Container: "o/r",
+		ExternalID: "7"}
+	alice := core.Actor{Login: "alice", Type: core.ActorHuman}
+	for i, ev := range []core.Event{
+		{Type: core.EventCommentCreated, Comment: &core.Comment{ID: "p1", Body: "on the PR",
+			Author: alice}},
+		{Type: core.EventReviewComment, Comment: &core.Comment{ID: "r1", Body: "inline remark",
+			Author: alice}},
+		{Type: core.EventPRReviewed, Actor: alice, Verdict: core.VerdictChangesRequested},
+	} {
+		ev.Project, ev.Subject, ev.DedupKey = "p", sub, fmt.Sprint("pr-", i)
+		ev.OccurredAt = t0.Add(time.Duration(i) * time.Minute)
+		if _, _, err := w.store.AppendEvent(context.Background(), ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var conv []console.Message
+	decode(t, w.api("GET", "/api/v1/tasks/t-pr/conversation", viewerToken, ""), &conv)
+	var got []string
+	for _, m := range conv {
+		got = append(got, m.Text)
+	}
+	if !slices.Equal(got, []string{"on the PR", "inline remark",
+		"Requested changes on the pull request."}) {
+		t.Fatalf("conversation = %q", got)
 	}
 }

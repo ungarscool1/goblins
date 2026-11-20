@@ -321,7 +321,8 @@ type StateStore interface {
 	ListJobs(ctx context.Context, taskID string) ([]Job, error)
 
 	AppendTranscript(ctx context.Context, entries []TranscriptEntry) error
-	ListTranscript(ctx context.Context, taskID string, limit int) ([]TranscriptEntry, error)
+	// ListTranscript returns a task's newest entries, oldest first: one job's when jobID is set.
+	ListTranscript(ctx context.Context, taskID, jobID string, limit int) ([]TranscriptEntry, error)
 
 	// ListEvents returns the newest events about one subject, oldest first, as they were
 	// received: what a person can be shown of the conversation after a restart.
