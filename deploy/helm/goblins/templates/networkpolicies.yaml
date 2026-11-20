@@ -1,0 +1,49 @@
+{{- if .Values.workloads.networkPolicies }}
+{{- $ns := include "goblins.workloadNamespace" . }}
+# Nothing in the workloads namespace talks to anything, unless a policy below allows it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: goblins-workloads-default-deny
+  namespace: {{ $ns }}
+  labels: {{- include "goblins.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Workloads asking for no network, such as checks running a change's code.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: goblins-workloads-no-network
+  namespace: {{ $ns }}
+  labels: {{- include "goblins.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/managed-by: goblins, goblins.dev/network: none}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress: []
+---
+# Workloads with egress, such as agents: DNS, and the internet outside the cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: goblins-workloads-egress
+  namespace: {{ $ns }}
+  labels: {{- include "goblins.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/managed-by: goblins, goblins.dev/network: egress}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: {{- toYaml .Values.workloads.egressExcept | nindent 14 }}
+{{- end }}

@@ -11,6 +11,7 @@ import (
 	gh "github.com/ungarscool1/goblins/internal/providers/github"
 	"github.com/ungarscool1/goblins/internal/providers/jira"
 	"github.com/ungarscool1/goblins/internal/runtime/docker"
+	"github.com/ungarscool1/goblins/internal/runtime/kubernetes"
 )
 
 // Registry returns a registry with all built-in adapters. The fake adapters act on the
@@ -23,6 +24,7 @@ func Registry(world *fake.World) *providers.Registry {
 	codex.Register(r)
 	jira.Register(r)
 	docker.Register(r)
+	kubernetes.Register(r)
 	command.Register(r)
 	return r
 }
