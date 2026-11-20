@@ -115,6 +115,7 @@ or if an adapter imports the workflow engine or storage.
 | [Architecture](docs/architecture.md)      | Components, rules, how it is tested    |
 | [Threat model](docs/threat-model.md)      | Controls and known gaps                |
 | [Workflow](docs/workflow.md)              | States, invariants, commands           |
+| [Console](docs/console.md)                | Watching and operating tasks on the web |
 | [Providers](docs/providers.md)            | Contracts and how to add an adapter    |
 | [Configuration](docs/configuration.md)    | File format and environment            |
 | [GitHub](docs/github.md)                  | App registration and permissions       |
