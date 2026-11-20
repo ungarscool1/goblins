@@ -65,6 +65,11 @@ func TestEgressGoesThroughTheProxyOnly(t *testing.T) {
 	if strings.Contains(out, "DIRECT-OPEN") || !strings.HasPrefix(out, "1") {
 		t.Fatalf("direct egress:\n%s", out)
 	}
+	// A server the workload starts itself stays on loopback, for tools that read NO_PROXY.
+	_, local := run("egress-local-"+stamp, `echo "$NO_PROXY"`)
+	if !strings.Contains(local, "127.0.0.1") {
+		t.Fatalf("NO_PROXY behind the proxy: %q", local)
+	}
 	internal := dockerCLI(t, "network", "inspect", "-f", "{{.Internal}}", network)
 	if internal != "true" {
 		t.Fatalf("network internal = %s", internal)
