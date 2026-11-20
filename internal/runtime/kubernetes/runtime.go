@@ -354,7 +354,9 @@ func (r *Runtime) addServices(p *pod, spec core.WorkloadSpec) {
 	f := false
 	alias := hostAlias{IP: "127.0.0.1"}
 	for _, svc := range spec.Services {
-		c := containerSpec{Name: "svc-" + svc.Name, Image: svc.Image, Command: svc.Command,
+		// Arguments, as on Docker: the image's entrypoint, which often prepares the service,
+		// still runs.
+		c := containerSpec{Name: "svc-" + svc.Name, Image: svc.Image, Args: svc.Command,
 			RestartPolicy: "Always", ImagePullPolicy: r.o.PullPolicy,
 			SecurityContext: containerSecurity{AllowPrivilegeEscalation: &f, Privileged: &f,
 				Capabilities: dropAll},

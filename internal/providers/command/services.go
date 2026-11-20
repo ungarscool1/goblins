@@ -34,6 +34,11 @@ func testSecrets(deps providers.Deps, opts providers.Options) (map[string]core.S
 			return nil, core.Errorf(core.KindInvalid, "command.config",
 				"test_secrets[%d]: %s is not set", i, from)
 		}
+		if len(v) < minSecret {
+			// Shorter, it could not be removed from output without mangling everything else.
+			return nil, core.Errorf(core.KindInvalid, "command.config",
+				"test_secrets[%d]: %s is shorter than %d characters", i, from, minSecret)
+		}
 		out[name] = core.NewSecret(v)
 	}
 	return out, nil
@@ -85,12 +90,16 @@ func (c Check) testSecrets(all map[string]core.Secret) map[string]core.Secret {
 	return out
 }
 
+// minSecret is the shortest test secret accepted, so that every one can be scrubbed.
+const minSecret = 4
+
 // scrub removes test secret values from a check's output, which goes to the ticket and back
-// to the implementer. Longest first, so a value inside another is not left half.
+// to the implementer. Longest first, so a value inside another is not left half. Every value
+// is at least minSecret long, as configuration refuses shorter ones.
 func scrub(output string, secrets map[string]core.Secret) string {
 	var values []string
 	for _, s := range secrets {
-		if v := s.Reveal(); len(v) >= 4 {
+		if v := s.Reveal(); v != "" {
 			values = append(values, v)
 		}
 	}

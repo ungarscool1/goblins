@@ -88,10 +88,8 @@ func TestServicesAndSecretsAreTheOperatorsToGrant(t *testing.T) {
 func TestTestSecretsComeFromTheEnvironment(t *testing.T) {
 	reg := providers.NewRegistry()
 	command.Register(reg)
-	env := func(k string) (string, bool) {
-		return map[string]string{"STG": "stg-value"}[k],
-			k == "STG"
-	}
+	vals := map[string]string{"STG": "stg-value", "SHORT": "abc"}
+	env := func(k string) (string, bool) { v, ok := vals[k]; return v, ok }
 	opts := providers.Options{"image": "i", "checks": []any{map[string]any{"name": "a", "run": "x",
 		"secrets": []any{"STAGING_TOKEN"}}},
 		"test_secrets": []any{map[string]any{"name": "STAGING_TOKEN", "env": "STG"}}}
@@ -103,5 +101,11 @@ func TestTestSecretsComeFromTheEnvironment(t *testing.T) {
 	if _, err := reg.Build(providers.KindValidation, "command", "v", providers.Deps{Getenv: env},
 		opts); err == nil {
 		t.Fatal("a missing variable was accepted")
+	}
+	// Too short to scrub from output without mangling it, so refused.
+	opts["test_secrets"] = []any{map[string]any{"name": "STAGING_TOKEN", "env": "SHORT"}}
+	if _, err := reg.Build(providers.KindValidation, "command", "v", providers.Deps{Getenv: env},
+		opts); err == nil || !strings.Contains(err.Error(), "shorter") {
+		t.Fatalf("a short secret: %v", err)
 	}
 }

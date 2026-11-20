@@ -65,6 +65,7 @@ type containerSpec struct {
 	RestartPolicy   string            `json:"restartPolicy,omitempty"`
 	Image           string            `json:"image"`
 	Command         []string          `json:"command,omitempty"`
+	Args            []string          `json:"args,omitempty"`
 	WorkingDir      string            `json:"workingDir,omitempty"`
 	ImagePullPolicy string            `json:"imagePullPolicy,omitempty"`
 	Env             []envVar          `json:"env,omitempty"`

@@ -295,7 +295,8 @@ func TestServicesAreSidecars(t *testing.T) {
 	spec := core.WorkloadSpec{Name: "it", Image: "i", Command: []string{"ok"},
 		Network: core.NetworkNone,
 		Services: []core.Service{{Name: "db", Image: "postgres:17",
-			Env: map[string]string{"PGDATA": "/tmp/pg"}}},
+			Command: []string{"postgres", "-c", "fsync=off"},
+			Env:     map[string]string{"PGDATA": "/tmp/pg"}}},
 		TestSecrets: map[string]core.Secret{"STAGING_TOKEN": core.NewSecret("stg-secret")}}
 	if st := run(t, rt, spec); st.Phase != core.WorkloadSucceeded {
 		t.Fatalf("status = %+v", st)
@@ -304,7 +305,9 @@ func TestServicesAreSidecars(t *testing.T) {
 	text := string(raw)
 	for _, want := range []string{`"initContainers":[{`, `"name":"svc-db"`,
 		`"restartPolicy":"Always"`, `"hostAliases":[{"hostnames":["db"],"ip":"127.0.0.1"}]`,
-		`"secretKeyRef":{"key":"STAGING_TOKEN"`} {
+		`"secretKeyRef":{"key":"STAGING_TOKEN"`,
+		// Arguments, as on Docker, so the image's entrypoint still runs.
+		`"args":["postgres","-c","fsync=off"]`} {
 		if !strings.Contains(text, want) {
 			t.Errorf("pod lacks %s:\n%s", want, text)
 		}
