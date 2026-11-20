@@ -36,6 +36,7 @@ type podSpec struct {
 	SecurityContext    podSecurity     `json:"securityContext"`
 	InitContainers     []containerSpec `json:"initContainers,omitempty"`
 	Containers         []containerSpec `json:"containers"`
+	HostAliases        []hostAlias     `json:"hostAliases,omitempty"`
 	Volumes            []volume        `json:"volumes,omitempty"`
 }
 
@@ -52,10 +53,19 @@ type seccomp struct {
 	Type string `json:"type"`
 }
 
+type hostAlias struct {
+	IP        string   `json:"ip"`
+	Hostnames []string `json:"hostnames"`
+}
+
 type containerSpec struct {
-	Name            string            `json:"name"`
+	Name string `json:"name"`
+	// RestartPolicy Always on an init container makes it a sidecar: it runs beside the main
+	// container and is stopped when that one ends.
+	RestartPolicy   string            `json:"restartPolicy,omitempty"`
 	Image           string            `json:"image"`
-	Command         []string          `json:"command"`
+	Command         []string          `json:"command,omitempty"`
+	Args            []string          `json:"args,omitempty"`
 	WorkingDir      string            `json:"workingDir,omitempty"`
 	ImagePullPolicy string            `json:"imagePullPolicy,omitempty"`
 	Env             []envVar          `json:"env,omitempty"`

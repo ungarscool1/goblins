@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,5 +103,75 @@ func TestEgressGoesThroughTheProxyOnly(t *testing.T) {
 	logs := dockerCLI(t, "logs", proxy)
 	if !strings.Contains(logs, "egress denied") {
 		t.Errorf("proxy log:\n%s", logs)
+	}
+}
+
+// A check reaches its services by name on a network only they share, still reaches nothing
+// else, and its services go with it.
+func TestServicesShareAPrivateNetwork(t *testing.T) {
+	r := engine(t)
+	st, out, errb := run(t, r, core.WorkloadSpec{Name: "with-db", Network: core.NetworkNone,
+		Command: []string{"sh", "-c", `for i in 1 2 3 4 5 6 7 8; do nc -w 2 db 8080 && break; ` +
+			`sleep 1; done; wget -q -T 3 -O /dev/null http://1.1.1.1 && echo NETWORK-OPEN; ` +
+			`echo done`},
+		Services: []core.Service{{Name: "db", Image: testImage, Command: []string{"sh", "-c",
+			"while true; do echo pong | nc -l -p 8080; done"}}}})
+	if st.Phase != core.WorkloadSucceeded || !strings.Contains(out, "pong") ||
+		strings.Contains(out, "NETWORK-OPEN") {
+		t.Fatalf("status %+v\n%s%s", st, out, errb)
+	}
+	name := ""
+	for _, l := range strings.Split(dockerCLI(t, "ps", "-a", "--format", "{{.Names}}"), "\n") {
+		if strings.Contains(l, "with-db") && strings.Contains(l, "-svc-db") {
+			name = strings.TrimSuffix(l, "-svc-db")
+		}
+	}
+	if name == "" {
+		t.Fatal("no service container while the workload exists")
+	}
+	if err := r.Cleanup(t.Context(), name); err != nil {
+		t.Fatal(err)
+	}
+	if left := dockerCLI(t, "ps", "-a", "-q", "--filter",
+		"label=goblins.workload="+name); left != "" {
+		t.Fatalf("service containers left: %s", left)
+	}
+	if out, err := exec.Command("docker", "network", "inspect",
+		name+"-services").CombinedOutput(); err == nil {
+		t.Fatalf("services network left:\n%s", out)
+	}
+}
+
+// Services carry their workload's labels. If the workload's own container is gone, or never
+// came, the workload is still listed, and cleaning it up removes the services and network.
+func TestOrphanedServicesAreFoundAndRemoved(t *testing.T) {
+	r := engine(t)
+	ctx := t.Context()
+	name := "goblins-itest-orphan-" + strings.ReplaceAll(time.Now().Format("150405.000"), ".", "")
+	install := "itest-" + name
+	t.Cleanup(func() { _ = r.Cleanup(context.Background(), name) })
+	_, err := r.Create(ctx, core.WorkloadSpec{Name: name, Image: testImage,
+		Network: core.NetworkNone, Command: []string{"sleep", "60"},
+		Labels: map[string]string{"goblins.installation": install, "goblins.job": "j1"},
+		Services: []core.Service{{Name: "db", Image: testImage,
+			Command: []string{"sleep", "60"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dockerCLI(t, "rm", "-f", name) // as if the orchestrator died before creating it
+	list, err := r.List(ctx, map[string]string{"goblins.installation": install})
+	if err != nil || len(list) != 1 || list[0].Name != name || list[0].Labels["goblins.job"] != "j1" ||
+		!list[0].Phase.Terminal() {
+		t.Fatalf("listed %+v, %v", list, err)
+	}
+	if err := r.Cleanup(ctx, list[0].Name); err != nil {
+		t.Fatal(err)
+	}
+	if left := dockerCLI(t, "ps", "-a", "-q", "--filter", "label=goblins.workload="+name); left != "" {
+		t.Fatalf("service containers left: %s", left)
+	}
+	if out, err := exec.Command("docker", "network", "inspect",
+		name+"-services").CombinedOutput(); err == nil {
+		t.Fatalf("services network left:\n%s", out)
 	}
 }

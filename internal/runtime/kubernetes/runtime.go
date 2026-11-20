@@ -110,6 +110,7 @@ func New(name string, o Options) (*Runtime, error) {
 // Info implements core.Provider. Privileged pods are never offered.
 func (r *Runtime) Info() core.ProviderInfo {
 	caps := []core.Capability{core.CapRuntimeVolumes, core.CapRuntimeVolumeList,
+		core.CapRuntimeServices,
 		core.CapRuntimeNetworkEgress, core.CapRuntimeResourceLimits, core.CapRuntimeReadOnlyRoot}
 	if r.o.NetworkPolicies {
 		caps = append(caps, core.CapRuntimeNetworkNone)
@@ -152,7 +153,7 @@ func (r *Runtime) Create(ctx context.Context, spec core.WorkloadSpec) (core.Work
 			return core.WorkloadStatus{}, err
 		}
 	}
-	if len(spec.Secrets) > 0 {
+	if len(allSecrets(spec)) > 0 {
 		if err := r.createSecret(ctx, spec, p.Metadata.Labels); err != nil {
 			return core.WorkloadStatus{}, err
 		}
@@ -165,7 +166,7 @@ func (r *Runtime) Create(ctx context.Context, spec core.WorkloadSpec) (core.Work
 	if err != nil {
 		return core.WorkloadStatus{}, err
 	}
-	if len(spec.Secrets) > 0 {
+	if len(allSecrets(spec)) > 0 {
 		r.ownSecret(ctx, spec.Name, created.Metadata.UID)
 	}
 	return r.status(created), nil
@@ -314,7 +315,7 @@ func (r *Runtime) buildPod(spec core.WorkloadSpec) (pod, error) {
 			c.Env = append(c.Env, envVar{Name: k, Value: v})
 		}
 	}
-	for _, k := range slices.Sorted(maps.Keys(spec.Secrets)) {
+	for _, k := range slices.Sorted(maps.Keys(allSecrets(spec))) {
 		c.Env = append(c.Env, envVar{Name: k, ValueFrom: &envSource{SecretKeyRef: &keyRef{
 			Name: secretName(spec.Name), Key: k}}})
 	}
@@ -335,10 +336,39 @@ func (r *Runtime) buildPod(spec core.WorkloadSpec) (pod, error) {
 			ReadOnly: m.ReadOnly})
 	}
 	s.Containers = []containerSpec{c}
+	// The guard comes first, so neither the services nor the check start before isolation.
 	if spec.Network == core.NetworkNone {
 		s.InitContainers = append(s.InitContainers, r.networkGuard(c.Resources))
 	}
+	r.addServices(&p, spec)
 	return p, nil
+}
+
+// addServices runs a workload's services as sidecars in its pod. They share its network
+// namespace, so they are reached on localhost, and host aliases give them their names. Pod
+// network policy does not apply on localhost, and the pod's policy keeps everything else out.
+func (r *Runtime) addServices(p *pod, spec core.WorkloadSpec) {
+	if len(spec.Services) == 0 {
+		return
+	}
+	f := false
+	alias := hostAlias{IP: "127.0.0.1"}
+	for _, svc := range spec.Services {
+		// Arguments, as on Docker: the image's entrypoint, which often prepares the service,
+		// still runs.
+		c := containerSpec{Name: "svc-" + svc.Name, Image: svc.Image, Args: svc.Command,
+			RestartPolicy: "Always", ImagePullPolicy: r.o.PullPolicy,
+			SecurityContext: containerSecurity{AllowPrivilegeEscalation: &f, Privileged: &f,
+				Capabilities: dropAll},
+			Resources:    r.resources(core.WorkloadSpec{Resources: svc.Resources}),
+			VolumeMounts: []volumeMount{{Name: tmpVolume, MountPath: tmpMount}}}
+		for _, k := range sortedKeys(svc.Env) {
+			c.Env = append(c.Env, envVar{Name: k, Value: svc.Env[k]})
+		}
+		p.Spec.InitContainers = append(p.Spec.InitContainers, c)
+		alias.Hostnames = append(alias.Hostnames, svc.Name)
+	}
+	p.Spec.HostAliases = []hostAlias{alias}
 }
 
 var dropAll = &capabilities{Drop: []string{"ALL"}}

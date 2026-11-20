@@ -288,6 +288,40 @@ func TestConfiguration(t *testing.T) {
 	}
 }
 
+// Services are native sidecars: they stop when the check ends, so the pod completes, and host
+// aliases give them their names on localhost.
+func TestServicesAreSidecars(t *testing.T) {
+	rt, srv := newRuntime(t, nil)
+	spec := core.WorkloadSpec{Name: "it", Image: "i", Command: []string{"ok"},
+		Network: core.NetworkNone,
+		Services: []core.Service{{Name: "db", Image: "postgres:17",
+			Command: []string{"postgres", "-c", "fsync=off"},
+			Env:     map[string]string{"PGDATA": "/tmp/pg"}}},
+		TestSecrets: map[string]core.Secret{"STAGING_TOKEN": core.NewSecret("stg-secret")}}
+	if st := run(t, rt, spec); st.Phase != core.WorkloadSucceeded {
+		t.Fatalf("status = %+v", st)
+	}
+	raw, _ := json.Marshal(pods(t, srv)[0])
+	text := string(raw)
+	for _, want := range []string{`"initContainers":[{`, `"name":"svc-db"`,
+		`"restartPolicy":"Always"`, `"hostAliases":[{"hostnames":["db"],"ip":"127.0.0.1"}]`,
+		`"secretKeyRef":{"key":"STAGING_TOKEN"`,
+		// Arguments, as on Docker, so the image's entrypoint still runs.
+		`"args":["postgres","-c","fsync=off"]`} {
+		if !strings.Contains(text, want) {
+			t.Errorf("pod lacks %s:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "stg-secret") {
+		t.Fatal("a test secret value is in the pod")
+	}
+	_, err := rt.Create(context.Background(), core.WorkloadSpec{Name: "it2", Image: "i",
+		Command: []string{"ok"}, Network: core.NetworkEgress, Services: spec.Services})
+	if !core.IsKind(err, core.KindInvalid) {
+		t.Fatalf("services with egress: %v", err)
+	}
+}
+
 // A pod with no network waits behind a guard until its policy is in force; one with egress
 // does not need one.
 func TestNoNetworkPodsAreGuarded(t *testing.T) {

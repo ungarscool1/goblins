@@ -260,6 +260,11 @@ type WorkloadSpec struct {
 	Labels    map[string]string
 	// Trust says what the workload may hold. The zero value is a sandbox: see WorkloadTrust.
 	Trust WorkloadTrust
+	// Services run next to the workload and end with it. Requires CapRuntimeServices.
+	Services []Service
+	// TestSecrets are credentials for test systems only, such as a staging account. Unlike
+	// Secrets, a sandbox may hold them, as the code it runs is assumed to read them.
+	TestSecrets map[string]Secret
 }
 
 // CheckWorkloadSpec rejects a spec needing capabilities rt does not advertise. All
@@ -268,7 +273,13 @@ func CheckWorkloadSpec(rt ExecutionRuntime, spec WorkloadSpec) error {
 	if err := checkTrust(spec); err != nil {
 		return err
 	}
+	if err := checkServices(spec); err != nil {
+		return err
+	}
 	var req []Capability
+	if len(spec.Services) > 0 {
+		req = append(req, CapRuntimeServices)
+	}
 	if spec.Security.Privileged {
 		req = append(req, CapRuntimePrivileged)
 	}

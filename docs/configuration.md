@@ -139,6 +139,8 @@ checks:
 | `kvm` | Needs virtualization. A runtime without it refuses, and the task blocks saying so instead of the check failing |
 | `artifacts` | Files the check leaves in the repository, up to 5 |
 | `stage` | A label for the kind of check |
+| `services` | Containers the check needs, such as a database or a mocked backend: `name`, `image`, `command`, `env`. Reachable by `name` |
+| `secrets` | Names of test secrets the provider configured, given as environment variables |
 
 **What a change cannot do to its own checks.** A manifest is read from the base commit, so editing it
 has no effect until a person merges that edit. In a manifest, `network: egress` and `kvm` are refused
@@ -156,9 +158,49 @@ edited. List everything the checks run. A trusted test suite run through an untr
 still be subverted. A real change to these files needs merging first.
 
 With `manifest_only: true` on the provider, its `checks` can be empty, and a base commit with no
-manifest blocks the task instead of checking nothing. Each check runs on its own, so a mock backend it
-needs has to start inside its `run`. Separate service containers and staging environments with test
-credentials are not supported yet.
+manifest blocks the task instead of checking nothing.
+
+### Services
+
+A check's `services` start before it and end with it, on a network only they share: on Docker, an
+internal network with the services as host names; on Kubernetes, sidecars in the check's pod, named
+through host aliases on localhost. Nothing else is reachable, so a check with services must have no
+network. Services run unprivileged, like checks: use images that run as any user, with their data
+under `/tmp`.
+
+```yaml
+checks:
+  - name: integration
+    run: "go test -tags integration ./..."
+    services:
+      - name: db
+        image: postgres:17.6-alpine
+        env: {POSTGRES_PASSWORD: test, PGDATA: /tmp/pgdata}
+      - name: aws
+        image: localstack/localstack:4.9   # an AWS-compatible mock, for SDK tests
+```
+
+### Test secrets
+
+Some suites need credentials, such as a staging account. Those are **test secrets**: the operator
+configures them on the provider, from the environment, and each check gets only those it names.
+
+```yaml
+validations:
+  checks:
+    type: command
+    options:
+      test_secrets:
+        - {name: STAGING_TOKEN, env: GOBLINS_TEST_STAGING_TOKEN}
+      checks:
+        - {name: staging, run: "./scripts/staging-smoke", network: egress, secrets: [STAGING_TOKEN]}
+```
+
+The code under test is assumed to read them, so they must never grant anything in production. Their
+values, which must be at least 4 characters long, are removed from check output before it reaches
+the ticket or the implementer. A manifest may
+name them only with `manifest_secrets: true`. They are the one kind of credential a sandbox may hold
+([ADR 0008](adr/0008-runner-and-sandbox.md)); agents and production credentials never reach a check.
 
 ## Skipping checks is an explicit choice
 

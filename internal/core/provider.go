@@ -61,6 +61,8 @@ const (
 	CapReviewWorkspace Capability = "review.workspace"
 
 	CapRuntimeVolumes Capability = "runtime.volumes"
+	// CapRuntimeServices runs service containers next to a workload, on a private network.
+	CapRuntimeServices Capability = "runtime.services"
 	// CapRuntimeVolumeList lists volumes by label, so those of finished tasks can be found.
 	CapRuntimeVolumeList     Capability = "runtime.volumes.list"
 	CapRuntimeNetworkNone    Capability = "runtime.network.none"

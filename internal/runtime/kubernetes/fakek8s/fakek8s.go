@@ -193,7 +193,8 @@ func restricted(o Object) string {
 		}
 	}
 	cs, _ := spec["containers"].([]any)
-	for _, c := range cs {
+	inits, _ := spec["initContainers"].([]any)
+	for _, c := range append(cs, inits...) {
 		sc, _ := c.(Object)["securityContext"].(Object)
 		if sc["allowPrivilegeEscalation"] != false || sc["privileged"] == true {
 			return "allowPrivilegeEscalation != false"
