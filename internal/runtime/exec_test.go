@@ -32,3 +32,16 @@ func TestWorkloadIsRemovedWhenCreateFailsAfterStarting(t *testing.T) {
 		t.Fatalf("workload left behind: %v", err)
 	}
 }
+
+func TestCombinedKeepsAMergedLogOnce(t *testing.T) {
+	for _, c := range []struct{ out, err, want string }{
+		{"a\n", "b\n", "a\nb\n"},
+		{"a\nb\n", "a\nb\n", "a\nb\n"}, // merged, kept whole by both
+		{"a\nb\n", "b\n", "a\nb\n"},    // merged, the stderr writer kept only the end
+		{"a\n", "", "a\n"},
+	} {
+		if got := runtime.Combined(c.out, c.err); got != c.want {
+			t.Errorf("runtime.Combined(%q, %q) = %q, want %q", c.out, c.err, got, c.want)
+		}
+	}
+}

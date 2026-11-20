@@ -95,15 +95,21 @@ func (e *OTLPExporter) Export(s Span) {
 	select {
 	case e.queue <- s:
 	default:
-		e.dropped.Add(1)
-		e.o.Metrics.Inc("goblins_spans_dropped_total", nil)
+		e.drop(1)
 	}
+}
+
+// drop counts lost spans, in Dropped and in the metric alike.
+func (e *OTLPExporter) drop(n int) {
+	e.dropped.Add(int64(n))
+	e.o.Metrics.Add("goblins_spans_dropped_total", float64(n), nil)
 }
 
 // Dropped is how many spans were lost to a full queue or a failed export.
 func (e *OTLPExporter) Dropped() int64 { return e.dropped.Load() }
 
-// Run sends batches until ctx ends, then sends what is left within the timeout.
+// Run sends batches until ctx ends, then sends what is left within one timeout for all of it,
+// so a stalled collector cannot hold up the exit batch after batch.
 func (e *OTLPExporter) Run(ctx context.Context) {
 	tick := time.NewTicker(e.o.Interval)
 	defer tick.Stop()
@@ -119,7 +125,9 @@ func (e *OTLPExporter) Run(ctx context.Context) {
 			e.send(context.WithoutCancel(ctx), batch)
 			batch = nil
 		case <-ctx.Done():
-			e.drain(context.WithoutCancel(ctx), batch)
+			flush, cancel := context.WithTimeout(context.WithoutCancel(ctx), e.o.Timeout)
+			e.drain(flush, batch)
+			cancel()
 			return
 		}
 	}
@@ -132,6 +140,11 @@ func (e *OTLPExporter) drain(ctx context.Context, batch []Span) {
 			batch = append(batch, s)
 		default:
 			for len(batch) > 0 {
+				if ctx.Err() != nil {
+					e.o.Log.Warn("spans left unsent at exit", "spans", len(batch))
+					e.drop(len(batch))
+					return
+				}
 				n := min(len(batch), otlpBatch)
 				e.send(ctx, batch[:n])
 				batch = batch[n:]
@@ -149,7 +162,7 @@ func (e *OTLPExporter) send(ctx context.Context, batch []Span) {
 	outcome := "ok"
 	if err != nil {
 		outcome = "error"
-		e.dropped.Add(int64(len(batch)))
+		e.drop(len(batch))
 		e.o.Log.Warn("cannot export spans", "spans", len(batch), "err", err)
 	}
 	e.o.Metrics.Inc("goblins_span_exports_total", Labels{"outcome", outcome})

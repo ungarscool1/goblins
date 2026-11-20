@@ -175,7 +175,7 @@ func (r *Runtime) ListVolumes(ctx context.Context,
 
 // Logs implements core.ExecutionRuntime. The API server merges stdout and stderr, so both
 // writers get the merged log unless split streams are enabled: nothing a caller looks for
-// in either is lost.
+// in either is lost, and callers that join them keep it once (runtime.Combined).
 func (r *Runtime) Logs(ctx context.Context, name string, follow bool, stdout,
 	stderr io.Writer) error {
 	if err := r.waitStarted(ctx, name); err != nil {

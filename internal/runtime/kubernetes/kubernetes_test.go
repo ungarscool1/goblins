@@ -10,6 +10,7 @@ import (
 
 	"github.com/ungarscool1/goblins/internal/core"
 	"github.com/ungarscool1/goblins/internal/providers/contract"
+	goruntime "github.com/ungarscool1/goblins/internal/runtime"
 	"github.com/ungarscool1/goblins/internal/runtime/kubernetes/fakek8s"
 )
 
@@ -229,6 +230,11 @@ func TestLogs(t *testing.T) {
 		if split && (strings.Contains(out.String(), "stderr") || strings.Contains(errb.String(),
 			"out\n")) {
 			t.Fatalf("streams were mixed: %q / %q", out.String(), errb.String())
+		}
+		// Joined, a merged log is there once: a caller parsing it, such as the JSON of an
+		// agent's login status, reads one document.
+		if got := goruntime.Combined(out.String(), errb.String()); strings.Count(got, "to stderr") != 1 {
+			t.Fatalf("split=%v: joined output %q", split, got)
 		}
 	}
 }
