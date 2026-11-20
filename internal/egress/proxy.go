@@ -107,6 +107,11 @@ func (p *Proxy) Allowed(host string) bool {
 
 // ServeHTTP implements http.Handler.
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// A request for the proxy itself, not through it, is a health probe.
+	if r.Method == http.MethodGet && r.URL.Host == "" && r.URL.Path == "/healthz" {
+		_, _ = io.WriteString(w, "ok\n")
+		return
+	}
 	if r.Method != http.MethodConnect {
 		// Plain HTTP would expose what is sent, and could be pointed anywhere by a Host header.
 		p.deny(w, r.Host, "only HTTPS tunnels are proxied", http.StatusMethodNotAllowed)
