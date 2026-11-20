@@ -116,7 +116,7 @@ func (m *machine) afterApproval(who string) {
 		m.t.Escalated = ""
 		m.enqueueMain(JobValidate, ValidatePayload{Stage: StagePrePR, SHA: esc}, "", 3)
 		m.moveTo(core.StateAgentReady, "design approved by "+who+" for the change at "+esc)
-		m.progress(fmt.Sprintf("Approved by @%s. Checking the change at `%s`.", who, esc))
+		m.progress(fmt.Sprintf("approved by @%s. Checking the change at `%s`.", who, esc))
 		return
 	}
 	m.t.Escalated = ""
@@ -142,6 +142,8 @@ func (m *machine) outOfScope(res ImplementResult) bool {
 	m.t.Approval, m.t.Unattended, m.t.Escalated, m.t.CurrentJob = nil, nil, res.HeadSHA, nil
 	m.t.DesignProposedAt = m.f.Now
 	m.moveTo(core.StateDesignProposed, "the change left the unattended scope: "+why)
+	// The status comment already shows: it must not go on saying the work is under way.
+	m.progress("the change left the unattended scope, and waits for a person's approval")
 	m.t.DesignCommentKey = m.comment(fmt.Sprintf("The change at `%s` left this project's "+
 		"unattended scope: %s. Nothing was published. To go on with it, approve the design: "+
 		"`%s %d`.",

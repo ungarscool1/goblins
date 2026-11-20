@@ -87,6 +87,10 @@ func TestAChangeOutsideTheScopeStopsForAPerson(t *testing.T) {
 				out.Task.Escalated != "h1" {
 				t.Fatalf("task = %+v", out.Task)
 			}
+			// The status comment, already on the ticket, says it waits for a person now.
+			if !strings.Contains(out.Task.Status.Note, "waits for a person") {
+				t.Fatalf("status note = %q", out.Task.Status.Note)
+			}
 			late := t0.Add(1)
 			ok := Decide(out.Task, comment(maintainer, "/approve-design 1", late), writeFacts(), p)
 			mustState(t, ok, core.StateAgentReady)
