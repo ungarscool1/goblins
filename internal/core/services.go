@@ -6,8 +6,10 @@ import "regexp"
 // is reachable from the workload by its name, on a network only the two share, and it ends
 // with the workload. It runs unprivileged, like the workload, and holds no secret.
 type Service struct {
-	Name      string
-	Image     string
+	Name  string
+	Image string
+	// Command, when set, is given to the image's entrypoint as its arguments, which keeps
+	// whatever the entrypoint prepares.
 	Command   []string
 	Env       map[string]string
 	Resources Resources

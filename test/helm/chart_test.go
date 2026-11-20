@@ -160,7 +160,8 @@ func TestChartRefusesUnsafeShapes(t *testing.T) {
 		t.Skip("helm is not installed")
 	}
 	for _, args := range [][]string{{"--set", "replicas=2"},
-		{"--set", "storage.driver=postgres"}} {
+		{"--set", "storage.driver=postgres"},
+		{"--set", "egressProxy.enabled=true,workloads.networkPolicies=false"}} {
 		cmd := exec.Command("helm", append([]string{"template", "g", "../../deploy/helm/goblins"},
 			args...)...)
 		if out, err := cmd.CombinedOutput(); err == nil {
