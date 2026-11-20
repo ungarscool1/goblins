@@ -42,11 +42,14 @@ type Stage struct {
 
 // Project holds a project's resolved providers.
 type Project struct {
-	ID          string
-	Repo        core.RepoRef
-	BaseBranch  string
-	Tracker     core.IssueTracker
-	SCM         core.SourceControl
+	ID         string
+	Repo       core.RepoRef
+	BaseBranch string
+	Tracker    core.IssueTracker
+	SCM        core.SourceControl
+	// Reviewers says what access people on the pull request have. It is the SCM when it can
+	// say, as their accounts are the SCM's; otherwise the tracker.
+	Reviewers   core.PermissionSource
 	Planner     Stage
 	Implementer Stage
 	// Describer writes pull request descriptions from their diff. Without an agent, a

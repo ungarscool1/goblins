@@ -117,7 +117,7 @@ func (w *world) restart() { w.boot() }
 type tracker struct{ w *world }
 
 func (a tracker) Permission(ctx context.Context, _ string, s core.Subject, actor core.Actor) (core.Permission, error) {
-	return a.w.project.Tracker.ActorPermission(ctx, core.IssueRef{Container: s.Container, ExternalID: s.ExternalID}, actor)
+	return a.w.project.Permission(ctx, s, actor)
 }
 
 func (w *world) subject() core.Subject {

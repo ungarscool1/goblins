@@ -104,18 +104,21 @@ type ProviderSet map[string]Provider
 
 // Project binds one unit of work to its provider instances.
 type Project struct {
-	ID           string          `yaml:"id"`
-	Tracker      string          `yaml:"tracker"`
-	SCM          string          `yaml:"scm"`
-	EventSource  []string        `yaml:"event_sources,omitempty"`
-	Repository   string          `yaml:"repository"`
-	BaseBranch   string          `yaml:"base_branch,omitempty"`
-	Validation   string          `yaml:"validation,omitempty"`
-	Review       string          `yaml:"review,omitempty"`
-	Notification string          `yaml:"notification,omitempty"`
-	Stages       Stages          `yaml:"stages"`
-	Policy       Policy          `yaml:"policy,omitempty"`
-	Workspace    WorkspaceConfig `yaml:"workspace,omitempty"`
+	ID          string   `yaml:"id"`
+	Tracker     string   `yaml:"tracker"`
+	SCM         string   `yaml:"scm"`
+	EventSource []string `yaml:"event_sources,omitempty"`
+	Repository  string   `yaml:"repository"`
+	// TrackerContainer is where the tracker keeps this project's tickets, such as a Jira
+	// project key, when that is not the repository.
+	TrackerContainer string          `yaml:"tracker_container,omitempty"`
+	BaseBranch       string          `yaml:"base_branch,omitempty"`
+	Validation       string          `yaml:"validation,omitempty"`
+	Review           string          `yaml:"review,omitempty"`
+	Notification     string          `yaml:"notification,omitempty"`
+	Stages           Stages          `yaml:"stages"`
+	Policy           Policy          `yaml:"policy,omitempty"`
+	Workspace        WorkspaceConfig `yaml:"workspace,omitempty"`
 	// Communication lays out designs for people. It never changes what is approved.
 	Communication Communication `yaml:"communication,omitempty"`
 	// PollInterval enables reconciliation polling on the project's event sources.

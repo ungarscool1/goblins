@@ -38,7 +38,11 @@ func (p *Pipeline) reconcile(ctx context.Context, jc scheduler.JobContext) (any,
 	if !pull.Open {
 		return res, nil
 	}
-	perms := permissionCache{p: pr, ref: issueRef(jc.Task), known: map[string]core.Permission{}}
+	perms := permissionCache{p: pr, src: pr.Reviewers, known: map[string]core.Permission{},
+		ref: core.IssueRef{Container: pr.Repo.Slug, ExternalID: number}}
+	if perms.src == nil {
+		perms.src, perms.ref = pr.Tracker, issueRef(jc.Task)
+	}
 	if res.Reviews, err = p.reviewsWithPermission(ctx, pr, number, &perms); err != nil {
 		return nil, err
 	}
@@ -91,8 +95,20 @@ func (p *Pipeline) protection(ctx context.Context, jc scheduler.JobContext, pr *
 	return &bp
 }
 
+// Permission says what access someone has where they spoke: on a pull request, as the SCM
+// knows them when it can say, since a tracker on another system knows them by other names.
+func (pr *Project) Permission(ctx context.Context, s core.Subject,
+	a core.Actor) (core.Permission, error) {
+	ref := core.IssueRef{Container: s.Container, ExternalID: s.ExternalID}
+	if s.Kind == core.SubjectPullRequest && pr.Reviewers != nil {
+		return pr.Reviewers.ActorPermission(ctx, ref, a)
+	}
+	return pr.Tracker.ActorPermission(ctx, ref, a)
+}
+
 type permissionCache struct {
 	p     *Project
+	src   core.PermissionSource
 	ref   core.IssueRef
 	known map[string]core.Permission
 }
@@ -103,7 +119,7 @@ func (c *permissionCache) of(ctx context.Context, a core.Actor) (core.Permission
 	if perm, ok := c.known[a.Login]; ok {
 		return perm, nil
 	}
-	perm, err := c.p.Tracker.ActorPermission(ctx, c.ref, a)
+	perm, err := c.src.ActorPermission(ctx, c.ref, a)
 	if core.IsKind(err, core.KindTransient) || core.IsKind(err, core.KindCancelled) {
 		return core.PermissionNone, err
 	}

@@ -34,6 +34,11 @@ Provider instances are declared per kind under a name of your choice, and
 projects refer to them by name, so trackers, source control, agents and runtimes
 can be combined freely. See [`configs/example.yaml`](../configs/example.yaml).
 
+When the tracker keeps tickets somewhere other than the repository, such as a Jira project, name
+it with `tracker_container` on the project. Event sources that list what they serve, such as
+GitHub's `repositories` or Jira's `projects`, are only routed and polled for those. See
+[jira.md](jira.md).
+
 ## Operator console
 
 `console` turns on the web console and its API, on a port of their own, with a token per

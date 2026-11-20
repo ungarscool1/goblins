@@ -7,6 +7,12 @@ import (
 )
 
 // IssueTracker is a system of record for work items and their conversation.
+// PermissionSource says what access someone has. An SCM offers it for the people on its pull
+// requests, whose accounts are its own: a tracker on another system knows them by other names.
+type PermissionSource interface {
+	ActorPermission(ctx context.Context, ref IssueRef, actor Actor) (Permission, error)
+}
+
 type IssueTracker interface {
 	Provider
 	GetIssue(ctx context.Context, ref IssueRef) (Issue, error)
@@ -29,6 +35,19 @@ type IssueTracker interface {
 	// Transition moves the item to a tracker-specific status. Requires
 	// CapTrackerTransitions.
 	Transition(ctx context.Context, ref IssueRef, status string) error
+}
+
+// ContainerScoped is implemented by adapters that serve an allow-list of containers, such as
+// repositories or tracker projects. Routing asks it, so a source is only polled for what it
+// serves.
+type ContainerScoped interface {
+	Serves(container string) bool
+}
+
+// AgentBoundary is implemented by trackers whose data may only reach some agents: a work
+// tracker whose tickets must not go to a personal account. An empty list allows any.
+type AgentBoundary interface {
+	AllowedAgents() []string
 }
 
 // SourceControl hosts repositories. It is separate from IssueTracker because
