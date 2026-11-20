@@ -14,7 +14,7 @@ import (
 // anything runs, so the list is complete from the first workload.
 func guardedRuntime(b *builder, cfg config.Config, name string,
 	agent core.AgentProvider) (core.ExecutionRuntime, error) {
-	if h, ok := agent.(core.CredentialHolder); ok {
+	if h, ok := unwrapAgent(agent).(core.CredentialHolder); ok {
 		b.creds.Add(h.CredentialVolumes()...)
 	}
 	if g, ok := b.guarded[name]; ok {
@@ -35,7 +35,7 @@ func checkTools(s config.Stage, agent core.AgentProvider) error {
 	if len(s.Tools) == 0 {
 		return nil
 	}
-	cat, ok := agent.(core.ToolCatalog)
+	cat, ok := unwrapAgent(agent).(core.ToolCatalog)
 	if !ok || !agent.Info().Has(core.CapAgentTools) {
 		return core.Unsupported(agent.Info(), core.CapAgentTools)
 	}
