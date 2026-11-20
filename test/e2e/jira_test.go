@@ -41,7 +41,8 @@ func TestJiraTicketToDraftPullRequest(t *testing.T) {
 	if len(e.gh.PullRequests(repo)) != 1 {
 		t.Fatal("no draft pull request on the forge")
 	}
-	if !strings.Contains(lastComment(site, issue.Key), "Status report") {
+	// The report names the pull request, whatever form it takes.
+	if !strings.Contains(lastComment(site, issue.Key), done.PullRequest.URL) {
 		t.Fatalf("no report on Jira:\n%s", lastComment(site, issue.Key))
 	}
 }
