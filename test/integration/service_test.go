@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -86,13 +87,31 @@ func TestMockServiceLifecycle(t *testing.T) {
 	}
 }
 
+// logBuffer collects a service's output, which its process writes while the test reads it.
+type logBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *logBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *logBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
 type service struct {
 	t    *testing.T
 	bin  string
 	addr string
 	data string
 	cmd  *exec.Cmd
-	logs *strings.Builder
+	logs *logBuffer
 	// extra is more environment, such as the console's address.
 	extra []string
 }
@@ -104,7 +123,7 @@ func (s *service) env() []string {
 
 func (s *service) start() {
 	s.t.Helper()
-	s.logs = &strings.Builder{}
+	s.logs = &logBuffer{}
 	s.cmd = exec.Command(s.bin, "serve", "--mock")
 	s.cmd.Stderr = s.logs
 	s.cmd.Env = s.env()
@@ -123,6 +142,9 @@ func (s *service) start() {
 
 func (s *service) stop() {
 	s.t.Helper()
+	if s.cmd.ProcessState != nil {
+		return // already ended, as by eventually's goroutine dump
+	}
 	if err := s.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		s.t.Fatal(err)
 	}
@@ -136,10 +158,26 @@ func (s *service) eventually(cond func() bool) {
 	deadline := time.Now().Add(20 * time.Second)
 	for !cond() {
 		if time.Now().After(deadline) {
-			s.t.Fatalf("condition not met; logs:\n%s", s.logs)
+			s.t.Fatalf("condition not met; logs:\n%s", s.dump())
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// dump ends a service that seems stuck with SIGQUIT, so that its logs end with where every
+// goroutine was waiting. A hang seen only in CI then says where it is.
+func (s *service) dump() string {
+	if s.cmd == nil || s.cmd.Process == nil || s.cmd.ProcessState != nil {
+		return s.logs.String()
+	}
+	_ = s.cmd.Process.Signal(syscall.SIGQUIT)
+	done := make(chan struct{})
+	go func() { _ = s.cmd.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+	}
+	return s.logs.String()
 }
 
 func (s *service) post(path, body string) map[string]any {
