@@ -50,7 +50,7 @@ func (p *Pipeline) reconcile(ctx context.Context, jc scheduler.JobContext) (any,
 	if res.Findings, err = threadFindings(ctx, threads, head, &perms); err != nil {
 		return nil, err
 	}
-	reviewFs, err := reviewFindings(ctx, res.Reviews, res.Findings, head, &perms)
+	reviewFs, err := reviewFindings(ctx, res.Reviews, threads, head, &perms)
 	if err != nil {
 		return nil, err
 	}
@@ -200,9 +200,10 @@ func appendDiscussion(d []core.DiscussionEntry, e core.DiscussionEntry) []core.D
 
 // reviewFindings turns a change request into a finding. A review on an earlier commit is stale
 // as a finding, while the verdict itself keeps standing until cleared. One with no text at all
-// and no remarks by its author is still a real gate: it becomes a finding with an empty body,
-// which the workflow answers by asking what is wanted.
-func reviewFindings(ctx context.Context, reviews []core.Review, threads []core.ReviewFinding,
+// and no remarks of its own is still a real gate: it becomes a finding with an empty body,
+// which the workflow answers by asking what is wanted. Only remarks submitted with that very
+// review count: an earlier thread by the same person says nothing about a later request.
+func reviewFindings(ctx context.Context, reviews []core.Review, threads []core.ReviewThread,
 	head string, perms *permissionCache) ([]core.ReviewFinding, error) {
 	var out []core.ReviewFinding
 	for _, r := range reviews {
@@ -213,8 +214,9 @@ func reviewFindings(ctx context.Context, reviews []core.Review, threads []core.R
 		if r.Own || !ok || r.Verdict != core.VerdictChangesRequested {
 			continue
 		}
-		spoke := slices.ContainsFunc(threads,
-			func(f core.ReviewFinding) bool { return f.Author.Login == r.Author.Login })
+		spoke := slices.ContainsFunc(threads, func(t core.ReviewThread) bool {
+			return t.ReviewID == r.ID && t.Author.Login == r.Author.Login
+		})
 		if r.Body == "" && spoke {
 			continue
 		}

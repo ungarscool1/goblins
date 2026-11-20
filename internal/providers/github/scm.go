@@ -209,6 +209,7 @@ func (s *SCM) ReviewThreads(ctx context.Context, repo core.RepoRef, number strin
 				Body      string `json:"body"`
 				User      user   `json:"user"`
 				Commit    string `json:"commit_id"`
+				Review    int64  `json:"pull_request_review_id"`
 			}
 			if err := json.Unmarshal(raw, &c); err != nil {
 				return core.Wrap(core.KindTransient, "github.threads", err)
@@ -219,6 +220,9 @@ func (s *SCM) ReviewThreads(ctx context.Context, repo core.RepoRef, number strin
 				Body:     c.Body, Author: actorOf(c.User), CommitSHA: c.Commit}
 			if c.Line != nil {
 				t.Line = *c.Line
+			}
+			if c.Review != 0 {
+				t.ReviewID = strconv.FormatInt(c.Review, 10)
 			}
 			t.Own = t.Author.Type == core.ActorBot && t.Author.Login == own
 			t.ThreadID = strconv.FormatInt(cmp.Or(c.InReplyTo, c.ID), 10)

@@ -308,6 +308,8 @@ type ReviewThread struct {
 	ThreadID string `json:"thread_id,omitempty"`
 	// CommitSHA is the commit the remark was written on.
 	CommitSHA string `json:"commit_sha,omitempty"`
+	// ReviewID is the review the remark was submitted with, when the SCM says.
+	ReviewID string `json:"review_id,omitempty"`
 	// Outdated means the lines it was about no longer exist at the head.
 	Outdated bool `json:"outdated,omitempty"`
 	// Own is set on those this integration itself posted.
