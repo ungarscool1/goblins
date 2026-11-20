@@ -128,7 +128,7 @@ func TestSummaryCannotSplitTheDesign(t *testing.T) {
 	if !strings.HasPrefix(sections, "### Scope\n\nLet the user edit") {
 		t.Errorf("sections start with %.60q", sections)
 	}
-	for _, want := range []string{`\### Scope`, "- one\n- two", `\---`} {
+	for _, want := range []string{`\### Scope`, "**Approach:**\n\n- one\n- two", `\---`} {
 		if !strings.Contains(summary, want) {
 			t.Errorf("summary lacks %q:\n%s", want, summary)
 		}
