@@ -46,7 +46,7 @@ func TestNoisyRunStaysQuiet(t *testing.T) {
 
 	// A change request: one inline remark, and a summary that says nothing more.
 	th := w.w.AddThread(repo, number, core.ReviewThread{Path: "a.go", Line: 3,
-		Body: "this panics on empty input", Author: alice, CommitSHA: first})
+		Body: "this panics on empty input", Author: alice, CommitSHA: first, ReviewID: "r1"})
 	w.w.SubmitReview(repo, number, core.Review{ID: "r1", Author: alice, CommitSHA: first,
 		Verdict: core.VerdictChangesRequested, Body: "One small change.",
 		Permission: core.PermissionWrite})
@@ -146,4 +146,34 @@ func (w *world) statusComment() core.Comment {
 	}
 	w.t.Fatalf("no status comment in:\n%s", w.posted())
 	return core.Comment{}
+}
+
+// A change request with no remarks of its own is not a summary, even when its author left inline
+// remarks in an earlier round: an unclear one is asked about, not set aside.
+func TestEarlierRemarksDoNotMakeALaterRequestASummary(t *testing.T) {
+	w, number := live(t)
+	w.policy.SkipReviewTriage = false
+	w.restart()
+	head := w.w.PullRequests()[0].HeadSHA
+	w.w.AddThread(repo, number, core.ReviewThread{Path: "a.go", Line: 3, Body: "nit: rename",
+		Author: alice, CommitSHA: head, ReviewID: "r0", Resolved: true})
+	w.w.SubmitReview(repo, number, core.Review{ID: "r1", Author: alice, CommitSHA: head,
+		Verdict: core.VerdictChangesRequested, Body: "Not like this.",
+		Permission: core.PermissionWrite})
+	w.impl.Script(fake.AgentStep{Output: triageOutput(
+		workflow.TriageItem{ID: "review:r1", Decision: workflow.TriageUnclear,
+			Reply: "What would you rather see?"},
+	)})
+	w.advance(time.Minute)
+	w.pr(number, core.Event{Type: core.EventPRReviewed, DedupKey: "r1", Actor: alice,
+		Verdict: core.VerdictChangesRequested, OccurredAt: w.clock()})
+	if f := w.finding("review:r1"); f.Summary {
+		t.Fatalf("taken for a summary: %+v", f)
+	}
+	got := w.w.PullRequestComments(repo, number)
+	if !slices.ContainsFunc(got, func(c string) bool {
+		return strings.Contains(c, "What would you rather see?")
+	}) {
+		t.Fatalf("the reviewer was not asked; top-level comments: %q", got)
+	}
 }
