@@ -33,13 +33,6 @@ func RenderQuestions(qs []string) string {
 	return b.String()
 }
 
-// RenderDesign formats a design revision with its approval instruction.
-func RenderDesign(rev int, hash, body, approveCmd string) string {
-	return fmt.Sprintf("## Proposed design, revision %d\n\n%s\n\n---\nTo approve this exact revision, comment `%s %d` (design hash `%s`). "+
-		"Any other comment from a maintainer asks for a revision. Nothing is implemented before approval.",
-		rev, strings.TrimSpace(body), approveCmd, rev, hash[:12])
-}
-
 // RenderFailure formats failed checks for the next implementation round. The
 // content is repository output: it is passed on as data, never interpreted.
 func RenderFailure(rep core.ValidationReport) string {
@@ -146,26 +139,6 @@ func prLink(pr core.PullRequest) string {
 		return pr.URL
 	}
 	return "#" + pr.Number
-}
-
-// RenderReport formats the final status report for the ticket.
-func RenderReport(t *core.Task, rep core.ValidationReport) string {
-	var b strings.Builder
-	b.WriteString("## Status report\n\n")
-	if t.PullRequest != nil {
-		fmt.Fprintf(&b, "- Pull request: %s (not merged, it awaits your review)\n", prLink(*t.PullRequest))
-	}
-	if t.HeadSHA != "" {
-		fmt.Fprintf(&b, "- Commit: `%s`\n", t.HeadSHA)
-	}
-	if t.Approval != nil {
-		fmt.Fprintf(&b, "- Design: revision %d, approved by @%s\n", t.Approval.Revision, t.Approval.Approver.Login)
-	}
-	fmt.Fprintf(&b, "- Validation: %s. %s\n", rep.Status, rep.Summary)
-	for _, c := range rep.Checks {
-		fmt.Fprintf(&b, "  - %s\n", checkLine(c))
-	}
-	return b.String()
 }
 
 // RenderTriagedFeedback gives the implementer what was judged valid, with the plan and the
